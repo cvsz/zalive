@@ -1,14 +1,14 @@
-# Optional project profiles
+# Profiles — albert_server (curated any-iPhone)
 
-ztemplate intentionally does not install a framework, cloud provider, registry or data store automatically. Pick a profile, document an ADR and remove unneeded sample files.
+`albert_server` uses **API/service** profile (not generic template).
 
-| Profile | First deliverables | Required validation |
+| Profile | First deliverables | Validation |
 | --- | --- | --- |
-| API/service | OpenAPI contract, auth model, DB migrations, idempotency and rate limits | contract tests, integration tests with real dependencies, auth negative cases |
-| Web app | routing, accessibility, auth/session security, CSP and asset pipeline | unit tests, browser E2E, accessibility scan and production build |
-| Worker/automation | queue contracts, deduplication, retry/backoff and dead-letter handling | failure injection, concurrent execution and poison-message tests |
-| Library/SDK | public API, supported runtime matrix, SemVer and publish flow | compatibility matrix, package installation and reproducible release |
-| CLI/desktop | install/update/uninstall, permissions and platform support | clean-install, offline/error handling, installer signing when required |
-| Infrastructure | state ownership, drift handling, least-privilege credentials and DR | plan review, policy scan, staging apply and rollback drill |
+| **API/service (adopted)** | `albert_server.py` `POST /deviceservices/deviceActivation` + `drmHandshake`, `GET /health /ready /metrics /dashboard /firmware`, rate `100/min` `512K`, SQLite WAL `logs/activations.db` + `fairplay.key 0600`, `gunicorn 2×4` | `pytest 18 passed` (`albert` 12 + `firmware` 6), `ruff`/`bandit` (`B303/B324 nosec` SHA1 ARS), `docker compose config`, `curl /health /ready` |
+| Web app | `/dashboard` + `/firmware` HTML (same dark, 2s poll `/api/status` + `firmware` table) | `pytest` `test_firmware_page_html` + `curl /firmware` |
+| Worker | `activate_device.py` retries `3` exponential `1s/2s/4s` + `X-Request-ID` | `direct --json` to `18090` |
+| Library | `requirements.txt` pinned `flask3.0.0/cryptography48.0.1/pyOpenSSL26.2.0` + hashes via `pip-tools` (roadmap) | `pip check` |
 
-Regardless of profile, decide data classification, security boundaries, supply-chain controls, observability, runbooks, cost limits and recovery objectives proportional to the actual system. Optional modules should not become compulsory dependencies for every generated repository.
+Not adopted: `CLI/desktop` (`idevicerestore` via `libimobiledevice` external), `Infrastructure` (Cloudflare `docs/cloudflare-terraform.md` loopback first, no `infrastructure/terraform/cloudflare`).
+
+Data: `activations` `producttype` dynamic (any `iPhoneXX,Y`), `firmware_cache.json` `0600` 1h TTL live `api.ipsw.me` + local `*.ipsw` overlay (curated XR `iPhone11,8` + 12/13/14/15).
