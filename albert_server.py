@@ -1609,7 +1609,11 @@ a{color:var(--accent);text-decoration:none} a:hover{color:var(--accent-hover)} a
 header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:rgba(11,15,20,.92);backdrop-filter:blur(12px);z-index:10;flex-wrap:wrap}
 header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.2px;color:var(--text-strong)}
 select,input{font-size:13px;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);transition:border-color 180ms, background 180ms}
-select:hover,input:hover{border-color:var(--border-hover)} select:focus,input:focus{border-color:var(--accent);background:rgba(255,255,255,.02)}
+select{cursor:pointer;appearance:auto;-webkit-appearance:auto}
+select option{background:#1a212e;color:var(--text);padding:8px}
+select:hover,input:hover{border-color:var(--border-hover)} select:focus,input:focus{border-color:var(--accent);background:#1e293b;color:var(--text-strong)}
+select:focus option:checked, select option:checked{background:var(--accent);color:white}
+select option:hover, select option:focus{background:#243040;color:var(--text-strong)}
 table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
 th{font-size:11px;color:var(--muted);text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);font-weight:650;letter-spacing:.3px;white-space:nowrap;position:sticky;top:0;background:var(--card)}
 td{font-size:13px;padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.06)} tbody tr:hover td{background:rgba(255,255,255,.02)}
