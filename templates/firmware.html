@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="alternate icon" type="image/png" href="/static/zalive-icon.svg">
+<title>zAlive — Albert — Firmware</title>
+<style>
+:root{--bg:#0b0f14;--card:#151a21;--card-hover:#1c2330;--border:#232b36;--border-hover:#2d3a4b;--accent:#3b82f6;--accent-hover:#2563eb;--accent-soft:rgba(59,130,246,.12);--ok:#16a34a;--ok-soft:rgba(22,163,74,.12);--warn:#eab308;--bad:#dc2626;--bad-soft:rgba(220,38,38,.12);--text:#e5e7eb;--text-strong:#f1f5f9;--muted:#94a3b8;--radius:14px;--radius-sm:10px;--radius-pill:999px;--shadow:0 8px 32px rgba(0,0,0,.45);--transition:180ms cubic-bezier(.2,.8,.2,1);}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:-apple-system,Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none} a:hover{color:var(--accent-hover)} a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;top:-40px;left:12px;background:var(--card);color:var(--text);padding:8px 14px;border-radius:10px;border:1px solid var(--border);z-index:100;font-size:13px;font-weight:600} .skip:focus{top:12px}
+header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:rgba(11,15,20,.92);backdrop-filter:blur(12px);z-index:10;flex-wrap:wrap}
+header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.2px;color:var(--text-strong)}
+select,input{font-size:13px;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);transition:border-color 180ms, background 180ms}
+select{cursor:pointer;appearance:auto;-webkit-appearance:auto}
+select option{background:#1a212e;color:var(--text);padding:8px}
+select:hover,input:hover{border-color:var(--border-hover)} select:focus,input:focus{border-color:var(--accent);background:#1e293b;color:var(--text-strong)}
+select:focus option:checked, select option:checked{background:var(--accent);color:white}
+select option:hover, select option:focus{background:#243040;color:var(--text-strong)}
+table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
+th{font-size:11px;color:var(--muted);text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);font-weight:650;letter-spacing:.3px;white-space:nowrap;position:sticky;top:0;background:var(--card)}
+td{font-size:13px;padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.06)} tbody tr:hover td{background:rgba(255,255,255,.02)}
+.badge{display:inline-flex;align-items:center;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);font-weight:600}
+.badge.ok{background:var(--ok-soft);color:var(--ok);border-color:rgba(22,163,74,.25)} .badge.bad{background:var(--bad-soft);color:var(--bad);border-color:rgba(220,38,38,.25)}
+.badge.warn{background:rgba(234,179,8,.12);color:var(--warn);border-color:rgba(234,179,8,.25)}
+.mono{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin:16px;box-shadow:0 8px 32px rgba(0,0,0,.45)}
+.empty{padding:20px;text-align:center;color:var(--muted);border:1px dashed var(--border);border-radius:10px;background:rgba(255,255,255,.01)}
+.skeleton{background:linear-gradient(90deg, var(--card) 25%, var(--border) 50%, var(--card) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px;height:14px}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+</style>
+</head>
+<body>
+<a href="#main" class="skip">Skip to content</a>
+<header role="banner">
+  <a href="/dashboard" style="display:flex;align-items:center;gap:8px;text-decoration:none" aria-label="zAlive home">
+    <img src="/static/zalive-logo.svg" alt="zAlive" style="height:26px;width:auto;display:block" loading="eager" decoding="async">
+  </a>
+  <div style="min-width:0">
+    <h1>Albert — Firmware <span style="color:var(--muted);font-weight:400">· curated 5→15 Pro (13) · ipsw.me live cache 1h</span></h1>
+    <nav aria-label="Breadcrumb" style="font-size:11.5px;color:var(--muted);margin-top:2px"><a href="/" style="color:var(--muted)">Home</a> › <a href="/dashboard" style="color:var(--muted)">Dashboard</a> › <span aria-current="page" style="color:var(--text)">Firmware</span> · <a href="/admin" style="color:var(--accent)">Admin</a></nav>
+  </div>
+  <select id="product" aria-label="Device model" style="margin-left:auto"></select>
+  <input id="q" placeholder="Search version / build" aria-label="Search version or build" style="min-width:180px">
+  <span id="status" style="color:var(--muted);font-size:12px" role="status" aria-live="polite"></span>
+  <a href="/dashboard" style="margin-left:8px;font-size:13px;font-weight:600">← Dashboard</a>
+</header>
+<main id="main" role="main">
+<div class="card">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+    <span class="badge ok" aria-hidden="true">✓ curated 13</span>
+    <span style="font-size:12px;color:var(--muted)">Any iPhone 5 → 15 Pro · live <a href="https://api.ipsw.me" target="_blank" rel="noopener">ipsw.me</a> + local <code>*.ipsw</code></span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">Tip: type “18.7” or “22H374” to filter</span>
+  </div>
+  <div id="banner" style="display:none;padding:10px 12px;border-radius:10px;margin-bottom:10px;font-size:13px" role="alert"></div>
+  <div style="overflow:auto;max-height:72vh;border:1px solid var(--border);border-radius:10px">
+    <table role="table" aria-label="Firmware list"><thead><tr><th>Version</th><th>Build</th><th>Released</th><th>Size</th><th>Signed</th><th>Local</th><th>Download</th></tr></thead><tbody id="tbody"><tr><td colspan=7><span class="skeleton" style="width:100%;display:block"></span></td></tr></tbody></table>
+  </div>
+  <div class="mono" style="color:var(--muted);margin-top:10px;font-size:11px">Source: <a href="https://api.ipsw.me/v4/device/iPhone11,8" target="_blank" rel="noopener">api.ipsw.me</a> + local scan <code>*.ipsw</code> · <code>/api/firmwares?productType=iPhone11,8</code> · <code>/api/devices</code></div>
+</div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+async function loadDevices(){
+  const r=await fetch('/api/devices'); const j=await r.json();
+  const sel=$('product');
+  sel.innerHTML='';
+  j.devices.forEach(d=>{
+    const o=document.createElement('option');
+    o.value=d.identifier; o.textContent=d.name+' ('+d.identifier+') '+d.chip;
+    sel.appendChild(o);
+  });
+  sel.value='iPhone11,8';
+}
+function formatSize(b){
+  if(!b) return '-';
+  const gb=(b/1e9).toFixed(1);
+  return gb+' GB';
+}
+async function loadFw(){
+  const pt=$('product').value;
+  const q=$('q').value.toLowerCase();
+  $('status').textContent='loading…';
+  try{
+    const r=await fetch('/api/firmwares?productType='+encodeURIComponent(pt));
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.error||'error');
+    const banner=$('banner');
+    if(j.stale) { banner.style.display='block'; banner.style.background='rgba(234,179,8,.15)'; banner.style.border='1px solid rgba(234,179,8,.3)'; banner.textContent='Stale cache — upstream unavailable (showing last cached).'; }
+    else if(j.cached) { banner.style.display='block'; banner.style.background='rgba(59,130,246,.15)'; banner.style.border='1px solid rgba(59,130,246,.3)'; banner.textContent='Cached 1h — live fetch skipped.'; }
+    else banner.style.display='none';
+    const list=(j.firmwares||[]).filter(f=> !q || (f.version||'').toLowerCase().includes(q) || (f.buildid||'').toLowerCase().includes(q));
+    const tbody=$('tbody');
+    tbody.innerHTML='';
+    if(!list.length) tbody.innerHTML='<tr><td colspan=7 style="color:var(--muted)">no matches</td></tr>';
+    list.forEach(f=>{
+      const signed = f.signed ? '<span class="badge ok">✓ signed</span>' : '<span class="badge bad">✗ unsigned</span>';
+      const local = (j.local||[]).some(n=> n.includes(f.buildid)|| n.includes(f.version)) ? '✅' : '';
+      const tr=document.createElement('tr');
+      tr.innerHTML='<td>'+f.version+'</td><td class="mono">'+f.buildid+'</td><td>'+(f.releasedate||'').slice(0,10)+'</td><td>'+formatSize(f.filesize)+'</td><td>'+signed+'</td><td>'+local+'</td><td>'+(f.url?'<a href="'+f.url+'" target="_blank">⬇</a>':'-')+'</td>';
+      tbody.appendChild(tr);
+    });
+    $('status').textContent = list.length+' firmwares · '+ (j.stale?'stale':'live') + (j.cached?' cached':'');
+  } catch(e){
+    $('status').textContent='error: '+e.message;
+    $('tbody').innerHTML='<tr><td colspan=7 style="color:var(--bad)">'+e.message+'</td></tr>';
+  }
+}
+(async()=>{
+  await loadDevices();
+  await loadFw();
+  $('product').addEventListener('change', loadFw);
+  $('q').addEventListener('input', loadFw);
+})();
+</script>
+</body>
+</html>
