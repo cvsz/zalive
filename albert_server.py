@@ -1413,11 +1413,165 @@ def ready():
             payload["mtls_warning"] = "ALBERT_MTLS_CA not set — proxy→Albert mTLS disabled"
     except Exception:
         pass
+    # HTML template for browser (AdminLTE 4), JSON for API
+    wants_html = "text/html" in (request.headers.get("Accept") or "")
+    if wants_html and not request.args.get("format") == "json":
+        ok_badge = "bg-success" if ok else "bg-danger"
+        ok_icon = "✓ ready" if ok else "✗ not-ready"
+        exp_msg = f"NotAfter {not_after_iso[:10]} · {days_until_expiry}d" if not_after_iso else "—"
+        warn_html = f"<div class=\"alert alert-warning mt-2\">{warning}</div>" if expiry_warning and warning else ""
+        mtls_html = f"<div class=\"mono small text-secondary\">mTLS enabled · CA={mtls_ca}</div>" if mtls_ca else "<div class=\"mono small text-warning\">mTLS disabled — proxy→Albert unauthenticated</div>"
+        html = f"""<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>zAlive — Ready — {'✓ ready' if ok else '✗ not-ready'}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/css/adminlte.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<style>:root{{--zalive-card:#151a21;--zalive-border:#232b36}} .app-wrapper{{min-height:100vh;background:#0b0f14}} .app-header{{border-bottom:1px solid var(--zalive-border)}} .app-sidebar{{background:#0f141b;border-right:1px solid var(--zalive-border)}} .card{{border:1px solid var(--zalive-border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.45)}} .mono{{font-family:ui-monospace,monospace}}</style>
+</head>
+<body class="layout-fixed-complete">
+<div class="app-wrapper">
+<nav class="app-header navbar navbar-expand bg-body"><div class="container-fluid">
+<ul class="navbar-nav"><li class="nav-item"><a class="nav-link" data-lte-toggle="sidebar" href="#"><i class="bi bi-list"></i></a></li><li class="nav-item"><a href="/dashboard" class="nav-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:22px"></a></li></ul>
+<ul class="navbar-nav ms-auto"><li class="nav-item"><span class="badge {ok_badge}">{ok_icon}</span></li><li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li><li class="nav-item"><a class="nav-link" href="/ready?format=json">JSON</a></li></ul>
+</div></nav>
+<aside class="app-sidebar sidebar-dark"><div class="sidebar-brand"><a href="/dashboard" class="brand-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px"><span class="brand-text fw-light ms-2">zAlive Albert</span></a></div>
+<div class="sidebar-wrapper"><nav class="mt-2"><ul class="nav sidebar-menu flex-column">
+<li class="nav-item"><a href="/dashboard" class="nav-link"><i class="nav-icon bi bi-speedometer2"></i><p>Dashboard</p></a></li>
+<li class="nav-item"><a href="/firmware" class="nav-link"><i class="nav-icon bi bi-hdd-stack"></i><p>Firmware</p></a></li>
+<li class="nav-item"><a href="/admin" class="nav-link"><i class="nav-icon bi bi-shield-lock"></i><p>Admin</p></a></li>
+<li class="nav-item"><a href="/health" class="nav-link"><i class="nav-icon bi bi-heart-pulse"></i><p>Health</p></a></li>
+<li class="nav-item"><a href="/ready" class="nav-link active"><i class="nav-icon bi bi-check-circle"></i><p>Ready</p></a></li>
+<li class="nav-item"><a href="/metrics" class="nav-link"><i class="nav-icon bi bi-graph-up"></i><p>Metrics</p></a></li>
+<li class="nav-item"><a href="/api/validate" class="nav-link"><i class="nav-icon bi bi-check2-square"></i><p>Validate</p></a></li>
+</ul></nav></div>
+</aside>
+<main class="app-main"><div class="app-content-header"><div class="container-fluid">
+<div class="row"><div class="col-sm-6"><h3 class="mb-0">Ready <small class="text-secondary">· {ok_icon}</small></h3><small class="text-secondary">Template: AdminLTE 4 (dashboard-template #1) · FairPlay + NotAfter + mTLS</small></div><div class="col-sm-6"><ol class="breadcrumb float-sm-end"><li class="breadcrumb-item"><a href="/">Home</a></li><li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li><li class="breadcrumb-item active">Ready</li></ol></div></div>
+</div></div>
+<div class="app-content"><div class="container-fluid">
+<div class="row g-3">
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">FairPlay</h3><span class="badge {ok_badge} float-end">{ok_icon}</span></div><div class="card-body"><div class="mono small">loaded={str(ok).lower()} · {exp_msg}</div>{warn_html}<div class="mono small text-secondary mt-1">key {FAIRPLAY_KEY_PATH} · cert {FAIRPLAY_CERT_PATH}</div></div></div></div>
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">mTLS</h3></div><div class="card-body"><div class="mono small">{mtls_html}</div><div class="mono small text-secondary">ALBERT_MTLS_CA={mtls_ca or 'not set'}</div></div></div></div>
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Status</h3></div><div class="card-body"><div class="mono small">status={payload['status']} · HTTP {200 if ok else 503}</div><div class="mono small text-secondary">ready requires FairPlay loaded</div></div></div></div>
+</div>
+<div class="card mt-3"><div class="card-header"><h3 class="card-title small" style="color:#94a3b8">Raw JSON</h3><a href="/ready?format=json" class="btn btn-sm btn-outline-primary float-end">View JSON</a></div><div class="card-body"><pre class="mono small bg-dark p-3 rounded" style="white-space:pre-wrap">{json.dumps(payload, indent=2)}</pre></div></div>
+</div></div>
+</main>
+<footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+</body>
+</html>"""
+        return Response(html, mimetype='text/html')
     return (jsonify(payload), 200 if ok else 503)
 
 @app.route('/metrics', methods=['GET'])
 def metrics():
-    # Prometheus exposition format via prometheus_client if available else stub
+    # Prometheus exposition format via prometheus_client if available else stub — HTML template for browser (AdminLTE 4)
+    wants_html = "text/html" in (request.headers.get("Accept") or "")
+    if wants_html and not request.args.get("format") == "prom":
+        # Gather metrics for template
+        if HAS_PROM:
+            try:
+                albert_up.set(1 if FAIRPLAY_CERT_CHAIN else 0)
+            except Exception:
+                pass
+            prom_text = generate_latest().decode(errors="ignore") if callable(generate_latest) else ""
+        else:
+            up = 1 if FAIRPLAY_CERT_CHAIN else 0
+            try:
+                total = int(getattr(albert_activation_total, "_value", 0))
+            except Exception:
+                total = 0
+                try:
+                    with sqlite3.connect(str(DB_PATH), timeout=30) as conn:
+                        cur = conn.execute("SELECT COUNT(*) FROM activations")
+                        total = cur.fetchone()[0]
+                except Exception:
+                    pass
+            try:
+                failures = int(getattr(albert_activation_failures_total, "_value", 0))
+            except Exception:
+                failures = 0
+            prom_text = (
+                "# HELP albert_up Albert server up status\n"
+                "# TYPE albert_up gauge\n"
+                f"albert_up {up}\n"
+                "# HELP albert_activation_total Total activations\n"
+                "# TYPE albert_activation_total counter\n"
+                f"albert_activation_total {total}\n"
+                "# HELP albert_activation_failures_total Total activation failures\n"
+                "# TYPE albert_activation_failures_total counter\n"
+                f"albert_activation_failures_total {failures}\n"
+            )
+        # Parse key values for cards
+        up_val = "1" if FAIRPLAY_CERT_CHAIN else "0"
+        total_val = "0"
+        failures_val = "0"
+        try:
+            for line in prom_text.splitlines():
+                if line.startswith("albert_activation_total "):
+                    total_val = line.split()[-1]
+                if line.startswith("albert_activation_failures_total "):
+                    failures_val = line.split()[-1]
+                if line.startswith("albert_up "):
+                    up_val = line.split()[-1]
+        except Exception:
+            pass
+        html = f"""<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>zAlive — Metrics — up {up_val}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/css/adminlte.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<style>:root{{--zalive-card:#151a21;--zalive-border:#232b36}} .app-wrapper{{min-height:100vh;background:#0b0f14}} .app-header{{border-bottom:1px solid var(--zalive-border)}} .app-sidebar{{background:#0f141b;border-right:1px solid var(--zalive-border)}} .card{{border:1px solid var(--zalive-border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.45)}} .mono{{font-family:ui-monospace,monospace}}</style>
+</head>
+<body class="layout-fixed-complete">
+<div class="app-wrapper">
+<nav class="app-header navbar navbar-expand bg-body"><div class="container-fluid">
+<ul class="navbar-nav"><li class="nav-item"><a class="nav-link" data-lte-toggle="sidebar" href="#"><i class="bi bi-list"></i></a></li><li class="nav-item"><a href="/dashboard" class="nav-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:22px"></a></li></ul>
+<ul class="navbar-nav ms-auto"><li class="nav-item"><span class="badge {'bg-success' if up_val=='1' else 'bg-danger'}">{'✓ up' if up_val=='1' else '✗ down'}</span></li><li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li><li class="nav-item"><a class="nav-link" href="/metrics?format=prom">Prometheus</a></li></ul>
+</div></nav>
+<aside class="app-sidebar sidebar-dark"><div class="sidebar-brand"><a href="/dashboard" class="brand-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px"><span class="brand-text fw-light ms-2">zAlive Albert</span></a></div>
+<div class="sidebar-wrapper"><nav class="mt-2"><ul class="nav sidebar-menu flex-column">
+<li class="nav-item"><a href="/dashboard" class="nav-link"><i class="nav-icon bi bi-speedometer2"></i><p>Dashboard</p></a></li>
+<li class="nav-item"><a href="/firmware" class="nav-link"><i class="nav-icon bi bi-hdd-stack"></i><p>Firmware</p></a></li>
+<li class="nav-item"><a href="/admin" class="nav-link"><i class="nav-icon bi bi-shield-lock"></i><p>Admin</p></a></li>
+<li class="nav-item"><a href="/health" class="nav-link"><i class="nav-icon bi bi-heart-pulse"></i><p>Health</p></a></li>
+<li class="nav-item"><a href="/metrics" class="nav-link active"><i class="nav-icon bi bi-graph-up"></i><p>Metrics</p></a></li>
+<li class="nav-item"><a href="/api/validate" class="nav-link"><i class="nav-icon bi bi-check2-square"></i><p>Validate</p></a></li>
+</ul></nav></div>
+</aside>
+<main class="app-main"><div class="app-content-header"><div class="container-fluid">
+<div class="row"><div class="col-sm-6"><h3 class="mb-0">Metrics <small class="text-secondary">· Prometheus · albert_up {up_val}</small></h3><small class="text-secondary">Template: AdminLTE 4 (dashboard-template #1) · Prometheus exposition</small></div><div class="col-sm-6"><ol class="breadcrumb float-sm-end"><li class="breadcrumb-item"><a href="/">Home</a></li><li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li><li class="breadcrumb-item active">Metrics</li></ol></div></div>
+</div></div>
+<div class="app-content"><div class="container-fluid">
+<div class="row g-3">
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Up</h3><span class="badge {'bg-success' if up_val=='1' else 'bg-danger'} float-end">{'✓ up 1' if up_val=='1' else '✗ down 0'}</span></div><div class="card-body"><div class="mono small">albert_up {up_val}</div><div class="mono small text-secondary">FairPlay loaded={bool(FAIRPLAY_CERT_CHAIN)}</div></div></div></div>
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Activations</h3></div><div class="card-body"><div class="mono" style="font-size:22px;font-weight:750">{total_val}</div><div class="mono small text-secondary">albert_activation_total</div></div></div></div>
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Failures</h3></div><div class="card-body"><div class="mono" style="font-size:22px;font-weight:750">{failures_val}</div><div class="mono small text-secondary">albert_activation_failures_total</div></div></div></div>
+</div>
+<div class="card mt-3"><div class="card-header"><h3 class="card-title small" style="color:#94a3b8">Prometheus exposition</h3><a href="/metrics?format=prom" class="btn btn-sm btn-outline-primary float-end">View Prometheus</a></div><div class="card-body"><pre class="mono small bg-dark p-3 rounded" style="white-space:pre-wrap;max-height:500px;overflow:auto">{prom_text[:8000]}</pre></div></div>
+</div></div>
+</main>
+<footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+</body>
+</html>"""
+        return Response(html, mimetype='text/html')
+    # Prometheus plain
     if HAS_PROM:
         try:
             albert_up.set(1 if FAIRPLAY_CERT_CHAIN else 0)
@@ -2529,7 +2683,67 @@ def api_activations():
 
 @app.route('/', methods=['GET'])
 def index():
-    return jsonify({"service":"albert-local","endpoints":["/dashboard","/firmware","/api/devices","/api/firmwares","/api/status","/api/rate_status","/api/activations","/api/logs","/health","/ready","/metrics","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]})
+    endpoints = ["/dashboard","/firmware","/admin","/health","/ready","/metrics","/api/validate","/api/devices","/api/firmwares","/api/status","/api/rate_status","/api/activations","/api/logs","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]
+    data = {"service":"albert-local","endpoints":endpoints}
+    wants_html = "text/html" in (request.headers.get("Accept") or "")
+    if wants_html and not request.args.get("format") == "json":
+        cards = "".join(f"<a href=\"{e}\" class=\"btn btn-sm btn-outline-primary m-1\">{e}</a>" for e in endpoints)
+        html = f"""<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>zAlive — Albert — Home</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/css/adminlte.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<style>:root{{--zalive-card:#151a21;--zalive-border:#232b36}} .app-wrapper{{min-height:100vh;background:#0b0f14}} .app-header{{border-bottom:1px solid var(--zalive-border)}} .app-sidebar{{background:#0f141b;border-right:1px solid var(--zalive-border)}} .card{{border:1px solid var(--zalive-border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.45)}} .mono{{font-family:ui-monospace,monospace}}</style>
+</head>
+<body class="layout-fixed-complete">
+<div class="app-wrapper">
+<nav class="app-header navbar navbar-expand bg-body"><div class="container-fluid">
+<ul class="navbar-nav"><li class="nav-item"><a class="nav-link" data-lte-toggle="sidebar" href="#"><i class="bi bi-list"></i></a></li><li class="nav-item"><a href="/dashboard" class="nav-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:22px"></a></li></ul>
+<ul class="navbar-nav ms-auto"><li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li><li class="nav-item"><a class="nav-link" href="/api/validate?format=json">JSON</a></li></ul>
+</div></nav>
+<aside class="app-sidebar sidebar-dark"><div class="sidebar-brand"><a href="/dashboard" class="brand-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px"><span class="brand-text fw-light ms-2">zAlive Albert</span></a></div>
+<div class="sidebar-wrapper"><nav class="mt-2"><ul class="nav sidebar-menu flex-column">
+<li class="nav-item"><a href="/dashboard" class="nav-link"><i class="nav-icon bi bi-speedometer2"></i><p>Dashboard</p></a></li>
+<li class="nav-item"><a href="/firmware" class="nav-link"><i class="nav-icon bi bi-hdd-stack"></i><p>Firmware</p></a></li>
+<li class="nav-item"><a href="/admin" class="nav-link"><i class="nav-icon bi bi-shield-lock"></i><p>Admin</p></a></li>
+<li class="nav-item"><a href="/health" class="nav-link"><i class="nav-icon bi bi-heart-pulse"></i><p>Health</p></a></li>
+<li class="nav-item"><a href="/" class="nav-link active"><i class="nav-icon bi bi-house"></i><p>Home</p></a></li>
+</ul></nav></div>
+</aside>
+<main class="app-main"><div class="app-content-header"><div class="container-fluid">
+<div class="row"><div class="col-sm-6"><h3 class="mb-0">zAlive Albert <small class="text-secondary">· local albert.apple.com</small></h3><small class="text-secondary">Template: AdminLTE 4 (dashboard-template #1) · Premium dark</small></div><div class="col-sm-6"><ol class="breadcrumb float-sm-end"><li class="breadcrumb-item active">Home</li></ol></div></div>
+</div></div>
+<div class="app-content"><div class="container-fluid">
+<div class="row g-3">
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title k" style="color:#94a3b8">Quick links</h3></div><div class="card-body d-flex flex-wrap gap-2">
+<a href="/dashboard" class="btn btn-primary"><i class="bi bi-speedometer2"></i> Dashboard</a>
+<a href="/firmware" class="btn btn-outline-primary"><i class="bi bi-hdd-stack"></i> Firmware (13)</a>
+<a href="/admin" class="btn btn-outline-warning"><i class="bi bi-shield-lock"></i> Admin</a>
+</div></div></div>
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title k" style="color:#94a3b8">Health</h3></div><div class="card-body d-flex gap-2">
+<a href="/health" class="btn btn-sm btn-outline-success">Health</a>
+<a href="/ready" class="btn btn-sm btn-outline-success">Ready</a>
+<a href="/metrics" class="btn btn-sm btn-outline-primary">Metrics</a>
+<a href="/api/validate" class="btn btn-sm btn-outline-primary">Validate</a>
+</div></div></div>
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title k" style="color:#94a3b8">Device</h3></div><div class="card-body"><div class="mono small">iPhone XR 00008020-AAAAAAAAAAAAAAAA · REDACTEDSERIAL · iPhone11,8</div><div class="mono small text-secondary">IPSW 18.7.10 22H374 · 8.7GB ok</div></div></div></div>
+</div>
+<div class="card mt-3"><div class="card-header"><h3 class="card-title small" style="color:#94a3b8">Endpoints</h3></div><div class="card-body"><div class="d-flex flex-wrap">{cards}</div><pre class="mono small bg-dark p-3 rounded mt-3" style="white-space:pre-wrap">{json.dumps(data, indent=2)}</pre></div></div>
+</div></div>
+</main>
+<footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+</body>
+</html>"""
+        return Response(html, mimetype='text/html')
+    return jsonify(data)
 
 if __name__ == '__main__':
     import argparse
