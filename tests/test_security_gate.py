@@ -14,7 +14,8 @@ def _admin_headers():
         try:
             token = pathlib.Path(".env").read_text().split("ALBERT_ADMIN_TOKEN=")[1].split()[0].strip().strip('"').strip("'")
         except Exception:
-            token = ""  # nosec B105 - test helper fallback, not a real password
+            token = "ci-test-token"  # nosec B105 - test helper fallback for CI without .env
+            os.environ["ALBERT_ADMIN_TOKEN"] = token
     return {"X-Admin-Token": token}  # nosec B105
 
 def _no_admin_headers():
