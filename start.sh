@@ -25,6 +25,7 @@ if [[ ! -d "venv" ]]; then
     log_warn "Virtual environment not found. Running setup..."
     ./setup.sh
 fi
+mkdir -p logs
 source venv/bin/activate
 
 # Risk gate: no bypass without ALBERT_ACCEPT_RISK=1 (see SECURITY.md, NOTICE)
@@ -48,17 +49,17 @@ start_albert_dev() {
     pkill -f "albert_server.py.*$ALBERT_HTTP_PORT" 2>/dev/null || true
     if [[ -f "certs/server.crt" && -f "certs/server.key" ]]; then
         log_info "SSL certs found, starting HTTPS on $ALBERT_HTTPS_PORT as well..."
-        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTP_PORT --no-debug > albert.log 2>&1 &
+        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTP_PORT --no-debug > logs/albert.log 2>&1 &
         ALBERT_PID=$!
         echo $ALBERT_PID > .albert.pid
         log_info "Albert HTTP (dev) started (PID: $ALBERT_PID) -> http://127.0.0.1:$ALBERT_HTTP_PORT"
-        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTPS_PORT --ssl-cert certs/server.crt --ssl-key certs/server.key --no-debug > albert-https.log 2>&1 &
+        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTPS_PORT --ssl-cert certs/server.crt --ssl-key certs/server.key --no-debug > logs/albert-https.log 2>&1 &
         ALBERT_HTTPS_PID=$!
         echo $ALBERT_HTTPS_PID > .albert-https.pid
         log_info "Albert HTTPS (dev) started (PID: $ALBERT_HTTPS_PID) -> https://127.0.0.1:$ALBERT_HTTPS_PORT"
     else
         log_warn "SSL certificates not found. Starting HTTP server..."
-        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTP_PORT --no-debug > albert.log 2>&1 &
+        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTP_PORT --no-debug > logs/albert.log 2>&1 &
         ALBERT_PID=$!
         echo $ALBERT_PID > .albert.pid
         log_info "Albert server (dev) started (PID: $ALBERT_PID) -> http://127.0.0.1:$ALBERT_HTTP_PORT"
@@ -74,7 +75,7 @@ start_albert_prod() {
     pkill -f "gunicorn.*albert_server" 2>/dev/null || true
     pkill -f "albert_server.py.*$ALBERT_HTTP_PORT" 2>/dev/null || true
     # gunicorn binds via gunicorn_conf.py (ALBERT_HOST:ALBERT_HTTP_PORT)
-    gunicorn -c gunicorn_conf.py albert_server:app --access-logfile - --error-logfile - > albert.log 2>&1 &
+    gunicorn -c gunicorn_conf.py albert_server:app --access-logfile - --error-logfile - > logs/albert.log 2>&1 &
     ALBERT_PID=$!
     echo $ALBERT_PID > .albert.pid
     log_info "Albert (gunicorn) started (PID: $ALBERT_PID) -> http://127.0.0.1:$ALBERT_HTTP_PORT"
@@ -101,7 +102,7 @@ start_mitmproxy() {
     export LOCAL_ALBERT_HOST=127.0.0.1
     export LOCAL_ALBERT_PORT=$ALBERT_HTTP_PORT
     export LOCAL_ALBERT_SCHEME=http
-    mitmweb -s firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port $MITMPROXY_WEB_PORT --listen-port $MITMPROXY_PORT > mitmproxy.log 2>&1 &
+    mitmweb -s firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port $MITMPROXY_WEB_PORT --listen-port $MITMPROXY_PORT > logs/mitmproxy.log 2>&1 &
     MITMPROXY_PID=$!
     echo $MITMPROXY_PID > .mitmproxy.pid
     log_info "mitmproxy started (PID: $MITMPROXY_PID)"
@@ -131,7 +132,7 @@ show_status() {
         fi
     else
         log_warn "Albert server: STOPPED"
-        [[ -f albert.log ]] && tail -n 20 albert.log
+        [[ -f logs/albert.log ]] && tail -n 20 logs/albert.log || [[ -f albert.log ]] && tail -n 20 albert.log
     fi
     if [[ -f .mitmproxy.pid ]] && kill -0 $(cat .mitmproxy.pid) 2>/dev/null; then
         log_info "mitmproxy: RUNNING (PID: $(cat .mitmproxy.pid))"
@@ -139,7 +140,7 @@ show_status() {
         log_info "  Proxy:  localhost:$MITMPROXY_PORT"
     else
         log_warn "mitmproxy: STOPPED"
-        [[ -f mitmproxy.log ]] && tail -n 20 mitmproxy.log
+        [[ -f logs/mitmproxy.log ]] && tail -n 20 logs/mitmproxy.log || [[ -f mitmproxy.log ]] && tail -n 20 mitmproxy.log
     fi
     echo ""
 }
@@ -231,9 +232,9 @@ case "${1:-start}" in
         ;;
     logs)
         echo "=== albert.log ==="
-        tail -n 50 albert.log 2>&1 || echo "no log"
+        tail -n 50 logs/albert.log 2>&1 || tail -n 50 albert.log 2>&1 || echo "no log"
         echo "=== mitmproxy.log ==="
-        tail -n 50 mitmproxy.log 2>&1 || echo "no log"
+        tail -n 50 logs/mitmproxy.log 2>&1 || tail -n 50 mitmproxy.log 2>&1 || echo "no log"
         ;;
     activate)
         shift

@@ -18,6 +18,12 @@ import re
 import time
 import threading
 import requests
+# Load .env early (so ALBERT_ADMIN_TOKEN etc. are available without export)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=pathlib.Path(__file__).resolve().parent / ".env", override=False)
+except Exception:
+    pass
 from datetime import datetime, timezone, timedelta
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
@@ -1409,86 +1415,113 @@ DASHBOARD_HTML = r'''<!doctype html>
 <link rel="alternate icon" type="image/png" href="/static/zalive-icon.svg">
 <title>zAlive — Albert — Any iPhone Restore Dashboard</title>
 <style>
-:root { --bg:#0b0f14; --card:#151a21; --border:#232b36; --accent:#3b82f6; --ok:#16a34a; --warn:#eab308; --bad:#dc2626; --text:#e5e7eb; --muted:#94a3b8; }
-*{box-sizing:border-box} body{margin:0;font-family: -apple-system,Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text)}
-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg);z-index:10}
-header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.3px}
-header .pill{font-size:11px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--muted)}
-.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px}
-.card{grid-column:span 4;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
+:root { --bg:#0b0f14; --card:#151a21; --card-hover:#1c2330; --border:#232b36; --border-hover:#2d3a4b; --accent:#3b82f6; --accent-hover:#2563eb; --accent-soft:rgba(59,130,246,.12); --ok:#16a34a; --ok-soft:rgba(22,163,74,.12); --warn:#eab308; --warn-soft:rgba(234,179,8,.12); --bad:#dc2626; --bad-soft:rgba(220,38,38,.12); --text:#e5e7eb; --text-strong:#f1f5f9; --muted:#94a3b8; --muted-strong:#cbd5e1; --radius:14px; --radius-sm:10px; --radius-pill:999px; --shadow:0 8px 32px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.3); --shadow-hover:0 12px 40px rgba(0,0,0,.55); --transition:180ms cubic-bezier(.2,.8,.2,1); }
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family: -apple-system, Inter, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none;transition:color var(--transition)}
+a:hover{color:var(--accent-hover)}
+a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;top:-40px;left:12px;background:var(--card);color:var(--text);padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);z-index:100;font-size:13px;font-weight:600;transition:top var(--transition)}
+.skip:focus{top:12px}
+header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:rgba(11,15,20,.92);backdrop-filter:blur(12px) saturate(1.2);z-index:10;gap:16px}
+header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.2px;color:var(--text-strong)}
+header .pill{font-size:11px;padding:7px 10px;border-radius:var(--radius-pill);border:1px solid var(--border);background:var(--card);color:var(--muted);font-weight:500;display:inline-flex;align-items:center;gap:6px;transition:all var(--transition)}
+header .pill.live{border-color:rgba(22,163,74,.3);background:var(--ok-soft);color:var(--ok)}
+header .pill.warn{border-color:rgba(234,179,8,.3);background:var(--warn-soft);color:var(--warn)}
+header .pill.bad{border-color:rgba(220,38,38,.3);background:var(--bad-soft);color:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:16px;max-width:1440px;margin:0 auto}
+.card{grid-column:span 4;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);transition:transform var(--transition), box-shadow var(--transition), border-color var(--transition)}
+.card:hover{border-color:var(--border-hover);box-shadow:var(--shadow-hover);transform:translateY(-1px)}
 .card.wide{grid-column:span 8} .card.full{grid-column:span 12}
-@media(max-width:900px){.card,.card.wide{grid-column:span 12}}
-.k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
-.v{font-size:22px;font-weight:700;margin-top:6px}
-.v small{font-size:11px;font-weight:500;color:var(--muted)}
-.badge{display:inline-block;font-size:11px;padding:4px 8px;border-radius:999px;border:1px solid var(--border)}
-.badge.ok{background:rgba(22,163,74,.15);color:var(--ok);border-color:rgba(22,163,74,.3)}
-.badge.bad{background:rgba(220,38,38,.15);color:var(--bad);border-color:rgba(220,38,38,.3)}
-.badge.warn{background:rgba(234,179,8,.15);color:var(--warn);border-color:rgba(234,179,8,.3)}
-table{width:100%;border-collapse:collapse;margin-top:8px}
-th{font-size:11px;color:var(--muted);text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)}
-td{font-size:13px;padding:8px 6px;border-bottom:1px solid rgba(255,255,255,.06)}
-.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
-.bar{height:8px;background:#0f172a;border-radius:999px;overflow:hidden;margin-top:8px}
-.bar>div{height:100%;background:var(--accent)}
-.log{max-height:220px;overflow:auto;background:#0f141b;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,monospace;font-size:11px;white-space:pre-wrap}
-a{color:var(--accent);text-decoration:none}
-.footer{padding:12px 14px;color:var(--muted);font-size:11px;text-align:center;border-top:1px solid var(--border);margin-top:10px}
+@media(max-width:1000px){.card,.card.wide{grid-column:span 12}}
+.k{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;font-weight:650}
+.v{font-size:22px;font-weight:750;margin-top:8px;letter-spacing:-.3px;color:var(--text-strong)}
+.v small{font-size:11px;font-weight:550;color:var(--muted)}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:4px 9px;border-radius:var(--radius-pill);border:1px solid var(--border);font-weight:600;letter-spacing:.1px}
+.badge.ok{background:var(--ok-soft);color:var(--ok);border-color:rgba(22,163,74,.25)}
+.badge.bad{background:var(--bad-soft);color:var(--bad);border-color:rgba(220,38,38,.25)}
+.badge.warn{background:var(--warn-soft);color:var(--warn);border-color:rgba(234,179,8,.25)}
+table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
+th{font-size:11px;color:var(--muted);text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);font-weight:650;letter-spacing:.3px;white-space:nowrap;position:sticky;top:0;background:var(--card)}
+td{font-size:13px;padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.05);transition:background var(--transition)}
+tbody tr:hover td{background:rgba(255,255,255,.02)}
+.mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:12px;word-break:break-all}
+.bar{height:8px;background:#0f172a;border-radius:var(--radius-pill);overflow:hidden;margin-top:10px;border:1px solid var(--border)}
+.bar>div{height:100%;background:linear-gradient(90deg,var(--accent),#06b6d4);transition:width 500ms ease}
+.log{max-height:240px;overflow:auto;background:#0f141b;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;font-family:ui-monospace, monospace;font-size:11px;white-space:pre-wrap;line-height:1.6;scrollbar-width:thin}
+.log::-webkit-scrollbar{width:6px;height:6px} .log::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.footer{padding:14px;color:var(--muted);font-size:11.5px;text-align:center;border-top:1px solid var(--border);margin-top:16px;background:rgba(255,255,255,.01)}
+nav.breadcrumbs{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);margin-top:6px}
+nav.breadcrumbs a{color:var(--muted)} nav.breadcrumbs a:hover{color:var(--text)}
+.empty{padding:18px;text-align:center;color:var(--muted);font-size:13px;border:1px dashed var(--border);border-radius:var(--radius-sm);background:rgba(255,255,255,.01)}
+.skeleton{background:linear-gradient(90deg, var(--card) 25%, var(--border) 50%, var(--card) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px;height:14px}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 </style>
 </head>
 <body>
-<header>
-  <div style="display:flex;align-items:center;gap:12px">
+<a href="#main" class="skip">Skip to content</a>
+<header role="banner">
+  <div style="display:flex;align-items:center;gap:12px;min-width:0">
     <a href="/dashboard" style="display:flex;align-items:center;gap:10px;text-decoration:none" aria-label="zAlive home">
       <img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px;width:auto;display:block" loading="eager" decoding="async">
     </a>
-    <h1 style="font-size:15px;margin:0;font-weight:600;letter-spacing:.3px">Albert — Any iPhone <span style="color:var(--muted);font-weight:400">· iPhone11,8 · 18090</span></h1>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center">
-    <span id="healthPill" class="pill">checking…</span>
-    <span id="clock" class="pill">--:--:--</span>
-  </div>
-</header>
-<div class="grid">
-  <div class="card">
-    <div class="k">Server</div>
-    <div class="v" id="serverV">-</div>
-    <div class="mono" id="serverD" style="color:var(--muted);margin-top:6px">-</div>
-    <div style="margin-top:10px"><a href="/health" target="_blank">/health</a> · <a href="/ready" target="_blank">/ready</a> · <a href="/metrics" target="_blank">/metrics</a> · <a href="/api/status" target="_blank">/api/status</a></div>
-  </div>
-  <div class="card">
-    <div class="k">FairPlay</div>
-    <div class="v" id="fpV">-</div>
-    <div class="mono" id="fpD">-</div>
-  </div>
-  <div class="card">
-    <div class="k">Metrics</div>
-    <div id="metrics" class="mono" style="font-size:12px">-</div>
-  </div>
-  <div class="card">
-    <div class="k">iPhone — This Device (any)</div>
-    <div id="device" class="mono">-</div>
-    <div class="k" style="margin-top:10px">USB / Restore</div>
-    <div id="usb" class="mono">-</div>
-  </div>
-  <div class="card wide">
-    <div class="k">IPSW</div>
-    <div id="ipsw" class="mono">-</div>
-    <div id="ipswBar" class="bar"><div id="ipswFill" style="width:0%"></div></div>
-  </div>
-  <div class="card full">
-    <div class="k">Recent Activations (SQLite WAL)</div>
-    <table><thead><tr><th>#</th><th>UDID (redacted)</th><th>Serial</th><th>At (UTC)</th><th>Record</th></tr></thead><tbody id="acts"></tbody></table>
-  </div>
-  <div class="card full">
-    <div class="k">Rate limit · Logs tail</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div><div class="mono" style="color:var(--muted)">IPs tracked · window 60s · max 100/min · capped 1000</div><div id="rl" class="mono" style="margin-top:6px">-</div></div>
-      <div><div id="logs" class="log">loading…</div></div>
+    <div style="min-width:0">
+      <h1>Albert — Any iPhone <span style="color:var(--muted);font-weight:400">· iPhone11,8 · 18090</span></h1>
+      <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> <span aria-hidden="true">›</span> <span aria-current="page">Dashboard</span> <span aria-hidden="true">·</span> <a href="/firmware">Firmware</a> <span aria-hidden="true">·</span> <a href="/admin">Admin</a></nav>
     </div>
   </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+    <span id="healthPill" class="pill" role="status" aria-live="polite">checking…</span>
+    <span id="clock" class="pill" aria-label="Local time">--:--:--</span>
+  </div>
+</header>
+<main id="main" role="main" aria-labelledby="main-title">
+<h2 id="main-title" class="sr-only" style="position:absolute;left:-9999px">Dashboard</h2>
+<div class="grid">
+  <section class="card" aria-labelledby="server-title">
+    <div class="k" id="server-title">Server</div>
+    <div class="v" id="serverV" aria-live="polite"><span class="skeleton" style="width:60px;display:inline-block"></span></div>
+    <div class="mono" id="serverD" style="color:var(--muted);margin-top:8px;font-size:11.5px">loading…</div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><a href="/health">/health</a> · <a href="/ready">/ready</a> · <a href="/metrics">/metrics</a> · <a href="/api/status">/api/status</a></div>
+  </section>
+  <section class="card" aria-labelledby="fp-title">
+    <div class="k" id="fp-title">FairPlay</div>
+    <div class="v" id="fpV"><span class="skeleton" style="width:90px;display:inline-block"></span></div>
+    <div class="mono" id="fpD" style="margin-top:6px">loading…</div>
+  </section>
+  <section class="card" aria-labelledby="metrics-title">
+    <div class="k" id="metrics-title">Metrics</div>
+    <div id="metrics" class="mono" style="font-size:12.5px;line-height:1.7;margin-top:8px"><span class="skeleton" style="width:100%;height:40px;display:block"></span></div>
+  </section>
+  <section class="card" aria-labelledby="device-title">
+    <div class="k" id="device-title">iPhone — This Device (any)</div>
+    <div id="device" class="mono" style="margin-top:8px;font-size:12.5px"><span class="skeleton" style="width:100%;height:18px;display:block"></span></div>
+    <div class="k" style="margin-top:14px" id="usb-title">USB / Restore</div>
+    <div id="usb" class="mono" style="font-size:12.5px"><span class="skeleton" style="width:80%;height:18px;display:block"></span></div>
+  </section>
+  <section class="card wide" aria-labelledby="ipsw-title">
+    <div class="k" id="ipsw-title">IPSW</div>
+    <div id="ipsw" class="mono" style="font-size:12.5px;margin-top:8px"><span class="skeleton" style="width:100%;height:18px;display:block"></span></div>
+    <div id="ipswBar" class="bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"><div id="ipswFill" style="width:0%"></div></div>
+  </section>
+  <section class="card full" aria-labelledby="acts-title">
+    <div class="k" id="acts-title">Recent Activations (SQLite WAL)</div>
+    <div style="overflow:auto;max-height:320px;margin-top:8px">
+    <table role="table" aria-label="Recent activations"><thead><tr><th>#</th><th>UDID (redacted)</th><th>Serial</th><th>At (UTC)</th><th>Record</th></tr></thead><tbody id="acts"><tr><td colspan=5><span class="skeleton" style="width:100%"></span></td></tr></tbody></table>
+    </div>
+  </section>
+  <section class="card full" aria-labelledby="rl-title">
+    <div class="k" id="rl-title">Rate limit · Logs tail</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px">
+      <div><div class="mono" style="color:var(--muted)">IPs tracked · window 60s · max 100/min · capped 1000</div><div id="rl" class="mono" style="margin-top:8px;background:rgba(255,255,255,.02);padding:10px;border-radius:var(--radius-sm);border:1px solid var(--border)"><span class="skeleton" style="width:60px;display:inline-block"></span></div><div style="margin-top:12px;display:flex;gap:8px"><a href="/admin" class="badge ok" style="text-decoration:none">→ Admin panel</a> <a href="/firmware" class="badge" style="text-decoration:none">→ Firmware</a></div></div>
+      <div><div id="logs" class="log" aria-live="polite">loading…</div></div>
+    </div>
+  </section>
 </div>
-<div class="footer"> <span style="display:inline-flex;align-items:center;gap:6px"><img src="/static/zalive-icon.svg" alt="" style="height:14px;width:14px;vertical-align:middle" loading="lazy"> zAlive</span> · Local Albert — owned devices only · <span id="ver">1.1-fixed</span> · <a href="/dashboard">dashboard</a> auto-refresh 2s · gunicorn 2×4 · 127.0.0.1:18090 · See <a href="/docs/RUNBOOK.md" target="_blank">RUNBOOK</a> · <a href="http://127.0.0.1:8081" target="_blank">mitmproxy 8081</a></div>
+</main>
+<div class="footer" role="contentinfo"> <span style="display:inline-flex;align-items:center;gap:6px"><img src="/static/zalive-icon.svg" alt="" style="height:14px;width:14px;vertical-align:middle" loading="lazy"> zAlive</span> · Local Albert — owned devices only · <span id="ver">1.1-fixed</span> · <a href="/dashboard">dashboard</a> auto-refresh 2s · gunicorn 2×4 · 127.0.0.1:18090 · See <a href="/docs/RUNBOOK.md" target="_blank">RUNBOOK</a> · <a href="http://127.0.0.1:8081" target="_blank">mitmproxy 8081</a> · <a href="/admin">admin</a></div>
+
 <script>
 const $ = id => document.getElementById(id);
 const redact = s => s ? s.slice(0,4)+"..."+s.slice(-4) : "-";
@@ -1568,42 +1601,57 @@ FIRMWARE_HTML = r'''<!doctype html>
 <link rel="alternate icon" type="image/png" href="/static/zalive-icon.svg">
 <title>zAlive — Albert — Firmware</title>
 <style>
-:root{--bg:#0b0f14;--card:#151a21;--border:#232b36;--accent:#3b82f6;--ok:#16a34a;--warn:#eab308;--bad:#dc2626;--text:#e5e7eb;--muted:#94a3b8}
-*{box-sizing:border-box}body{margin:0;font-family: -apple-system,Inter,system-ui,sans-serif;background:var(--bg);color:var(--text)}
-header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:var(--bg);z-index:10}
-header h1{font-size:15px;margin:0;font-weight:600}
-select,input{font-size:13px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text)}
-table{width:100%;border-collapse:collapse;margin-top:10px}
-th{font-size:11px;color:var(--muted);text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)}
-td{font-size:13px;padding:8px 6px;border-bottom:1px solid rgba(255,255,255,.06)}
-.badge{font-size:11px;padding:3px 7px;border-radius:999px;border:1px solid var(--border)}
-.badge.ok{background:rgba(22,163,74,.15);color:var(--ok);border-color:rgba(22,163,74,.3)}
-.badge.bad{background:rgba(220,38,38,.15);color:var(--bad);border-color:rgba(220,38,38,.3)}
-.badge.warn{background:rgba(234,179,8,.15);color:var(--warn);border-color:rgba(234,179,8,.3)}
+:root{--bg:#0b0f14;--card:#151a21;--card-hover:#1c2330;--border:#232b36;--border-hover:#2d3a4b;--accent:#3b82f6;--accent-hover:#2563eb;--accent-soft:rgba(59,130,246,.12);--ok:#16a34a;--ok-soft:rgba(22,163,74,.12);--warn:#eab308;--bad:#dc2626;--bad-soft:rgba(220,38,38,.12);--text:#e5e7eb;--text-strong:#f1f5f9;--muted:#94a3b8;--radius:14px;--radius-sm:10px;--radius-pill:999px;--shadow:0 8px 32px rgba(0,0,0,.45);--transition:180ms cubic-bezier(.2,.8,.2,1);}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:-apple-system,Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none} a:hover{color:var(--accent-hover)} a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;top:-40px;left:12px;background:var(--card);color:var(--text);padding:8px 14px;border-radius:10px;border:1px solid var(--border);z-index:100;font-size:13px;font-weight:600} .skip:focus{top:12px}
+header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:rgba(11,15,20,.92);backdrop-filter:blur(12px);z-index:10;flex-wrap:wrap}
+header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.2px;color:var(--text-strong)}
+select,input{font-size:13px;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);transition:border-color 180ms, background 180ms}
+select:hover,input:hover{border-color:var(--border-hover)} select:focus,input:focus{border-color:var(--accent);background:rgba(255,255,255,.02)}
+table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
+th{font-size:11px;color:var(--muted);text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);font-weight:650;letter-spacing:.3px;white-space:nowrap;position:sticky;top:0;background:var(--card)}
+td{font-size:13px;padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.06)} tbody tr:hover td{background:rgba(255,255,255,.02)}
+.badge{display:inline-flex;align-items:center;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);font-weight:600}
+.badge.ok{background:var(--ok-soft);color:var(--ok);border-color:rgba(22,163,74,.25)} .badge.bad{background:var(--bad-soft);color:var(--bad);border-color:rgba(220,38,38,.25)}
+.badge.warn{background:rgba(234,179,8,.12);color:var(--warn);border-color:rgba(234,179,8,.25)}
 .mono{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin:14px}
-a{color:var(--accent);text-decoration:none}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin:16px;box-shadow:0 8px 32px rgba(0,0,0,.45)}
+.empty{padding:20px;text-align:center;color:var(--muted);border:1px dashed var(--border);border-radius:10px;background:rgba(255,255,255,.01)}
+.skeleton{background:linear-gradient(90deg, var(--card) 25%, var(--border) 50%, var(--card) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px;height:14px}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 </style>
 </head>
 <body>
-<header>
+<a href="#main" class="skip">Skip to content</a>
+<header role="banner">
   <a href="/dashboard" style="display:flex;align-items:center;gap:8px;text-decoration:none" aria-label="zAlive home">
     <img src="/static/zalive-logo.svg" alt="zAlive" style="height:26px;width:auto;display:block" loading="eager" decoding="async">
   </a>
-  <h1 style="font-size:15px;margin:0;font-weight:600">Albert — Firmware <span style="color:var(--muted);font-weight:400">· curated 5→15 Pro (13) · ipsw.me live cache 1h</span></h1>
-  <select id="product"></select>
-  <input id="q" placeholder="Search version / build">
-  <span id="status" style="color:var(--muted);font-size:12px"></span>
-  <a href="/dashboard" style="margin-left:auto">← Dashboard</a>
+  <div style="min-width:0">
+    <h1>Albert — Firmware <span style="color:var(--muted);font-weight:400">· curated 5→15 Pro (13) · ipsw.me live cache 1h</span></h1>
+    <nav aria-label="Breadcrumb" style="font-size:11.5px;color:var(--muted);margin-top:2px"><a href="/" style="color:var(--muted)">Home</a> › <a href="/dashboard" style="color:var(--muted)">Dashboard</a> › <span aria-current="page" style="color:var(--text)">Firmware</span> · <a href="/admin" style="color:var(--accent)">Admin</a></nav>
+  </div>
+  <select id="product" aria-label="Device model" style="margin-left:auto"></select>
+  <input id="q" placeholder="Search version / build" aria-label="Search version or build" style="min-width:180px">
+  <span id="status" style="color:var(--muted);font-size:12px" role="status" aria-live="polite"></span>
+  <a href="/dashboard" style="margin-left:8px;font-size:13px;font-weight:600">← Dashboard</a>
 </header>
+<main id="main" role="main">
 <div class="card">
-  <div id="banner" style="display:none;padding:8px;border-radius:8px;margin-bottom:10px"></div>
-  <table>
-    <thead><tr><th>Version</th><th>Build</th><th>Released</th><th>Size</th><th>Signed</th><th>Local</th><th>Download</th></tr></thead>
-    <tbody id="tbody"><tr><td colspan=7 style="color:var(--muted)">loading…</td></tr></tbody>
-  </table>
-  <div class="mono" style="color:var(--muted);margin-top:8px;font-size:11px">Source: <a href="https://api.ipsw.me/v4/device/iPhone11,8" target="_blank">api.ipsw.me</a> + local scan <code>*.ipsw</code> · <code>/api/firmwares?productType=iPhone11,8</code></div>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+    <span class="badge ok" aria-hidden="true">✓ curated 13</span>
+    <span style="font-size:12px;color:var(--muted)">Any iPhone 5 → 15 Pro · live <a href="https://api.ipsw.me" target="_blank" rel="noopener">ipsw.me</a> + local <code>*.ipsw</code></span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">Tip: type “18.7” or “22H374” to filter</span>
+  </div>
+  <div id="banner" style="display:none;padding:10px 12px;border-radius:10px;margin-bottom:10px;font-size:13px" role="alert"></div>
+  <div style="overflow:auto;max-height:72vh;border:1px solid var(--border);border-radius:10px">
+    <table role="table" aria-label="Firmware list"><thead><tr><th>Version</th><th>Build</th><th>Released</th><th>Size</th><th>Signed</th><th>Local</th><th>Download</th></tr></thead><tbody id="tbody"><tr><td colspan=7><span class="skeleton" style="width:100%;display:block"></span></td></tr></tbody></table>
+  </div>
+  <div class="mono" style="color:var(--muted);margin-top:10px;font-size:11px">Source: <a href="https://api.ipsw.me/v4/device/iPhone11,8" target="_blank" rel="noopener">api.ipsw.me</a> + local scan <code>*.ipsw</code> · <code>/api/firmwares?productType=iPhone11,8</code> · <code>/api/devices</code></div>
 </div>
+</main>
+
 <script>
 const $=id=>document.getElementById(id);
 async function loadDevices(){
@@ -1662,6 +1710,194 @@ async function loadFw(){
 </html>
 '''
 
+NOTFOUND_HTML = r'''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>zAlive — 404 Not Found</title>
+<style>
+:root{--bg:#0b0f14;--card:#151a21;--border:#232b36;--accent:#3b82f6;--muted:#94a3b8;--text:#e5e7eb;--radius:16px}
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;background:rgba(11,15,20,.92);backdrop-filter:blur(12px);position:sticky;top:0}
+.card{max-width:720px;margin:48px auto;padding:28px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 12px 40px rgba(0,0,0,.5);text-align:center}
+h1{font-size:28px;margin:12px 0 8px;font-weight:800;letter-spacing:-.5px}
+p{color:var(--muted);font-size:14px;line-height:1.6;margin:8px 0}
+.badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.02);font-size:13px;font-weight:600;text-decoration:none;color:var(--text)}
+.badge.primary{background:var(--accent);border-color:var(--accent);color:white}
+.badge:hover{transform:translateY(-1px)}
+.mono{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted)}
+.footer{margin-top:auto;padding:14px;text-align:center;color:var(--muted);font-size:11.5px;border-top:1px solid var(--border);background:rgba(255,255,255,.01)}
+a{color:var(--accent)} a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<header role="banner">
+  <a href="/dashboard" style="display:flex;align-items:center;gap:8px;text-decoration:none" aria-label="zAlive home"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:26px;width:auto;display:block" loading="eager"></a>
+  <span style="font-size:13px;color:var(--muted)">· 404</span>
+  <nav style="margin-left:auto;display:flex;gap:12px;font-size:13px"><a href="/dashboard">Dashboard</a> <a href="/firmware">Firmware</a> <a href="/admin">Admin</a> <a href="/health">Health</a></nav>
+</header>
+<main role="main" style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">
+  <div class="card" role="alert" aria-labelledby="title">
+    <div style="width:64px;height:64px;margin:0 auto;border-radius:16px;background:linear-gradient(135deg,#3b82f6 0%,#06b6d4 50%,#22c55e 100%);display:flex;align-items:center;justify-content:center;font-size:28px" aria-hidden="true">∅</div>
+    <h1 id="title">404 — Page not found</h1>
+    <p>The page <code id="path" class="mono" style="background:rgba(255,255,255,.06);padding:2px 6px;border-radius:6px"></code> does not exist.</p>
+    <p>Try one of these instead — all are live on <code class="mono">127.0.0.1:18090</code> and <code class="mono">192.168.1.123:18090</code>.</p>
+    <div class="badges">
+      <a class="badge primary" href="/dashboard">→ Dashboard</a>
+      <a class="badge" href="/firmware">Firmware (13 devices)</a>
+      <a class="badge" href="/api/status">API Status</a>
+      <a class="badge" href="/health">Health</a>
+      <a class="badge" href="/admin">Admin Panel</a>
+    </div>
+    <p class="mono" style="margin-top:16px">zAlive · Local Albert · owned devices only · If you typed the URL manually, check spelling.</p>
+  </div>
+</main>
+<div class="footer"><span style="display:inline-flex;align-items:center;gap:6px"><img src="/static/zalive-icon.svg" alt="" style="height:14px;width:14px" loading="lazy"> zAlive</span> · <a href="/dashboard">dashboard</a> · <a href="/firmware">firmware</a> · <a href="/admin">admin</a></div>
+<script>document.getElementById('path').textContent = location.pathname + location.search;</script>
+</body>
+</html>
+'''
+
+
+ADMIN_HTML = r'''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>zAlive — Admin Control Panel</title>
+<style>
+:root{--bg:#0b0f14;--card:#151a21;--card-hover:#1c2330;--border:#232b36;--border-hover:#2d3a4b;--accent:#3b82f6;--accent-hover:#2563eb;--accent-soft:rgba(59,130,246,.12);--ok:#16a34a;--ok-soft:rgba(22,163,74,.12);--warn:#eab308;--bad:#dc2626;--bad-soft:rgba(220,38,38,.12);--text:#e5e7eb;--text-strong:#f1f5f9;--muted:#94a3b8;--radius:14px;--radius-sm:10px;--radius-pill:999px;--shadow:0 8px 32px rgba(0,0,0,.45);--transition:180ms cubic-bezier(.2,.8,.2,1);}
+*{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;font-family:-apple-system,Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none} a:hover{color:var(--accent-hover)} a:focus-visible, button:focus-visible, input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;top:-40px;left:12px;background:var(--card);color:var(--text);padding:8px 14px;border-radius:10px;border:1px solid var(--border);z-index:100;font-size:13px;font-weight:600} .skip:focus{top:12px}
+header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:rgba(11,15,20,.92);backdrop-filter:blur(12px);z-index:10}
+header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.2px}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:16px;max-width:1440px;margin:0 auto}
+.card{grid-column:span 6;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);transition:border-color var(--transition), box-shadow var(--transition)}
+.card.full{grid-column:span 12} .card.third{grid-column:span 4} .card.half{grid-column:span 6}
+@media(max-width:1000px){.card,.card.third,.card.half{grid-column:span 12}}
+.k{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;font-weight:650}
+.v{font-size:22px;font-weight:750;margin-top:8px;letter-spacing:-.3px}
+.mono{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:4px 9px;border-radius:999px;border:1px solid var(--border);font-weight:600}
+.badge.ok{background:var(--ok-soft);color:var(--ok);border-color:rgba(22,163,74,.25)} .badge.bad{background:var(--bad-soft);color:var(--bad);border-color:rgba(220,38,38,.25)} .badge.warn{background:rgba(234,179,8,.12);color:var(--warn)}
+button{font-size:13px;padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-weight:600;transition:all var(--transition)}
+button.primary{background:var(--accent);border-color:var(--accent);color:white} button.primary:hover{background:var(--accent-hover)}
+button.danger{background:var(--bad-soft);border-color:rgba(220,38,38,.3);color:var(--bad)} button.danger:hover{background:rgba(220,38,38,.2)}
+button:disabled{opacity:.6;cursor:not-allowed}
+input{font-size:13px;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%}
+input:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
+table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px} th{font-size:11px;color:var(--muted);text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);font-weight:650;white-space:nowrap} td{font-size:13px;padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.05)}
+.log{max-height:300px;overflow:auto;background:#0f141b;border:1px solid var(--border);border-radius:10px;padding:12px;font-family:ui-monospace,monospace;font-size:11px;white-space:pre-wrap;line-height:1.6}
+.footer{padding:14px;text-align:center;color:var(--muted);font-size:11.5px;border-top:1px solid var(--border);background:rgba(255,255,255,.01);margin-top:16px}
+.skeleton{background:linear-gradient(90deg,var(--card) 25%, var(--border) 50%, var(--card) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px;height:14px} @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+</style>
+</head>
+<body>
+<a href="#main" class="skip">Skip to content</a>
+<header role="banner">
+  <a href="/dashboard" style="display:flex;align-items:center;gap:8px;text-decoration:none" aria-label="zAlive home"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:26px;width:auto;display:block" loading="eager"></a>
+  <div>
+    <h1>Admin Control Panel <span style="color:var(--muted);font-weight:400">· gated by ALBERT_ADMIN_TOKEN</span></h1>
+    <nav aria-label="Breadcrumb" style="font-size:11.5px;color:var(--muted);margin-top:2px"><a href="/" style="color:var(--muted)">Home</a> › <a href="/dashboard" style="color:var(--muted)">Dashboard</a> › <span aria-current="page" style="color:var(--text)">Admin</span> · <a href="/firmware" style="color:var(--accent)">Firmware</a></nav>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+    <span id="authPill" class="badge warn" role="status" aria-live="polite">checking auth…</span>
+    <a href="/dashboard">← Dashboard</a>
+  </div>
+</header>
+<main id="main" role="main" style="max-width:1440px;margin:0 auto">
+<div id="gate" style="max-width:520px;margin:32px auto;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)">
+  <div class="k">Admin authentication</div>
+  <p class="mono" style="color:var(--muted);margin-top:6px">Enter <code>ALBERT_ADMIN_TOKEN</code> to unlock. Token is sent as <code>X-Admin-Token</code> header and stored in this browser only (localStorage). Set via <code>.env ALBERT_ADMIN_TOKEN=…</code> and restart.</p>
+  <form id="gateForm" style="display:flex;gap:8px;margin-top:12px" onsubmit="return false">
+    <input id="tokenInput" type="password" placeholder="Paste admin token" aria-label="Admin token" autocomplete="current-password">
+    <button class="primary" id="unlockBtn" type="submit">Unlock</button>
+    <button id="logoutBtn" type="button" style="display:none">Lock</button>
+  </form>
+  <div id="gateMsg" class="mono" style="margin-top:8px;color:var(--muted)"></div>
+</div>
+<div id="panel" style="display:none">
+  <div class="grid">
+    <section class="card third" aria-labelledby="status-title"><div class="k" id="status-title">Status</div><div id="aStatus" class="mono" style="margin-top:8px"><span class="skeleton" style="width:100%;height:60px;display:block"></span></div></section>
+    <section class="card third" aria-labelledby="actions-title"><div class="k" id="actions-title">Actions</div><div style="display:grid;gap:8px;margin-top:10px">
+      <button id="btnRefresh">↻ Refresh status</button>
+      <button id="btnClearCache">Clear firmware cache</button>
+      <button id="btnResetRate">Reset rate limits</button>
+      <button id="btnCheckpoint">DB checkpoint + prune</button>
+      <button class="danger" id="btnPurge">⚠ Purge activations (>30d)</button>
+    </div><div id="actionMsg" class="mono" style="margin-top:8px;color:var(--muted)" role="status" aria-live="polite"></div></section>
+    <section class="card third" aria-labelledby="env-title"><div class="k" id="env-title">Environment</div><div id="aEnv" class="mono" style="margin-top:8px"><span class="skeleton" style="width:100%;height:60px;display:block"></span></div></section>
+    <section class="card half" aria-labelledby="acts-title"><div class="k" id="acts-title">Recent activations</div><div style="overflow:auto;max-height:360px"><table><thead><tr><th>#</th><th>UDID</th><th>Serial</th><th>At</th></tr></thead><tbody id="aActs"><tr><td colspan=4><span class="skeleton" style="width:100%"></span></td></tr></tbody></table></div></section>
+    <section class="card half" aria-labelledby="logs-title"><div class="k" id="logs-title">Logs tail</div><div id="aLogs" class="log" style="margin-top:8px">loading…</div><div style="margin-top:8px;display:flex;gap:8px"><button id="btnLogs">Refresh logs</button><a href="/api/logs?lines=200" target="_blank" style="font-size:13px;align-self:center">/api/logs</a></div></section>
+    <section class="card full" aria-labelledby="rate-title"><div class="k" id="rate-title">Rate limits</div><div id="aRate" class="mono" style="margin-top:8px"><span class="skeleton" style="width:100%;height:40px;display:block"></span></div></section>
+  </div>
+</div>
+</main>
+<div class="footer"><span style="display:inline-flex;align-items:center;gap:6px"><img src="/static/zalive-icon.svg" alt="" style="height:14px;width:14px" loading="lazy"> zAlive</span> · Admin · <a href="/dashboard">dashboard</a> · <a href="/firmware">firmware</a> · gated · See <a href="/docs/RUNBOOK.md" target="_blank">RUNBOOK</a></div>
+<script>
+const $ = id => document.getElementById(id);
+const TOKEN_KEY = 'zalive_admin_token';
+function getToken(){ return localStorage.getItem(TOKEN_KEY) || ''; }
+function setToken(v){ if(v) localStorage.setItem(TOKEN_KEY, v); else localStorage.removeItem(TOKEN_KEY); }
+function authHeaders(){ const t=getToken(); return t ? {'X-Admin-Token': t} : {}; }
+async function checkAuth(){
+  const t=getToken();
+  if(!t){ $('authPill').textContent='locked — enter token'; $('authPill').className='badge warn'; $('panel').style.display='none'; $('gate').style.display='block'; $('logoutBtn').style.display='none'; return false; }
+  try{
+    const r=await fetch('/api/admin/status', {headers: authHeaders()});
+    const j=await r.json();
+    if(r.ok && j.ok){
+      $('authPill').textContent='unlocked ✓'; $('authPill').className='badge ok';
+      $('panel').style.display='block'; $('gate').style.display='none'; $('logoutBtn').style.display='inline-block';
+      $('gateMsg').textContent='Authenticated as admin.';
+      return true;
+    } else {
+      $('authPill').textContent='invalid token'; $('authPill').className='badge bad';
+      $('gateMsg').textContent=(j.error||'Invalid token') + ' — check .env ALBERT_ADMIN_TOKEN';
+      $('panel').style.display='none'; $('gate').style.display='block';
+      return false;
+    }
+  }catch(e){ $('authPill').textContent='error'; $('authPill').className='badge bad'; $('gateMsg').textContent='Error: '+e.message; return false; }
+}
+async function load(){
+  if(!(await checkAuth())) return;
+  try{
+    const r=await fetch('/api/admin/status', {headers: authHeaders()});
+    const j=await r.json();
+    $('aStatus').innerHTML = '<div><span class="badge ok">live</span> fairplay '+(j.fairplay?.loaded?'loaded':'missing')+' · activations '+j.metrics.activations+' · up '+j.metrics.up+'</div><div class="mono" style="margin-top:6px;color:var(--muted)">ipsw '+j.ipsw.name+' · '+j.ipsw.sizeGB+'GB · '+j.ipsw.sha256.slice(0,16)+'…</div>';
+    $('aEnv').textContent = JSON.stringify(j.env, null, 2);
+    const acts = j.activations||[];
+    const tbody=$('aActs'); tbody.innerHTML='';
+    if(!acts.length) tbody.innerHTML='<tr><td colspan=4 style="color:var(--muted)">no activations</td></tr>';
+    else acts.forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML='<td>'+r.id+'</td><td class="mono">'+(r.udid?r.udid.slice(0,4)+'…'+r.udid.slice(-4):'-')+'</td><td>'+(r.serial||'-')+'</td><td class="mono">'+r.created_at.slice(0,19)+'</td>'; tbody.appendChild(tr); });
+    $('aRate').textContent = 'IPs '+j.rate.ips+' · sample '+(j.rate.sample||'-')+' · window 60s · max 100/min + 10/min per-UDID';
+  }catch(e){ $('aStatus').textContent='load error: '+e.message; }
+  try{
+    const r=await fetch('/api/logs?lines=60', {headers: authHeaders()});
+    const j=await r.json(); $('aLogs').textContent = j.tail||'no logs';
+  }catch(e){ $('aLogs').textContent='logs error: '+e.message; }
+}
+$('gateForm').addEventListener('submit', async (e)=>{ e.preventDefault(); const v=$('tokenInput').value.trim(); if(!v){ $('gateMsg').textContent='Enter token'; return; } setToken(v); $('tokenInput').value=''; await load(); });
+$('logoutBtn').addEventListener('click', ()=>{ setToken(''); $('authPill').textContent='locked'; $('authPill').className='badge warn'; $('panel').style.display='none'; $('gate').style.display='block'; $('gateMsg').textContent='Locked — token cleared from this browser.'; });
+$('btnRefresh').addEventListener('click', load);
+$('btnLogs').addEventListener('click', async()=>{ const r=await fetch('/api/logs?lines=60',{headers:authHeaders()}); const j=await r.json(); $('aLogs').textContent=j.tail||'no logs'; });
+$('btnClearCache').addEventListener('click', async()=>{ $('actionMsg').textContent='clearing…'; const r=await fetch('/api/admin/clear-cache',{method:'POST',headers:authHeaders()}); const j=await r.json(); $('actionMsg').textContent=r.ok?('cleared: '+(j.cleared||'ok')):('error: '+(j.error||r.status)); });
+$('btnResetRate').addEventListener('click', async()=>{ $('actionMsg').textContent='resetting…'; const r=await fetch('/api/admin/reset-rate',{method:'POST',headers:authHeaders()}); const j=await r.json(); $('actionMsg').textContent=r.ok?('reset: ips '+j.reset?.ips+' udid '+j.reset?.udid):('error: '+(j.error||r.status)); });
+$('btnCheckpoint').addEventListener('click', async()=>{ $('actionMsg').textContent='checkpointing…'; const r=await fetch('/api/admin/checkpoint',{method:'POST',headers:authHeaders()}); const j=await r.json(); $('actionMsg').textContent=r.ok?('checkpoint: '+(j.wal||j.status||'ok')):('error: '+(j.error||r.status)); });
+$('btnPurge').addEventListener('click', async()=>{ if(!confirm('Purge activations older than 30 days?')) return; $('actionMsg').textContent='purging…'; const r=await fetch('/api/admin/purge',{method:'POST',headers:authHeaders()}); const j=await r.json(); $('actionMsg').textContent=r.ok?('purged: '+j.purged):('error: '+(j.error||r.status)); if(r.ok) load(); });
+(async()=>{ const t=getToken(); if(t) $('tokenInput').placeholder='token saved — unlock or lock to change'; await load(); })();
+</script>
+</body>
+</html>
+'''
+
+
+
 @app.route('/firmware', methods=['GET'])
 def firmware_page():
     return Response(FIRMWARE_HTML, mimetype='text/html')
@@ -1711,6 +1947,202 @@ def favicon_svg():
 @app.route('/logo.svg', methods=['GET'])
 def logo_svg():
     return static_assets("zalive-logo.svg")
+
+
+# --- Admin gated control panel (ALBERT_ADMIN_TOKEN) ---
+def _get_admin_token():
+    return (os.environ.get("ALBERT_ADMIN_TOKEN") or "").strip()
+
+def _check_admin_auth():
+    expected = _get_admin_token()
+    if not expected:
+        return False, "admin disabled — set ALBERT_ADMIN_TOKEN in .env and restart"
+    # token via header X-Admin-Token, Authorization Bearer, or ?token= query (for browser initial)
+    got = (request.headers.get("X-Admin-Token") or "").strip()
+    if not got:
+        auth = (request.headers.get("Authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            got = auth[7:].strip()
+    if not got:
+        got = (request.args.get("token") or "").strip()
+    if not got:
+        # also check cookie zAlive_admin
+        got = (request.cookies.get("zAlive_admin") or "").strip()
+    if not got:
+        return False, "missing admin token — send X-Admin-Token header"
+    # constant-time compare
+    import hmac
+    if not hmac.compare_digest(got, expected):
+        return False, "invalid admin token"
+    return True, ""
+
+def _admin_required():
+    ok, msg = _check_admin_auth()
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 401
+    return None
+
+@app.route('/admin', methods=['GET'])
+def admin_page():
+    return Response(ADMIN_HTML, mimetype='text/html')
+
+@app.route('/api/admin/status', methods=['GET'])
+def api_admin_status():
+    err = _admin_required()
+    if err:
+        return err
+    # reuse api_status data but add ok flag
+    # call api_status internally
+    with app.test_request_context('/api/status'):
+        # Instead of duplicating, fetch live data via same logic
+        pass
+    # Build minimal status via api_status handler
+    try:
+        from flask import g as _g
+        # reuse logic: call api_status function and extract json
+        resp = api_status()
+        # api_status returns Response(json)
+        data = resp.get_json() if hasattr(resp, 'get_json') else {}
+        # Flask jsonify inside api_status returns Response, need to parse
+        if isinstance(resp, tuple):
+            resp = resp[0]
+        try:
+            j = resp.get_json()
+        except Exception:
+            import json as _json
+            j = _json.loads(resp.get_data(as_text=True))
+        j["ok"] = True
+        return jsonify(j)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route('/api/admin/clear-cache', methods=['POST'])
+def api_admin_clear_cache():
+    err = _admin_required()
+    if err:
+        return err
+    cleared = []
+    try:
+        if FIRMWARE_CACHE.exists():
+            FIRMWARE_CACHE.unlink()
+            cleared.append("firmware_cache.json")
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    # also clear any other caches if present
+    return jsonify({"ok": True, "cleared": ", ".join(cleared) if cleared else "no cache file"})
+
+@app.route('/api/admin/reset-rate', methods=['POST'])
+def api_admin_reset_rate():
+    err = _admin_required()
+    if err:
+        return err
+    before_ip = len(_rate_limit_store)
+    before_udid = len(_rate_limit_udid_store)
+    with _rate_limit_lock:
+        _rate_limit_store.clear()
+        _rate_limit_udid_store.clear()
+    return jsonify({"ok": True, "reset": {"ips": before_ip, "udid": before_udid, "after_ip": 0, "after_udid": 0}})
+
+@app.route('/api/admin/checkpoint', methods=['POST'])
+def api_admin_checkpoint():
+    err = _admin_required()
+    if err:
+        return err
+    import sqlite3 as _sql
+    try:
+        with _sql.connect(str(DB_PATH), timeout=5) as c:
+            c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            c.execute("DELETE FROM activations WHERE id NOT IN (SELECT id FROM activations ORDER BY id DESC LIMIT 10000)")
+            c.commit()
+            wal = c.execute("PRAGMA journal_mode").fetchone()[0]
+        return jsonify({"ok": True, "wal": wal, "status": "checkpoint ok"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route('/api/admin/purge', methods=['POST'])
+def api_admin_purge():
+    err = _admin_required()
+    if err:
+        return err
+    import sqlite3 as _sql
+    try:
+        with _sql.connect(str(DB_PATH), timeout=5) as c:
+            cur = c.execute("DELETE FROM activations WHERE datetime(created_at) < datetime('now','-30 days')")
+            purged = cur.rowcount
+            c.commit()
+        return jsonify({"ok": True, "purged": purged})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+# Premium branded 404 — covers all unknown paths with zAlive UI
+
+@app.route('/api/validate', methods=['GET'])
+def api_validate():
+    """Public validate endpoint — runs same checks as scripts/validate.py but via API (no IPSW hash full read to avoid 8G sync block; returns lightweight)."""
+    import hashlib as _hl
+    import sqlite3 as _sql
+    import pathlib as _pl
+    from datetime import datetime, timezone
+    checks={}
+    # IPSW quick check (existence + size, not full sha256 for speed)
+    try:
+        ipsw = _pl.Path("iPhone11,8_18.7.10_22H374_Restore.ipsw")
+        if ipsw.exists():
+            sz = ipsw.stat().st_size
+            ok = sz > 7_000_000_000
+            checks["ipsw"]={"ok": ok, "msg": f"IPSW {sz/1e9:.1f}GB {'ok' if ok else 'too small'}"}
+        else:
+            checks["ipsw"]={"ok": False, "msg": "IPSW missing"}
+    except Exception as e:
+        checks["ipsw"]={"ok": False, "msg": str(e)}
+    # FairPlay
+    try:
+        from cryptography import x509 as _x509
+        crt = _pl.Path("certs/fairplay.crt")
+        if crt.exists():
+            cert=_x509.load_pem_x509_certificate(crt.read_bytes())
+            days=(cert.not_valid_after_utc - datetime.now(timezone.utc)).days
+            checks["fairplay"]={"ok": days>30, "msg": f"NotAfter {cert.not_valid_after_utc.date()} {days}d"}
+        else:
+            checks["fairplay"]={"ok": False, "msg": "cert missing"}
+    except Exception as e:
+        checks["fairplay"]={"ok": False, "msg": str(e)}
+    # DB
+    try:
+        db=_pl.Path("logs/activations.db")
+        with _sql.connect(str(db), timeout=5) as c:
+            cnt=c.execute("SELECT count(*) FROM activations").fetchone()[0]
+            checks["db"]={"ok": True, "msg": f"{cnt} rows"}
+    except Exception as e:
+        checks["db"]={"ok": False, "msg": str(e)}
+    # Env
+    try:
+        from dotenv import dotenv_values as _dv
+        vals=_dv(".env") if _pl.Path(".env").exists() else {}
+        ok=bool(vals.get("ALBERT_ADMIN_TOKEN") and not vals["ALBERT_ADMIN_TOKEN"].startswith("change-me"))
+        checks["env"]={"ok": ok, "msg": "ALBERT_ADMIN_TOKEN set" if ok else "ALBERT_ADMIN_TOKEN not set"}
+    except Exception as e:
+        checks["env"]={"ok": False, "msg": str(e)}
+    # API self-check via test_client (reports 200 for core)
+    try:
+        with app.test_client() as _c:
+            ok = _c.get("/health").status_code==200 and _c.get("/dashboard").status_code==200
+            checks["api"]={"ok": ok, "msg": "self-check health+dashboard 200" if ok else "self-check fail"}
+    except Exception as e:
+        checks["api"]={"ok": False, "msg": str(e)}
+    # Logs
+    checks["logs"]={"ok": (_pl.Path("logs/albert.log").exists() or _pl.Path("/tmp/albert.log").exists()), "msg": "logs/albert.log present"}
+    ok_all = all(v["ok"] for v in checks.values())
+    return jsonify({"ok": ok_all, "checks": checks, "ts": datetime.now(timezone.utc).isoformat()})
+
+@app.errorhandler(404)
+def handle_404(e):
+    # if request prefers json (API), return json 404; else branded html
+    wants_json = request.path.startswith("/api/") or "application/json" in (request.headers.get("Accept") or "")
+    if wants_json:
+        return jsonify({"error": "not found", "path": request.path, "hint": "try /dashboard, /firmware, /admin, /health"}), 404
+    return Response(NOTFOUND_HTML, status=404, mimetype='text/html')
+
 
 @app.route('/api/devices', methods=['GET'])
 def api_devices():

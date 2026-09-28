@@ -47,3 +47,6 @@ logs/
 # Local runtime data
 .tmp/
 tmp/
+
+# idevicerestore probe logs — keep only real device (00008020-*) start-activate, ignore bulk numeric probes
+restore_179*.log
