@@ -1,13 +1,15 @@
-.PHONY: test lint bandit compose-check
+SHELL := /bin/sh
 
-test:
-	PYTHONPATH=. pytest -q
+.PHONY: help validate-template setup format lint test build security ci
 
-lint:
-	ruff check .
+help:
+	@printf '%s\n' 'Template: validate-template' 'Project (configure before use): setup format lint test build security ci' 'Bootstrap: python3 scripts/bootstrap.py --help'
 
-bandit:
-	bandit -r . --exclude ./venv
+validate-template:
+	python3 -m unittest discover -s tests -v
 
-compose-check:
-	docker compose config -q
+setup format lint test build security:
+	@echo 'This is a template placeholder: implement this target for your actual project; do not treat it as a passing check.' >&2
+	@exit 2
+
+ci: validate-template lint test build security

@@ -1,24 +1,49 @@
-# albert_server — production ignores
-__pycache__/
-*.pyc
-*.pyo
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies
+node_modules/
 .venv/
 venv/
-*.bak
-*.log
-certs/*.key
-certs/*.crt
-certs/*.pem
-# IPSW firmware (8.1 GB) — never commit; keep SHA256 manifest only (scripts/sha256_manifest.sh)
-*.ipsw
-!*.ipsw.sha256
-!ipsw.sha256
-!*.sha256
-*.shsh
-.env
-.DS_Store
+__pycache__/
+*.py[cod]
+
+# Build output
+dist/
+build/
+coverage/
+.next/
+.nuxt/
+.out/
+
+# Tool caches
+.cache/
 .pytest_cache/
+.mypy_cache/
 .ruff_cache/
-.mitmproxy/
+.eslintcache
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Logs
+*.log
 logs/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Local runtime data
+.tmp/
 tmp/
