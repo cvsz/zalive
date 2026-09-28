@@ -26,6 +26,7 @@ if [[ ! -d "venv" ]]; then
     ./setup.sh
 fi
 mkdir -p logs
+./scripts/cleanup_logs.sh 2>/dev/null || true
 source venv/bin/activate
 
 # Risk gate: no bypass without ALBERT_ACCEPT_RISK=1 (see SECURITY.md, NOTICE)
