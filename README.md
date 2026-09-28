@@ -422,6 +422,23 @@ python activate_device.py --albert-url http://127.0.0.1:18090 --udid 00008020-00
 
 
 
+## Firmware Pages (any iPhone)
+
+Live catalog from `https://api.ipsw.me/v4/device/{ProductType}` cached `1h` in `logs/firmware_cache.json` (`0600`) + local scan `*.ipsw` overlay.
+
+- `GET /firmware` — dark table: Version | Build | Released | Size | Signed `✓`/`✗` | Local `✅` | Download `⬇` (Apple `url`). Dropdown curated `iPhone11,8` XR · `iPhone12,1` 11 · `iPhone13,2` 12 · `iPhone14,5` 13 · `iPhone15,2` 14 Pro + search filter, `cached`/`stale` banner.
+- `GET /api/devices` → `{"devices": [5]}` (curated `identifier/name/chip/internal`).
+- `GET /api/firmwares?productType=iPhone13,2` → `{"firmwares": [...], "local": [...], "cached": bool, "fetchedAt": iso, "stale": bool}` — `400` if `^iPhone\d+,\d+$` fails, `502` if upstream down and no cache, `8s` timeout.
+
+Any-iPhone: `GET /api/status` `device` now reads last `activations` row’s `producttype` (fallback XR `MT1A2TH/A 00008020-001224C81178002E`); dashboard header `Albert — Any iPhone`.
+
+Try:
+```bash
+curl -s http://127.0.0.1:18090/api/devices | python3 -m json.tool
+curl -s "http://127.0.0.1:18090/api/firmwares?productType=iPhone11,8" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['firmwares']), d['firmwares'][0]['version'])"
+# open http://127.0.0.1:18090/firmware (also http://0.0.0.0:18090/firmware)
+```
+
 ## References
 
 - [libimobiledevice](https://libimobiledevice.org/)
