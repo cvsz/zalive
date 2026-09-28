@@ -1,40 +1,20 @@
-# Roadmap
+# Roadmap — albert_server
 
-This template is intended to stay generic while providing production-grade repository foundations.
+Derived from `zTemplate` foundation, now `albert_server` product `v0.1.0 2026-09-28` (`5e04f52`).
 
-## Foundation
+## Foundation — done
+- [x] Repository docs, security, issue/PR templates, CI `ruff/bandit/pytest` 18, Dependabot, release workflow, `Dockerfile` `USER app` `HEALTHCHECK`, `architecture.md` (133 lines) + `docs/superpowers/specs` curated.
 
-- [x] Repository documentation baseline
-- [x] Security and contribution policies
-- [x] Issue and pull request templates
-- [x] CI and security workflow baseline
-- [x] Dependabot configuration
-- [x] Release workflow
-- [x] Docker and task-runner placeholders
-- [x] Architecture and development documentation structure
+## Reusable first-project startup — done (not re-bootstrapped)
+- [x] `zTemplate` `5e04f52` merged via `allow-unrelated-histories` (kept `README` Local Albert, not generic).
+- [x] `docs/profiles.md` curated any-iPhone, `docs/startup.md` `18090` quick start, `IMPLEMENTATION-CHECKLIST.md` updated (GPG 18 tests).
+- [ ] `Makefile` placeholder still → next: real `make test/lint/security/build/ci`.
+- [ ] `.env.example` stale (`APP_ENV 3000`) → next: `ALBERT_HTTP_PORT/FAIRPLAY...`.
 
-## Reusable first-project startup
+## Product backlog (P2) — next
+- [x] Any-iPhone curated `XR+12/13/14/15` + `albert_server` dynamic `producttype` + `dashboard Any iPhone`.
+- [x] Firmware pages `/firmware` live `ipsw.me` cache 1h + local overlay.
+- [ ] Language adapters (python `3.14-slim` `3.14.4` already validated; add `3.11/3.12` matrix optional).
+- [ ] E2E fixture: `idevicerestore -e -y iPhone11,8_18.7.10_22H374_Restore.ipsw` needs USB `05ac` (VM passthrough) — blocked, `Unable to discover device mode` preserved.
+- [ ] Distributed `Redis` `100/min` per-IP + per-UDID, `Postgres` option, `OTEL` traces, `mTLS`, `trivy fs` `SBOM`, `cosign`.
 
-- [x] Identity bootstrap with dry-run, explicit apply and idempotence
-- [x] Safe ownership and security issue-link replacement
-- [x] Optional project profiles and adoption guide
-- [x] Bootstrap tests in baseline CI
-- [ ] Choose and validate production-capable per-stack adapters in generated repositories
-- [ ] Add end-to-end fixture verification for each adopted stack
-
-## Future optional modules
-
-- [ ] Language-specific starter packs
-- [ ] Infrastructure-as-code starter packs
-- [ ] Kubernetes and Helm starter packs
-- [ ] SBOM and provenance workflows
-- [ ] Release signing and artifact attestation
-- [ ] OpenSSF Scorecard workflow
-- [ ] Container vulnerability scanning
-- [ ] Documentation site starter
-- [ ] Monorepo profile
-- [ ] Service/API profile
-- [ ] Web application profile
-- [ ] Library/SDK profile
-
-Generated repositories should adopt only the modules appropriate to their stack and threat model.
