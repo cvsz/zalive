@@ -1,0 +1,29 @@
+name: CI
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff bandit pytest
+      - name: Lint (ruff)
+        run: ruff check .
+      - name: Security (bandit)
+        run: bandit -r . --exclude ./venv
+      - name: Tests (pytest)
+        run: pytest -q
+      - name: Docker compose config
+        run: docker compose config

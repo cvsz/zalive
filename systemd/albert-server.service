@@ -1,0 +1,20 @@
+[Unit]
+Description=Albert Activation Server
+After=network.target
+Wants=network.target
+
+[Service]
+User=cvsz
+WorkingDirectory=/home/cvsz/albert_server
+ExecStart=/home/cvsz/albert_server/venv/bin/gunicorn -c /home/cvsz/albert_server/gunicorn_conf.py albert_server:app
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/home/cvsz/albert_server/.env
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

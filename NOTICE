@@ -1,0 +1,52 @@
+NOTICE — albert_server
+
+This project implements a local emulator of Apple's Albert activation service
+(albert.apple.com) and a mitmproxy interceptor (firmware_restore_proxy.py) for
+iOS firmware restore testing. It is provided for educational and research
+purposes and for activating devices you own or have explicit permission to test.
+
+Apple Trademark and Terms of Service Disclaimer
+-----------------------------------------------
+Apple, iPhone, iOS, albert.apple.com, gs.apple.com, FairPlay, MobileActivation,
+and related marks are trademarks of Apple Inc. This project is not affiliated
+with, endorsed by, or sponsored by Apple Inc. Use of this software to contact,
+emulate, intercept, or bypass Apple activation servers may violate Apple's Terms
+of Service, Software License Agreements, and applicable carrier or
+anti-circumvention laws (including but not limited to the DMCA in the United
+States and similar statutes elsewhere). The authors make no representation that
+bypassing activation is lawful in your jurisdiction.
+
+Intended Use and Operator Responsibility
+----------------------------------------
+- Only use this software on devices you own or have explicit, documented
+  permission to test (lab, enterprise MDM, or right-to-repair context).
+- Bypassing Activation Lock or carrier lock on lost, stolen, or otherwise
+  unauthorized devices is illegal and is not supported.
+- Do not use this software to circumvent iCloud Lock, carrier entitlement, or
+  payment obligations. Session-based activation (drmHandshake / FairPlay) is a
+  placeholder and does not grant entitlements from Apple.
+- You are responsible for complying with export controls on cryptography and for
+  securing key material (certs/fairplay.key, certs/server.key — see SECURITY.md
+  Key Management (0600)).
+- Operation requires explicit acknowledgement of risk: set
+  ALBERT_ACCEPT_RISK=1 in the environment (see SECURITY.md, .env.example,
+  docs/RUNBOOK.md). No bypass is performed without that variable.
+
+No Warranty; No Apple Warranty
+------------------------------
+See LICENSE (MIT). The software is provided "AS IS" without warranty. Apple
+provides no warranty for devices activated through this local server, and Apple
+may refuse service for devices with non-genuine activation records.
+
+Third-Party Components
+---------------------
+- libimobiledevice, libideviceactivation, pymobiledevice3, mitmproxy, Flask,
+  cryptography, pyOpenSSL, gunicorn, and other packages listed in
+  requirements.txt retain their own licenses (MIT, LGPL, BSD, Apache-2.0, etc.).
+  Consult each package's license in the virtual environment or upstream repository.
+- The IPSW file iPhone11,8_18.7.10_22H374_Restore.ipsw (8.1 GB) is Apple-copyrighted
+  firmware and is not distributed with this repository. The repository stores only
+  a SHA256 manifest (scripts/sha256_manifest.sh) and ignores *.ipsw via .gitignore.
+
+If you are unsure whether your use is permitted, seek legal counsel before running
+the activation endpoints.

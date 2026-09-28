@@ -1,0 +1,24 @@
+# albert_server — production ignores
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.bak
+*.log
+certs/*.key
+certs/*.crt
+certs/*.pem
+# IPSW firmware (8.1 GB) — never commit; keep SHA256 manifest only (scripts/sha256_manifest.sh)
+*.ipsw
+!*.ipsw.sha256
+!ipsw.sha256
+!*.sha256
+*.shsh
+.env
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+.mitmproxy/
+logs/
+tmp/
