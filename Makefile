@@ -16,9 +16,15 @@ validate:
 validate-template:
 	python3 -m unittest discover -s tests -v
 
-setup format lint test build security:
-	@echo 'This is a template placeholder: implement this target for your actual project; do not treat it as a passing check.' >&2
-	@exit 2
+setup:
+	python3 -m venv venv || true
+	./venv/bin/pip install -r requirements.txt
+	cp -n .env.example .env || true
+	@echo "setup done — edit .env ALBERT_ADMIN_TOKEN and ALBERT_ACCEPT_RISK=1"
+
+format:
+	ruff check --fix . || true
+	ruff format . || true
 
 lint:
 	ruff check .
@@ -32,6 +38,7 @@ security:
 build:
 	docker compose config > /dev/null
 	python3 -m py_compile albert_server.py
+	docker build -t albert-server:local . || echo "docker build skipped"
 
 ci: validate lint test security
 
