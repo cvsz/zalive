@@ -26,7 +26,7 @@ from cryptography.x509.oid import NameOID
 from flask import Flask, request, Response, jsonify, g
 from werkzeug.exceptions import RequestEntityTooLarge
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", static_url_path="/__static_disabled")
 # Production hardening: request size limit (P0-3), env-driven port
 app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('ALBERT_MAX_CONTENT_LENGTH', str(512*1024)))
 FAIRPLAY_KEY_PATH = os.environ.get('FAIRPLAY_KEY_PATH', 'certs/fairplay.key')
@@ -1405,7 +1405,9 @@ DASHBOARD_HTML = r'''<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Albert — Any iPhone Restore Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="alternate icon" type="image/png" href="/static/zalive-icon.svg">
+<title>zAlive — Albert — Any iPhone Restore Dashboard</title>
 <style>
 :root { --bg:#0b0f14; --card:#151a21; --border:#232b36; --accent:#3b82f6; --ok:#16a34a; --warn:#eab308; --bad:#dc2626; --text:#e5e7eb; --muted:#94a3b8; }
 *{box-sizing:border-box} body{margin:0;font-family: -apple-system,Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text)}
@@ -1436,7 +1438,12 @@ a{color:var(--accent);text-decoration:none}
 </head>
 <body>
 <header>
-  <h1>Albert — Any iPhone <span style="color:var(--muted);font-weight:400">· iPhone11,8 · 18090</span></h1>
+  <div style="display:flex;align-items:center;gap:12px">
+    <a href="/dashboard" style="display:flex;align-items:center;gap:10px;text-decoration:none" aria-label="zAlive home">
+      <img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px;width:auto;display:block" loading="eager" decoding="async">
+    </a>
+    <h1 style="font-size:15px;margin:0;font-weight:600;letter-spacing:.3px">Albert — Any iPhone <span style="color:var(--muted);font-weight:400">· iPhone11,8 · 18090</span></h1>
+  </div>
   <div style="display:flex;gap:8px;align-items:center">
     <span id="healthPill" class="pill">checking…</span>
     <span id="clock" class="pill">--:--:--</span>
@@ -1481,7 +1488,7 @@ a{color:var(--accent);text-decoration:none}
     </div>
   </div>
 </div>
-<div class="footer">Local Albert — owned devices only · <span id="ver">1.1-fixed</span> · <a href="/dashboard">dashboard</a> auto-refresh 2s · gunicorn 2×4 · 127.0.0.1:18090 · See <a href="/docs/RUNBOOK.md" target="_blank">RUNBOOK</a> · <a href="http://127.0.0.1:8081" target="_blank">mitmproxy 8081</a></div>
+<div class="footer"> <span style="display:inline-flex;align-items:center;gap:6px"><img src="/static/zalive-icon.svg" alt="" style="height:14px;width:14px;vertical-align:middle" loading="lazy"> zAlive</span> · Local Albert — owned devices only · <span id="ver">1.1-fixed</span> · <a href="/dashboard">dashboard</a> auto-refresh 2s · gunicorn 2×4 · 127.0.0.1:18090 · See <a href="/docs/RUNBOOK.md" target="_blank">RUNBOOK</a> · <a href="http://127.0.0.1:8081" target="_blank">mitmproxy 8081</a></div>
 <script>
 const $ = id => document.getElementById(id);
 const redact = s => s ? s.slice(0,4)+"..."+s.slice(-4) : "-";
@@ -1498,7 +1505,7 @@ async function tick(){
     $('serverD').textContent = (j.health.server||'albert-local') + ' ' + (j.health.version||'') + ' · ' + (j.env.ALBERT_HOST||'127.0.0.1') + ' · ' + j.now;
     $('fpV').innerHTML = (j.fairplay.loaded?'<span class="badge ok">loaded 0600</span>':'<span class="badge bad">missing</span>') + ' <small>'+ (j.fairplay.persisted?'persisted':'ephemeral') +'</small>';
     $('fpD').textContent = 'NotAfter ' + j.fairplay.notAfter + ' · Serial ' + j.fairplay.serial.slice(0,12) +'… · ' + j.fairplay.subject.slice(0,40);
-    $('metrics').textContent = 'activations ' + j.metrics.activations + ' · failures ' + j.metrics.failures + ' · up ' + j.metrics.up + '\nrate IPs ' + j.rate.ips + ' · WAL ' + j.db.wal;
+    $('metrics').textContent = 'activations ' + j.metrics.activations + ' · failures ' + j.metrics.failures + ' · up ' + j.metrics.up + '\nrate IPs ' + (j.rate?.ips ?? 0) + ' · WAL ' + j.db.wal;
     // device
     const d=j.device;
     $('device').innerHTML = '<b>'+d.ProductType+'</b> '+d.ModelNumber+' · SN '+d.SerialNumber+' · UDID '+redact(d.UDID)+' · EID '+d.EID.slice(0,8)+'…'+d.EID.slice(-4)+' · IMEI '+d.IMEI.slice(0,3)+'...'+d.IMEI.slice(-3)+' / '+d.IMEI2.slice(0,3)+'...'+d.IMEI2.slice(-3)+' · '+d.Storage;
@@ -1514,7 +1521,7 @@ async function tick(){
       tbody.appendChild(tr);
     });
     if(!j.activations.length) tbody.innerHTML='<tr><td colspan=5 class="mono" style="color:var(--muted)">no activations yet — run activate_device.py --method direct</td></tr>';
-    $('rl').textContent = 'IPs ' + j.rate.ips + ' · sample ' + (j.rate.sample||'-');
+    $('rl').textContent = 'IPs ' + (j.rate?.ips ?? 0) + ' · sample ' + (j.rate?.sample||'-');
     $('ver').textContent = j.health.version;
   }catch(e){
     $('healthPill').textContent='fetch error';
@@ -1557,7 +1564,9 @@ FIRMWARE_HTML = r'''<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Albert — Firmware</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="alternate icon" type="image/png" href="/static/zalive-icon.svg">
+<title>zAlive — Albert — Firmware</title>
 <style>
 :root{--bg:#0b0f14;--card:#151a21;--border:#232b36;--accent:#3b82f6;--ok:#16a34a;--warn:#eab308;--bad:#dc2626;--text:#e5e7eb;--muted:#94a3b8}
 *{box-sizing:border-box}body{margin:0;font-family: -apple-system,Inter,system-ui,sans-serif;background:var(--bg);color:var(--text)}
@@ -1578,7 +1587,10 @@ a{color:var(--accent);text-decoration:none}
 </head>
 <body>
 <header>
-  <h1>Albert — Firmware <span style="color:var(--muted);font-weight:400">· curated 5→15 Pro (13) · ipsw.me live cache 1h</span></h1>
+  <a href="/dashboard" style="display:flex;align-items:center;gap:8px;text-decoration:none" aria-label="zAlive home">
+    <img src="/static/zalive-logo.svg" alt="zAlive" style="height:26px;width:auto;display:block" loading="eager" decoding="async">
+  </a>
+  <h1 style="font-size:15px;margin:0;font-weight:600">Albert — Firmware <span style="color:var(--muted);font-weight:400">· curated 5→15 Pro (13) · ipsw.me live cache 1h</span></h1>
   <select id="product"></select>
   <input id="q" placeholder="Search version / build">
   <span id="status" style="color:var(--muted);font-size:12px"></span>
@@ -1653,6 +1665,52 @@ async function loadFw(){
 @app.route('/firmware', methods=['GET'])
 def firmware_page():
     return Response(FIRMWARE_HTML, mimetype='text/html')
+
+# zAlive static assets — logo/favicon — served from ./static (no path traversal)
+@app.route('/static/<path:filename>', methods=['GET'])
+def static_assets(filename):
+    # safe against traversal: resolve inside static dir only
+    base = pathlib.Path(__file__).resolve().parent / "static"
+    # normalize and block .. and absolute
+    if ".." in pathlib.Path(filename).parts or filename.startswith("/"):
+        return jsonify({"error": "invalid path"}), 400
+    target = base / filename
+    # ensure resolved is inside base
+    try:
+        target.resolve().relative_to(base.resolve())
+    except Exception:
+        return jsonify({"error": "forbidden"}), 403
+    if not target.is_file():
+        return jsonify({"error": "not found"}), 404
+    # mimetype by suffix
+    suffix = target.suffix.lower()
+    mime = {
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".ico": "image/x-icon",
+        ".webp": "image/webp",
+        ".css": "text/css",
+        ".js": "application/javascript",
+    }.get(suffix, "application/octet-stream")
+    # 1h cache for immutable assets, immutable for svg
+    resp = Response(target.read_bytes(), mimetype=mime)
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    # security: svg is safe inline
+    return resp
+
+@app.route('/favicon.ico', methods=['GET'])
+def favicon_ico():
+    return static_assets("zalive-icon.svg")
+
+@app.route('/favicon.svg', methods=['GET'])
+def favicon_svg():
+    return static_assets("favicon.svg")
+
+@app.route('/logo.svg', methods=['GET'])
+def logo_svg():
+    return static_assets("zalive-logo.svg")
 
 @app.route('/api/devices', methods=['GET'])
 def api_devices():
@@ -1811,7 +1869,7 @@ def api_status():
                 rate["sample"] = f"{k[:6]}...:{len(v)}"
     except Exception:
         pass
-    return jsonify({"now": now, "health": health, "ready": ready, "fairplay": fair, "metrics": metrics, "activations": acts, "device": device, "usb": usb, "ipsw": ipsw_info, "env": env, "db": {"wal": metrics["wal"]}})
+    return jsonify({"now": now, "health": health, "ready": ready, "fairplay": fair, "metrics": metrics, "activations": acts, "device": device, "usb": usb, "ipsw": ipsw_info, "env": env, "db": {"wal": metrics["wal"]}, "rate": rate})
 
 @app.route('/api/rate_status', methods=['GET'])
 def api_rate_status():
