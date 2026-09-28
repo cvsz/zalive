@@ -369,6 +369,57 @@ albert_server/
 
 MIT License — see `LICENSE`. For educational and research purposes only. Apple ToS disclaimer in `NOTICE`.
 
+## What we can do now (after prod hardening)
+
+**Live stack (verified `18090`):**
+- `GET /health` → `ok` (liveness), `GET /ready` → `fairplay_loaded:true` (readiness, `503` if key missing), `GET /metrics` → `prometheus_client` (`albert_up`, `activations`)
+- `POST /deviceservices/drmHandshake` (session mode) + `POST /deviceservices/deviceActivation` (form `activation-info` base64 or raw plist) → signed `iphone-activation.activation-record` + `ARS` header; no `b""` crashes (fallback placeholder cert if CSR missing)
+- Proxy: `firmware_restore_proxy.py` intercepts only `albert.apple.com` (TSS `gs.apple.com` passes through to Apple), env-driven `LOCAL_ALBERT_HOST/PORT/SCHEME`
+- Persistence: FairPlay key `certs/fairplay.key` `0600` persisted across restarts (was ephemeral), SQLite `logs/activations.db` WAL (audit trail), IPSW `8.1 GB` `b30474b...` manifest `*.sha256` not committed
+- Runtime: `gunicorn -c gunicorn_conf.py` `gthread 2×4 timeout 30` (dev `python albert_server.py` still works), `Dockerfile python:3.14-slim tini USER app read_only:true cap_drop:ALL 0600`, `docker-compose.yml` `127.0.0.1` binds + `healthcheck`
+- Security: `MAX_CONTENT_LENGTH=512KB` → `413 json`, per-IP rate limit `100/min` → `429`, UDID/IMEI validation → `400`, `X-Request-ID` UUID echo + JSON logs, `SECURITY.md` risk gate `ALBERT_ACCEPT_RISK=1`, `Bandit` clean (`nosec B303/B324` Apple SHA1 spec), `0600` keys
+- Client: `activate_device.py` base64 fix + retries `3` exponential `1s/2s/4s` for `413/429/5xx/timeout`, `X-Request-ID`, `UDID/IMEI` validation, `--json`/`--timeout`/`--retries` flags, structured logs
+- Tests/CI: `tests/test_albert.py` `12 passed` (`health/ready/metrics/drm/with/without CSR/invalid/size/options/rate-limit/invalid-imei/persistence`), `ruff All checks passed`, `bandit 0`, `docker compose config ok`, `venv py_compile OK`, `make test`
+
+**Try now:**
+```bash
+cp .env.example .env  # then ALBERT_ACCEPT_RISK=1 + MITMPROXY_WEB_PASSWORD=$(openssl rand -base64 24)
+chmod 600 .env
+./start.sh prod  # or: docker compose up -d --build
+curl -s http://127.0.0.1:18090/health | grep ok
+curl -s http://127.0.0.1:18090/ready
+curl -s http://127.0.0.1:18090/metrics | head
+pytest -q  # 12 passed
+./scripts/sha256_manifest.sh --check
+# Restore (needs USB passthrough, otherwise "Unable to discover device mode"):
+idevice_id -l  # or irecovery -a / lsusb 05ac
+idevicerestore -e -y iPhone11,8_18.7.10_22H374_Restore.ipsw
+python activate_device.py --albert-url http://127.0.0.1:18090 --udid 00008020-AAAAAAAAAAAAAAAA --json
+```
+
+## What next (roadmap, P2 polish)
+
+**Reliability:**
+- Distributed rate limit (Redis) + per-UDID limit (currently per-IP in-memory, per-worker isolated)
+- SQLite → Postgres for multi-host, plus `GET /admin/activations` (auth) + retention rotation
+- `ALBERT_PASSTHROUGH=1` for real DRM when FairPlay placeholder insufficient on A12+ iOS 18 `mobileactivationd`
+
+**Observability:**
+- `prometheus_client` counters already wired → add Grafana dashboard + alert `albert_up==0` / `rate(albert_activation_failures_total[5m])>0.05`
+- OpenTelemetry traces for `drmHandshake→deviceActivation` correlation by `X-Request-ID`
+
+**Security:**
+- Replace SHA1 ARS with stronger + `nosec` doc, add mTLS for proxy→Albert, rotate FairPlay via `albert_server.py --rotate-fairplay`
+- Wire `tenacity` (dead import removed) or keep manual loop + add circuit breaker
+
+**Ops:**
+- `systemd/albert-server.service` already exists → `systemctl enable --now`; add `launchd` for macOS
+- Supply pin with hashes (`pip-tools`), `trivy fs` scan in CI
+
+**Compliance:** keep `NOTICE` Apple ToS / owned-devices-only; `ALBERT_ACCEPT_RISK=1` gate already enforced
+
+
+
 ## References
 
 - [libimobiledevice](https://libimobiledevice.org/)
