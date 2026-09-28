@@ -1,5 +1,8 @@
 # Runbook — Local Albert Production
 
+## Dashboard
+- Open `http://127.0.0.1:18090/dashboard` (also `http://0.0.0.0:18090/dashboard` in docker) — 2s poll shows health/ready/fairplay, iPhone XR identity (redacted), USB, IPSW, recent activations (SQLite), rate, logs tail. APIs: `/api/status`, `/api/activations?limit=5`, `/api/logs?lines=60`, `/` lists endpoints.
+
 ## Health
 - `curl http://127.0.0.1:18090/health` → 200 liveness
 - `curl http://127.0.0.1:18090/ready` → 200 when FairPlay key loaded, 503 otherwise
