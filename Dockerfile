@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.4
 # albert_server — production Dockerfile (python:3.13-slim, non-root, read-only)
 # Validated: pip hash-checked, gcc only in builder, no secrets copied, OCI labels, tini, healthcheck
-FROM python:3.13-slim AS builder
+FROM python:3.14-slim AS builder
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 COPY requirements.txt .
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc python3-dev
     && apt-get purge -y gcc python3-dev \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 
-FROM python:3.13-slim
+FROM python:3.14-slim
 LABEL org.opencontainers.image.title="albert_server" \
       org.opencontainers.image.description="Local Albert albert.apple.com emulator for iPhone XR restore" \
       org.opencontainers.image.source="https://github.com/cvsz/zalive" \
