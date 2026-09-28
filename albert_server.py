@@ -2246,19 +2246,9 @@ def api_admin_status():
     err = _admin_required()
     if err:
         return err
-    # reuse api_status data but add ok flag
-    # call api_status internally
-    with app.test_request_context('/api/status'):
-        # Instead of duplicating, fetch live data via same logic
-        pass
-    # Build minimal status via api_status handler
+    # Return same payload as /api/status but with ok flag; call handler directly (no test_request_context)
     try:
-        from flask import g as _g
-        # reuse logic: call api_status function and extract json
         resp = api_status()
-        # api_status returns Response(json)
-        data = resp.get_json() if hasattr(resp, 'get_json') else {}
-        # Flask jsonify inside api_status returns Response, need to parse
         if isinstance(resp, tuple):
             resp = resp[0]
         try:
@@ -2266,9 +2256,11 @@ def api_admin_status():
         except Exception:
             import json as _json
             j = _json.loads(resp.get_data(as_text=True))
-        j["ok"] = True
+        if isinstance(j, dict):
+            j["ok"] = True
         return jsonify(j)
     except Exception as e:
+        logger.warning(f"api_admin_status error: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route('/api/admin/clear-cache', methods=['POST'])
