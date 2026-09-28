@@ -381,7 +381,7 @@ MIT License — see `LICENSE`. For educational and research purposes only. Apple
 - Client: `activate_device.py` base64 fix + retries `3` exponential `1s/2s/4s` for `413/429/5xx/timeout`, `X-Request-ID`, `UDID/IMEI` validation, `--json`/`--timeout`/`--retries` flags, structured logs
 - Tests/CI: `tests/test_albert.py` `12 passed` (`health/ready/metrics/drm/with/without CSR/invalid/size/options/rate-limit/invalid-imei/persistence`), `ruff All checks passed`, `bandit 0`, `docker compose config ok`, `venv py_compile OK`, `make test`
 
-**Dashboard realtime (new):** `http://127.0.0.1:18090/dashboard` — dark UI, 2s poll `/api/status` (health/ready/fairplay 0600, metrics `activations/wal`, iPhone XR `MT1A2TH/A` redacted `0000...002E`, USB `05ac`, IPSW `b304...`) + `/api/activations` (SQLite WAL 5 recent) + `/api/logs?lines=60` tail, auto-refresh. `GET /` now lists `["/dashboard","/api/status","/health",...]`.
+**Dashboard realtime (new):** `http://192.168.1.123:18090/dashboard (LAN) + http://127.0.0.1:18090/dashboard` — dark UI, 2s poll `/api/status` (health/ready/fairplay 0600, metrics `activations/wal`, iPhone XR `MT1A2TH/A` redacted `0000...002E`, USB `05ac`, IPSW `b304...`) + `/api/activations` (SQLite WAL 5 recent) + `/api/logs?lines=60` tail, auto-refresh. `GET /` now lists `["/dashboard","/api/status","/health",...]`.
 
 **Try now:**
 ```bash
@@ -422,6 +422,16 @@ python activate_device.py --albert-url http://127.0.0.1:18090 --udid 00008020-00
 
 
 
+## Local LAN view (192.168.1.123)
+Host `ens33 192.168.1.123/24` already bound `0.0.0.0:18090` — open from any LAN device (phone/laptop):
+```bash
+open http://192.168.1.123:18090/dashboard
+open http://192.168.1.123:18090/firmware
+curl -s http://192.168.1.123:18090/api/devices | python3 -m json.tool
+curl -s "http://192.168.1.123:18090/api/firmwares?productType=iPhone11,8" | python3 -m json.tool | head
+```
+No extra proxy needed — `0.0.0.0:18090` serves `127.0.0.1` + `192.168.1.123` + `0.0.0.0` via `ens33`.
+
 ## Firmware Pages (any iPhone)
 
 Live catalog from `https://api.ipsw.me/v4/device/{ProductType}` cached `1h` in `logs/firmware_cache.json` (`0600`) + local scan `*.ipsw` overlay.
@@ -436,7 +446,7 @@ Try:
 ```bash
 curl -s http://127.0.0.1:18090/api/devices | python3 -m json.tool
 curl -s "http://127.0.0.1:18090/api/firmwares?productType=iPhone11,8" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['firmwares']), d['firmwares'][0]['version'])"
-# open http://127.0.0.1:18090/firmware (also http://0.0.0.0:18090/firmware)
+# open http://192.168.1.123:18090/firmware (LAN) + http://127.0.0.1:18090/firmware (also http://0.0.0.0:18090/firmware)
 ```
 
 ## References
