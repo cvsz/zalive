@@ -49,6 +49,7 @@ Keys are `0600` persisted; backup `certs/` before rotation.
 ## mTLS (proxy → Albert)
 - Toggle via `.env` `ALBERT_MTLS_CA=/path/to/ca.pem` (CA bundle that signed `ALBERT_MTLS_CERT`).
 - Proxy must present client cert: `ALBERT_MTLS_CERT`/`ALBERT_MTLS_KEY` in `firmware_restore_proxy.py` env.
+- HTTP-mode header-only (`X-Client-Cert: present/mtls`) is spoofable; proxy now forwards real PEM or `X-MTLS-Token` (`ALBERT_MTLS_TOKEN`) when set. For production use `LOCAL_ALBERT_SCHEME=https` + gunicorn TLS so `SSL_CLIENT_VERIFY=SUCCESS` (real mTLS). Header fallback is gated by `ALBERT_MTLS_ALLOW_HEADER_FALLBACK` (`1` allows localhost header, `0` rejects spoofable path).
 - `gunicorn_conf.py` reads `ALBERT_MTLS_CA` at **import time** (`cert_reqs=2`), not per-request. Changing the var requires full restart:
   ```bash
   sudo systemctl restart albert-server  # systemd
@@ -61,7 +62,7 @@ Keys are `0600` persisted; backup `certs/` before rotation.
 
 ## Rate limiting
 - Defaults `100/min per IP` + `10/min per UDID` (env `ALBERT_REDIS_URL` → Redis `INCR+EXPIRE` distributed, else in-memory per-worker).
-- When `ALBERT_REDIS_URL` is set but Redis is unreachable, server logs `WARNING Redis rate limit degraded to in-memory...` and falls back to per-process in-memory (2 workers → effective `200/min` per IP). To fail closed set `ALBERT_REDIS_REQUIRED=1` (future).
+- When `ALBERT_REDIS_URL` is set but Redis is unreachable, server logs `WARNING Redis rate limit failed ... falling back to in-memory (request_id=...)` and falls back to per-process in-memory (2 workers → effective `200/min` per IP). Set `ALBERT_REDIS_FAIL_CLOSED=1` to fail closed with `429` instead of degraded fallback.
 - Inspect: `curl http://127.0.0.1:18090/api/rate_status` or `GET /api/validate`.
 
 ## Logs

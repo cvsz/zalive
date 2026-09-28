@@ -5,6 +5,7 @@
 #        or mitmweb -s firmware_restore_proxy.py --set block_global=false
 from mitmproxy import http, ctx
 import os
+import pathlib
 
 # Only intercept activation hosts locally; TSS/gs.apple.com should go to Apple unless you run a local TSS server.
 # Previous version incorrectly redirected gs.apple.com, osrecovery, etc. to local Albert which breaks restore.
@@ -88,10 +89,38 @@ class FirmwareRestoreProxy:
         key = os.environ.get("ALBERT_MTLS_KEY", "").strip()
         if ca and (cert or key):
             try:
-                # mitmproxy option client_certs expects paths; set if available
+                # mitmproxy 11+ expects client_certs to be a DIRECTORY containing cert+key,
+                # not a file. Create/copy into a temp dir when cert+key are files.
+                import pathlib as _pl
                 if cert and key and os.path.exists(cert) and os.path.exists(key):
-                    ctx.options.client_certs = cert  # may be dir or file per mitmproxy docs
-                    ctx.log.info(f"mTLS client_certs set to {cert}")
+                    cert_p = _pl.Path(cert)
+                    # if cert is already a directory, use directly
+                    if cert_p.is_dir():
+                        ctx.options.client_certs = str(cert_p)
+                        ctx.log.info(f"mTLS client_certs set to dir {cert_p}")
+                    else:
+                        # cert is a file — mitmproxy bug: file silently fails auth. Prepare dir.
+                        try:
+                            import shutil
+                            d = _pl.Path("/tmp/mitmproxy_client_certs")
+                            d.mkdir(parents=True, exist_ok=True)
+                            # mitmproxy looks for cert.pem / key.pem or combined; copy as client.pem
+                            # To maximize compat, create both cert.pem and key.pem plus combined client.pem
+                            try:
+                                (d / "cert.pem").write_bytes(_pl.Path(cert).read_bytes())
+                                (d / "key.pem").write_bytes(_pl.Path(key).read_bytes())
+                                # also combined for older mitmproxy
+                                combined = _pl.Path(cert).read_bytes() + b"\n" + _pl.Path(key).read_bytes()
+                                (d / "client.pem").write_bytes(combined)
+                                ctx.options.client_certs = str(d)
+                                ctx.log.info(f"mTLS client_certs dir prepared {d} (from {cert}+{key})")
+                            except Exception as e2:
+                                # fallback: set to file and warn
+                                ctx.options.client_certs = cert
+                                ctx.log.warn(f"mTLS client_certs file fallback {cert}: {e2}")
+                        except Exception as e2:
+                            ctx.options.client_certs = cert
+                            ctx.log.warn(f"mTLS client_certs dir prep failed, file fallback {cert}: {e2}")
                 elif cert and os.path.exists(cert):
                     ctx.log.info(f"mTLS client cert {cert} will be used for upstream")
             except Exception as e:
@@ -120,14 +149,23 @@ class FirmwareRestoreProxy:
             try:
                 ca = os.environ.get("ALBERT_MTLS_CA", "").strip()
                 if ca:
-                    # If we have a client cert, signal to Albert via header (mitmproxy will have performed TLS client auth)
                     cert_path = os.environ.get("ALBERT_MTLS_CERT", "").strip()
+                    token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+                    # Prefer shared-secret token if configured (stronger than bare header)
+                    if token:
+                        flow.request.headers["X-MTLS-Token"] = token
                     if cert_path and os.path.exists(cert_path):
-                        # Use header as proof — Albert's before_request checks X-Client-Cert
-                        flow.request.headers["X-Client-Cert"] = "present"
+                        # Forward actual PEM (not just "present") so Albert can verify length/PEM vs spoofable string
+                        try:
+                            pem = pathlib.Path(cert_path).read_text().strip()
+                            # mitmproxy will have performed TLS client auth; also forward PEM for app-layer check
+                            if "-----BEGIN" in pem and len(pem) > 100:
+                                flow.request.headers["X-Client-Cert"] = pem[:8000]
+                            else:
+                                flow.request.headers["X-Client-Cert"] = "present"
+                        except Exception:
+                            flow.request.headers["X-Client-Cert"] = "present"
                     else:
-                        # Even without explicit cert file, if CA is set we mark intent; Albert will still require header
-                        # For testing, set X-Client-Cert to indicate proxy is mTLS-aware
                         flow.request.headers["X-Client-Cert"] = "mtls"
             except Exception:
                 pass
