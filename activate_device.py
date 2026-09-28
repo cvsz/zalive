@@ -4,7 +4,7 @@ iOS Device Activation Client - FIXED + Production Hardening
 - Correctly base64-encodes activation-info for form submission
 - Handles session mode handshake properly
 - Fixes headers and error handling
-- Production hardening: timeouts/retries (tenacity or manual 3 retries exponential backoff),
+- Production hardening: timeouts/retries (manual 3 retries 3 retries exponential backoff),
   structured logging with request_id, input validation UDID/IMEI, --json output, X-Request-ID header, 413/429 handling
 """
 import asyncio
