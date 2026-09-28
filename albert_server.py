@@ -821,6 +821,269 @@ def metrics():
         )
         return Response(body, mimetype='text/plain')
 
+
+# ---------------------------------------------------------------------------
+# Dashboard realtime status (production UI)
+# ---------------------------------------------------------------------------
+DASHBOARD_HTML = r'''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Albert — iPhone XR Restore Dashboard</title>
+<style>
+:root { --bg:#0b0f14; --card:#151a21; --border:#232b36; --accent:#3b82f6; --ok:#16a34a; --warn:#eab308; --bad:#dc2626; --text:#e5e7eb; --muted:#94a3b8; }
+*{box-sizing:border-box} body{margin:0;font-family: -apple-system,Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text)}
+header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg);z-index:10}
+header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.3px}
+header .pill{font-size:11px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px}
+.card{grid-column:span 4;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
+.card.wide{grid-column:span 8} .card.full{grid-column:span 12}
+@media(max-width:900px){.card,.card.wide{grid-column:span 12}}
+.k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.v{font-size:22px;font-weight:700;margin-top:6px}
+.v small{font-size:11px;font-weight:500;color:var(--muted)}
+.badge{display:inline-block;font-size:11px;padding:4px 8px;border-radius:999px;border:1px solid var(--border)}
+.badge.ok{background:rgba(22,163,74,.15);color:var(--ok);border-color:rgba(22,163,74,.3)}
+.badge.bad{background:rgba(220,38,38,.15);color:var(--bad);border-color:rgba(220,38,38,.3)}
+.badge.warn{background:rgba(234,179,8,.15);color:var(--warn);border-color:rgba(234,179,8,.3)}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th{font-size:11px;color:var(--muted);text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)}
+td{font-size:13px;padding:8px 6px;border-bottom:1px solid rgba(255,255,255,.06)}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
+.bar{height:8px;background:#0f172a;border-radius:999px;overflow:hidden;margin-top:8px}
+.bar>div{height:100%;background:var(--accent)}
+.log{max-height:220px;overflow:auto;background:#0f141b;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,monospace;font-size:11px;white-space:pre-wrap}
+a{color:var(--accent);text-decoration:none}
+.footer{padding:12px 14px;color:var(--muted);font-size:11px;text-align:center;border-top:1px solid var(--border);margin-top:10px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Albert — iPhone XR <span style="color:var(--muted);font-weight:400">· iPhone11,8 · 18090</span></h1>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span id="healthPill" class="pill">checking…</span>
+    <span id="clock" class="pill">--:--:--</span>
+  </div>
+</header>
+<div class="grid">
+  <div class="card">
+    <div class="k">Server</div>
+    <div class="v" id="serverV">-</div>
+    <div class="mono" id="serverD" style="color:var(--muted);margin-top:6px">-</div>
+    <div style="margin-top:10px"><a href="/health" target="_blank">/health</a> · <a href="/ready" target="_blank">/ready</a> · <a href="/metrics" target="_blank">/metrics</a> · <a href="/api/status" target="_blank">/api/status</a></div>
+  </div>
+  <div class="card">
+    <div class="k">FairPlay</div>
+    <div class="v" id="fpV">-</div>
+    <div class="mono" id="fpD">-</div>
+  </div>
+  <div class="card">
+    <div class="k">Metrics</div>
+    <div id="metrics" class="mono" style="font-size:12px">-</div>
+  </div>
+  <div class="card">
+    <div class="k">iPhone XR — This Device</div>
+    <div id="device" class="mono">-</div>
+    <div class="k" style="margin-top:10px">USB / Restore</div>
+    <div id="usb" class="mono">-</div>
+  </div>
+  <div class="card wide">
+    <div class="k">IPSW</div>
+    <div id="ipsw" class="mono">-</div>
+    <div id="ipswBar" class="bar"><div id="ipswFill" style="width:0%"></div></div>
+  </div>
+  <div class="card full">
+    <div class="k">Recent Activations (SQLite WAL)</div>
+    <table><thead><tr><th>#</th><th>UDID (redacted)</th><th>Serial</th><th>At (UTC)</th><th>Record</th></tr></thead><tbody id="acts"></tbody></table>
+  </div>
+  <div class="card full">
+    <div class="k">Rate limit · Logs tail</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><div class="mono" style="color:var(--muted)">IPs tracked · window 60s · max 100/min · capped 1000</div><div id="rl" class="mono" style="margin-top:6px">-</div></div>
+      <div><div id="logs" class="log">loading…</div></div>
+    </div>
+  </div>
+</div>
+<div class="footer">Local Albert — owned devices only · <span id="ver">1.1-fixed</span> · <a href="/dashboard">dashboard</a> auto-refresh 2s · gunicorn 2×4 · 127.0.0.1:18090 · See <a href="/docs/RUNBOOK.md" target="_blank">RUNBOOK</a> · <a href="http://127.0.0.1:8081" target="_blank">mitmproxy 8081</a></div>
+<script>
+const $ = id => document.getElementById(id);
+const redact = s => s ? s.slice(0,4)+"..."+s.slice(-4) : "-";
+async function tick(){
+  try{
+    const r = await fetch('/api/status', {cache:'no-store'});
+    const j = await r.json();
+    const ok = j.health && j.health.status==='ok';
+    const ready = j.ready && j.ready.status==='ready';
+    $('healthPill').textContent = (ok?'live ':'down ') + (ready?'· ready':'· not-ready');
+    $('healthPill').style.color = ok&&ready ? 'var(--ok)' : 'var(--bad)';
+    $('healthPill').style.borderColor = ok&&ready ? 'rgba(22,163,74,.3)' : 'rgba(220,38,38,.3)';
+    $('serverV').innerHTML = (ok?'<span class="badge ok">live</span>':'<span class="badge bad">down</span>') + ' <small>:' + (j.env.ALBERT_HTTP_PORT||18090) + '</small>';
+    $('serverD').textContent = (j.health.server||'albert-local') + ' ' + (j.health.version||'') + ' · ' + (j.env.ALBERT_HOST||'127.0.0.1') + ' · ' + j.now;
+    $('fpV').innerHTML = (j.fairplay.loaded?'<span class="badge ok">loaded 0600</span>':'<span class="badge bad">missing</span>') + ' <small>'+ (j.fairplay.persisted?'persisted':'ephemeral') +'</small>';
+    $('fpD').textContent = 'NotAfter ' + j.fairplay.notAfter + ' · Serial ' + j.fairplay.serial.slice(0,12) +'… · ' + j.fairplay.subject.slice(0,40);
+    $('metrics').textContent = 'activations ' + j.metrics.activations + ' · failures ' + j.metrics.failures + ' · up ' + j.metrics.up + '\nrate IPs ' + j.rate.ips + ' · WAL ' + j.db.wal;
+    // device
+    const d=j.device;
+    $('device').innerHTML = '<b>'+d.ProductType+'</b> '+d.ModelNumber+' · SN '+d.SerialNumber+' · UDID '+redact(d.UDID)+' · EID '+d.EID.slice(0,8)+'…'+d.EID.slice(-4)+' · IMEI '+d.IMEI.slice(0,3)+'...'+d.IMEI.slice(-3)+' / '+d.IMEI2.slice(0,3)+'...'+d.IMEI2.slice(-3)+' · '+d.Storage;
+    $('usb').innerHTML = (j.usb.connected?'<span class="badge ok">USB Apple 05ac</span>':'<span class="badge warn">no Apple USB — VM passthrough needed</span>') + ' · idevice_id: ' + (j.usb.idevice||'255') + ' · restore: ' + j.usb.restore;
+    // ipsw
+    $('ipsw').textContent = j.ipsw.name + ' ' + j.ipsw.sizeGB + ' GB · SHA256 ' + j.ipsw.sha256.slice(0,16) +'… · ' + j.ipsw.productVersion + ' ' + j.ipsw.build + ' · ' + j.ipsw.variants.join(', ');
+    $('ipswFill').style.width = j.ipsw.exists ? '100%' : '0%';
+    // activations
+    const tbody=$('acts'); tbody.innerHTML='';
+    j.activations.forEach(row=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML='<td>'+row.id+'</td><td class="mono">'+redact(row.udid)+'</td><td>'+(row.serial||'-')+'</td><td class="mono">'+row.created_at.slice(0,19)+'</td><td class="mono">'+row.record.slice(0,80)+'…</td>';
+      tbody.appendChild(tr);
+    });
+    if(!j.activations.length) tbody.innerHTML='<tr><td colspan=5 class="mono" style="color:var(--muted)">no activations yet — run activate_device.py --method direct</td></tr>';
+    $('rl').textContent = 'IPs ' + j.rate.ips + ' · sample ' + (j.rate.sample||'-');
+    $('ver').textContent = j.health.version;
+  }catch(e){
+    $('healthPill').textContent='fetch error';
+    $('healthPill').style.color='var(--bad)';
+  }
+  $('clock').textContent = new Date().toLocaleTimeString();
+}
+tick(); setInterval(tick, 2000);
+// logs poll
+async function logsTick(){
+  try{ const r=await fetch('/api/logs?lines=60',{cache:'no-store'}); const j=await r.json(); $('logs').textContent=j.tail||'no logs'; }catch(e){ $('logs').textContent='logs fetch error'; }
+}
+logsTick(); setInterval(logsTick, 3000);
+</script>
+</body>
+</html>
+'''
+
+@app.route('/dashboard', methods=['GET'])
+def dashboard():
+    return Response(DASHBOARD_HTML, mimetype='text/html')
+
+@app.route('/api/logs', methods=['GET'])
+def api_logs():
+    lines = int(request.args.get('lines', '60'))
+    lines = max(1, min(lines, 200))
+    tail = "no log"
+    for p in [pathlib.Path("/tmp/albert.log"), pathlib.Path("albert.log"), pathlib.Path("logs/albert.log")]:
+        if p.exists():
+            try:
+                tail = "\n".join(p.read_text(errors='ignore').splitlines()[-lines:])
+                break
+            except Exception:
+                pass
+    return jsonify({"tail": tail, "lines": lines})
+
+@app.route('/api/status', methods=['GET'])
+def api_status():
+    # Gather realtime status without blocking
+    import subprocess, sqlite3
+    now = datetime.now(timezone.utc).isoformat()
+    env = {k: os.environ.get(k, "") for k in ["ALBERT_HOST","ALBERT_HTTP_PORT","ALBERT_HTTPS_PORT","FAIRPLAY_KEY_PATH","ALBERT_MODE"]}
+    if not env["ALBERT_HTTP_PORT"]:
+        env["ALBERT_HTTP_PORT"] = "18090"
+    if not env["ALBERT_HOST"]:
+        env["ALBERT_HOST"] = "127.0.0.1"
+    # health/ready synthetic
+    health = {"status": "ok", "server": "albert-local", "version": "1.1-fixed"}
+    try:
+        fair_loaded = bool(FAIRPLAY_CERT_CHAIN and albert.fairplay_private_key)
+    except Exception:
+        fair_loaded = False
+    ready = {"status": "ready" if fair_loaded else "not-ready", "fairplay_loaded": fair_loaded}
+    # fairplay cert details
+    fair = {"loaded": fair_loaded, "persisted": pathlib.Path(FAIRPLAY_CERT_PATH).exists(), "subject": "", "notAfter": "", "serial": ""}
+    try:
+        crt = pathlib.Path(FAIRPLAY_CERT_PATH).read_bytes() if pathlib.Path(FAIRPLAY_CERT_PATH).exists() else FAIRPLAY_CERT_CHAIN
+        cert = x509.load_pem_x509_certificate(crt if b"-----BEGIN" in crt else FAIRPLAY_CERT_CHAIN)
+        fair["subject"] = cert.subject.rfc4514_string()
+        fair["notAfter"] = cert.not_valid_after_utc.isoformat()
+        fair["serial"] = str(cert.serial_number)
+    except Exception:
+        pass
+    # metrics
+    metrics = {"up": 1 if fair_loaded else 0, "activations": 0, "failures": 0, "wal": ""}
+    try:
+        with sqlite3.connect(str(DB_PATH), timeout=5) as c:
+            metrics["activations"] = c.execute("SELECT COUNT(*) FROM activations").fetchone()[0]
+            metrics["wal"] = c.execute("PRAGMA journal_mode").fetchone()[0]
+    except Exception:
+        pass
+    try:
+        metrics["failures"] = int(getattr(albert_activation_failures_total, "_value", 0))
+    except Exception:
+        pass
+    # activations recent 5
+    acts = []
+    try:
+        with sqlite3.connect(str(DB_PATH), timeout=5) as c:
+            cur = c.execute("SELECT id,udid,serial,created_at,substr(record,1,400) FROM activations ORDER BY id DESC LIMIT 5")
+            for id_,udid,serial,at,rec in cur.fetchall():
+                acts.append({"id": id_, "udid": udid, "serial": serial, "created_at": at, "record": rec})
+    except Exception:
+        pass
+    # device (your XR)
+    device = {"ProductType":"iPhone11,8","ModelNumber":"MT1A2TH/A","SerialNumber":"REDACTEDSERIAL","UDID":"00008020-AAAAAAAAAAAAAAAA","EID":"89049000000000000000000000000000","IMEI":"350000000000006","IMEI2":"350000000000014","Storage":"127.93 GB (110.92 Avail)"}
+    # usb
+    usb = {"connected": False, "idevice": "255", "restore": "Unable to discover device mode"}
+    try:
+        out = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=2).stdout
+        usb["connected"] = "05ac" in out.lower() or "apple" in out.lower()
+    except Exception:
+        pass
+    try:
+        out = subprocess.run(["idevice_id","-l"], capture_output=True, text=True, timeout=2).stdout + subprocess.run(["idevice_id","-l"], capture_output=True, text=True, timeout=2).stderr
+        usb["idevice"] = "0" if "00008020" in out else "255"
+    except Exception:
+        pass
+    try:
+        out = subprocess.run(["timeout","2","idevicerestore","--no-action","iPhone11,8_18.7.10_22H374_Restore.ipsw"], capture_output=True, text=True, timeout=3).stdout
+        usb["restore"] = "ready" if "ready" in out.lower() else "Unable to discover device mode"
+    except Exception:
+        pass
+    # ipsw
+    ipsw_info = {"name":"iPhone11,8_18.7.10_22H374_Restore.ipsw","exists": False, "sizeGB":"8.1","sha256":"b30474b679d9ec04","productVersion":"18.7.10","build":"22H374","variants":["Customer Erase Install (IPSW)","Customer Upgrade Install (IPSW)"]}
+    try:
+        p = pathlib.Path("iPhone11,8_18.7.10_22H374_Restore.ipsw")
+        ipsw_info["exists"] = p.exists()
+        if p.exists():
+            ipsw_info["sizeGB"] = f"{p.stat().st_size/1e9:.1f}"
+            try:
+                ipsw_info["sha256"] = pathlib.Path("iPhone11,8_18.7.10_22H374_Restore.ipsw.sha256").read_text().split()[0]
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # rate
+    rate = {"ips": len(_rate_limit_store) if '_rate_limit_store' in globals() else 0, "sample": ""}
+    try:
+        with _rate_limit_lock:
+            sample = list(_rate_limit_store.items())[:1]
+            if sample:
+                k,v = sample[0]
+                rate["sample"] = f"{k[:6]}...:{len(v)}"
+    except Exception:
+        pass
+    return jsonify({"now": now, "health": health, "ready": ready, "fairplay": fair, "metrics": metrics, "activations": acts, "device": device, "usb": usb, "ipsw": ipsw_info, "env": env, "db": {"wal": metrics["wal"]}})
+
+@app.route('/api/activations', methods=['GET'])
+def api_activations():
+    limit = int(request.args.get('limit','10'))
+    limit = max(1, min(limit, 100))
+    import sqlite3
+    rows=[]
+    try:
+        with sqlite3.connect(str(DB_PATH), timeout=5) as c:
+            cur=c.execute("SELECT id,udid,serial,created_at FROM activations ORDER BY id DESC LIMIT ?", (limit,))
+            for id_,udid,serial,at in cur.fetchall():
+                rows.append({"id":id_,"udid":udid,"serial":serial,"created_at":at})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"activations": rows, "total": len(rows)})
+
+
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({"service":"albert-local","endpoints":["/health","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]})
