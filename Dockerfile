@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1.4
-# --- builder: install deps isolated ---
 FROM python:3.13-slim AS builder
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
-    && python -m compileall -q /install
+RUN apt-get update && apt-get install -y --no-install-recommends gcc python3-dev && \
+    pip install --no-cache-dir --no-require-hashes --prefix=/install -r requirements.txt \
+    && python -m compileall -q /install \
+    && apt-get purge -y gcc python3-dev && rm -rf /var/lib/apt/lists/*
 
-# --- runtime: minimal, non-root, read-only compatible ---
 FROM python:3.13-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tini ca-certificates curl \
@@ -14,13 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd -m -u 10001 -s /usr/sbin/nologin app
 WORKDIR /app
 COPY --from=builder /install /usr/local
-COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY albert_server.py gunicorn_conf.py ./
 COPY static/ ./static/
 COPY certs/ ./certs/
 COPY logs/.gitkeep logs/.gitkeep
 COPY logs/restore/README.md logs/restore/README.md
-# also copy bootstrap/validate scripts needed for health checks
 COPY scripts/ ./scripts/
 USER app
 EXPOSE 18090 18443
