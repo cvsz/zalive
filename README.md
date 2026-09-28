@@ -381,6 +381,8 @@ MIT License — see `LICENSE`. For educational and research purposes only. Apple
 - Client: `activate_device.py` base64 fix + retries `3` exponential `1s/2s/4s` for `413/429/5xx/timeout`, `X-Request-ID`, `UDID/IMEI` validation, `--json`/`--timeout`/`--retries` flags, structured logs
 - Tests/CI: `tests/test_albert.py` `12 passed` (`health/ready/metrics/drm/with/without CSR/invalid/size/options/rate-limit/invalid-imei/persistence`), `ruff All checks passed`, `bandit 0`, `docker compose config ok`, `venv py_compile OK`, `make test`
 
+**Dashboard realtime (new):** `http://127.0.0.1:18090/dashboard` — dark UI, 2s poll `/api/status` (health/ready/fairplay 0600, metrics `activations/wal`, iPhone XR `MT1A2TH/A` redacted `0000...002E`, USB `05ac`, IPSW `b304...`) + `/api/activations` (SQLite WAL 5 recent) + `/api/logs?lines=60` tail, auto-refresh. `GET /` now lists `["/dashboard","/api/status","/health",...]`.
+
 **Try now:**
 ```bash
 cp .env.example .env  # then ALBERT_ACCEPT_RISK=1 + MITMPROXY_WEB_PASSWORD=$(openssl rand -base64 24)
