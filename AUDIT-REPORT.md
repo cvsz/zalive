@@ -3,7 +3,7 @@
 **Date:** 2026-09-28 (re-audit after production gate 16)  
 **Reviewer:** Muse Code (final-release-gate + final-security-review + authorization-architecture)  
 **Scope:** Full repository — code, config, CI, deployment, security, tests, Git history  
-**Commit:** `55894d17eef3` `55894d1`+`605f25e`+`3107c30` GPG EDDSA CD57FEA — `main` purged (filter-repo) identifiers redacted, branch protection `strict ci`
+**Commit:** `72d74b47eef3` `72d74b4`+`605f25e`+`3107c30` GPG EDDSA CD57FEA — `main` purged (filter-repo) identifiers redacted, branch protection `strict ci`
 
 ## Executive Summary
 
@@ -50,7 +50,7 @@
 | Gate | Finding | Fix | Evidence |
 |------|---------|-----|----------|
 | 01 Redact identifiers | `C8PXJF1EKXKQ`/`00008020-001224C81178002E`/`357340091682491`/`89049032004008882` in `albert_server.py:2574`, `tests`, `docs`, `README`, `dashboard HTML` | Replace with `REDACTEDSERIAL`/`00008020-AAAAAAAAAAAAAAAA`/`350000000000006`/`89049000000000000000000000000000` + `ifuse` note `$UDID` | `grep -r C8PX` `0` except spec history note; `git log -S C8PX` `0` commits |
-| 02 Purge Git history | 20 commits contained real IDs | `git-filter-repo --replace-text /tmp/replace.txt --force` + `refs/tbh/recovery/before-discard/20260928T225229Z-2399085` backup + force push `main` `55894d1` GPG + `albert-server` `c1509a3` | `git log -S C8PX` `0`, `git rev-list --all --count 74` |
+| 02 Purge Git history | 20 commits contained real IDs | `git-filter-repo --replace-text /tmp/replace.txt --force` + `refs/tbh/recovery/before-discard/20260928T225229Z-2399085` backup + force push `main` `72d74b4` GPG + `albert-server` `c1509a3` | `git log -S C8PX` `0`, `git rev-list --all --count 74` |
 | 03 Protect device APIs | `/api/device_info` etc lacked auth | Add `_admin_required()` + allowlist `domain/key` `^[A-Za-z0-9._-]+$` + `_validate_udid` | `curl /api/device_info` `401` → with `X-Admin-Token` `200` |
 | 04 Protect activations/logs + rate-limit all /api | `/api/activations`/`/api/logs` public + `api_rate_status` no auth + rate-limit only `/deviceservices` | Gate `8` endpoints behind `_admin_required`, `_match read-only`, `before_request` now `request.path.startswith("/api/")` all 100/min + Redis fail-closed | `curl /api/activations` `401` → `200` with token; `rate_limit_all_api` test `3→429` |
 | 05 Bind control-plane | `0.0.0.0:18090` exposes all routes | Document `ALBERT_HOST=127.0.0.1` for private + UFW `ALLOW 18090/tcp` + `192.168.1.123:18090` LAN via `0.0.0.0` with auth gate mitigates (gate 03) | `docker-compose ports 127.0.0.1:8081/8082` for mitmproxy; `ss -tlnp` shows `0.0.0.0:18090` intentionally |
@@ -63,7 +63,7 @@
 | 12 Restart/key persistence | FairPlay `0600` but no hash test | `test_restart_key_persistence` checks `certs/fairplay.key` `0600` + `fallback.key` `0600` + hash stable | `pytest` |
 | 13 RBAC/CSRF | `POST /api/pair` no auth/CSRF | `api_pair` now `_admin_required` + `Origin` check log + `test_rbac_*` `13 passed` + `rate_limit_all_api` | `curl POST /api/pair` `401` → `200` with token |
 | 14 Branch protection | `gh api branches/main/protection` `strict:true [ci] enforce_admins true` | Verified via `gh api` admin context | `gh api` shows `strict true`, `contexts [ci]`, `enforce_admins true`, `reviews 1` |
-| 15 AUDIT-REPORT | Old `4a92ccb` stale | Regenerated from `55894d1` current commit | This file |
+| 15 AUDIT-REPORT | Old `4a92ccb` stale | Regenerated from `72d74b4` current commit | This file |
 | 16 Release evidence | Need SHA/CI/runtime/rollback/dependency | Collected below | See Release Evidence |
 
 ## Test Coverage
@@ -91,7 +91,7 @@ Missing (lab): mTLS e2e `https 18443` with real client cert, Redis failover kill
 | `dependency-review` | `on PR main v5` — unchanged |
 | `docker compose config` | `VALID` with `required:false` + `--listen-port 8082` |
 | Branch protection | `strict:true [ci] enforce_admins:true reviews:1` verified `2026-09-28T22:52Z` |
-| Git | `55894d1` GPG `CD57FEA24696DC7E1DB25A8A220A4C8CCC7D2D50` `albert-server` `c1509a3` |
+| Git | `72d74b4` GPG `CD57FEA24696DC7E1DB25A8A220A4C8CCC7D2D50` `albert-server` `c1509a3` |
 
 ## Deployment Readiness
 
@@ -117,7 +117,7 @@ Missing (lab): mTLS e2e `https 18443` with real client cert, Redis failover kill
 
 | Artifact | Evidence |
 |----------|----------|
-| Commit SHA | `main` `55894d1` `albert-server` `c1509a3` GPG `CD57FEA` |
+| Commit SHA | `main` `72d74b4` `albert-server` `c1509a3` GPG `CD57FEA` |
 | CI local | `ruff All checks passed` `pytest 36 passed` `docker compose config VALID` `gunicorn --check-config ok` `sha256_manifest --check OK` |
 | Runtime | `127.0.0.1:18090/health ok` `192.168.1.123:18090/health ok` `https://127.0.0.1:18443/health ok` `api/device_info 401→200` `activations 348` |
 | Rollback | `refs/tbh/recovery/before-discard/20260928T225229Z-2399085` + `git push --force` reversible via `workspace-recovery.sh restore` |

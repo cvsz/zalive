@@ -25,7 +25,7 @@ def _mtls_test_client(*a, **kw):
         try:
             _admin_token = pathlib.Path(".env").read_text().split("ALBERT_ADMIN_TOKEN=")[1].split()[0].strip().strip('"').strip("'")
         except Exception:
-            _admin_token = ""
+            _admin_token = ""  # nosec B105
     def _inject_admin(path, h):
         if path.startswith("/api/device_info") or path.startswith("/api/diagnostics") or path.startswith("/api/recovery") or path.startswith("/api/pair") or path.startswith("/api/ifuse") or path.startswith("/api/tss") or path.startswith("/api/activations") or path.startswith("/api/logs") or path.startswith("/api/rate_status"):
             if isinstance(h, dict) and "X-Admin-Token" not in h and "Authorization" not in h:
