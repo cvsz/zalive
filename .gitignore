@@ -1,52 +1,103 @@
-# Environment and secrets
+# --- Environment and secrets (never commit real credentials) ---
 .env
 .env.*
 !.env.example
 *.pem
 *.key
+*.crt
+*.csr
+!static/favicon.svg
+!static/zalive-logo.svg
+!static/zalive-icon.svg
 
-# Dependencies
-node_modules/
-.venv/
-venv/
+# --- Python ---
 __pycache__/
 *.py[cod]
+*$py.class
+*.pyo
+.venv/
+venv/
+*.egg-info/
+pip-log.txt
+pip-delete-this-directory.txt
 
-# Build output
+# --- Dependencies ---
+node_modules/
+.pnp/
+.pnp.js
+
+# --- Build / dist ---
 dist/
 build/
+*.egg
+*.whl
 coverage/
-.next/
-.nuxt/
-.out/
-
-# Tool caches
-.cache/
+htmlcov/
+.coverage
+*.cover
+.hypothesis/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .eslintcache
+.cache/
 
-# IDE / OS
+# --- OS / IDE ---
 .DS_Store
 Thumbs.db
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+*.temp
 
-# Logs
+# --- Logs (all runtime logs go to logs/ — keep root clean) ---
 *.log
-logs/
+logs/*
+!logs/.gitkeep
+!logs/restore/
+!logs/restore/*
+!logs/restore/README.md
+# idevicerestore probe logs — bulk numeric probes auto-ignored, keep only real device start-activate if needed
+restore_*.log
+restore_179*.log
+albert.log
+mitmproxy.log
 
-# Terraform
+# --- IPSW firmware (8.1G binary, never commit) ---
+*.ipsw
+*.dmg
+*.img4
+!*.sha256
+
+# --- Runtime / local data ---
+.tmp/
+tmp/
+certs/*
+!certs/.gitkeep
+Library/
+grafana/data/
+*.pid
+*.sock
+
+# --- Terraform ---
 .terraform/
 *.tfstate
 *.tfstate.*
+.terraform.lock.hcl
 
-# Local runtime data
-.tmp/
-tmp/
-
-# idevicerestore probe logs — keep only real device (00008020-*) start-activate, ignore bulk numeric probes
-restore_179*.log
+# --- Backups ---
+*.bak
+README.md.bak
+activate_device.py.bak
+albert_server.py.bak
+firmware_restore_proxy.py.bak
+start.sh.bak
