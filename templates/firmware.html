@@ -1,66 +1,83 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="alternate icon" type="image/png" href="/static/zalive-icon.svg">
-<title>zAlive — Albert — Firmware</title>
+<title>zAlive — Albert — Firmware (AdminLTE 4 Premium)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/css/adminlte.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <style>
-:root{--bg:#0b0f14;--card:#151a21;--card-hover:#1c2330;--border:#232b36;--border-hover:#2d3a4b;--accent:#3b82f6;--accent-hover:#2563eb;--accent-soft:rgba(59,130,246,.12);--ok:#16a34a;--ok-soft:rgba(22,163,74,.12);--warn:#eab308;--bad:#dc2626;--bad-soft:rgba(220,38,38,.12);--text:#e5e7eb;--text-strong:#f1f5f9;--muted:#94a3b8;--radius:14px;--radius-sm:10px;--radius-pill:999px;--shadow:0 8px 32px rgba(0,0,0,.45);--transition:180ms cubic-bezier(.2,.8,.2,1);}
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:-apple-system,Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
-a{color:var(--accent);text-decoration:none} a:hover{color:var(--accent-hover)} a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
-.skip{position:absolute;top:-40px;left:12px;background:var(--card);color:var(--text);padding:8px 14px;border-radius:10px;border:1px solid var(--border);z-index:100;font-size:13px;font-weight:600} .skip:focus{top:12px}
-header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:rgba(11,15,20,.92);backdrop-filter:blur(12px);z-index:10;flex-wrap:wrap}
-header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.2px;color:var(--text-strong)}
-select,input{font-size:13px;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);transition:border-color 180ms, background 180ms}
-select{cursor:pointer;appearance:auto;-webkit-appearance:auto}
-select option{background:#1a212e;color:var(--text);padding:8px}
-select:hover,input:hover{border-color:var(--border-hover)} select:focus,input:focus{border-color:var(--accent);background:#1e293b;color:var(--text-strong)}
-select:focus option:checked, select option:checked{background:var(--accent);color:white}
-select option:hover, select option:focus{background:#243040;color:var(--text-strong)}
-table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
-th{font-size:11px;color:var(--muted);text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);font-weight:650;letter-spacing:.3px;white-space:nowrap;position:sticky;top:0;background:var(--card)}
-td{font-size:13px;padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.06)} tbody tr:hover td{background:rgba(255,255,255,.02)}
-.badge{display:inline-flex;align-items:center;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);font-weight:600}
-.badge.ok{background:var(--ok-soft);color:var(--ok);border-color:rgba(22,163,74,.25)} .badge.bad{background:var(--bad-soft);color:var(--bad);border-color:rgba(220,38,38,.25)}
-.badge.warn{background:rgba(234,179,8,.12);color:var(--warn);border-color:rgba(234,179,8,.25)}
-.mono{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
-.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin:16px;box-shadow:0 8px 32px rgba(0,0,0,.45)}
-.empty{padding:20px;text-align:center;color:var(--muted);border:1px dashed var(--border);border-radius:10px;background:rgba(255,255,255,.01)}
-.skeleton{background:linear-gradient(90deg, var(--card) 25%, var(--border) 50%, var(--card) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px;height:14px}
-@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+:root{--zalive-accent:#3b82f6;--zalive-card:#151a21;--zalive-border:#232b36}
+.app-wrapper{min-height:100vh;background:#0b0f14}
+.app-header{border-bottom:1px solid var(--zalive-border)}
+.app-sidebar{background:#0f141b;border-right:1px solid var(--zalive-border)}
+.brand-link{border-bottom:1px solid var(--zalive-border)}
+.card{border:1px solid var(--zalive-border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.45)}
+.k{font-size:10.5px;color:#94a3b8;text-transform:uppercase;letter-spacing:.7px;font-weight:650}
+.mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+select, input{font-size:13px;padding:9px 12px;border-radius:10px;border:1px solid var(--zalive-border);background:#151a21;color:#e5e7eb}
+select option{background:#1a212e;color:#e5e7eb}
+select:focus{background:#1e293b;color:#f1f5f9}
+.badge.ok{background:rgba(22,163,74,.12);color:#16a34a;border:1px solid rgba(22,163,74,.25)}
+.badge.bad{background:rgba(220,38,38,.12);color:#dc2626;border:1px solid rgba(220,38,38,.25)}
 </style>
 </head>
-<body>
-<a href="#main" class="skip">Skip to content</a>
-<header role="banner">
-  <a href="/dashboard" style="display:flex;align-items:center;gap:8px;text-decoration:none" aria-label="zAlive home">
-    <img src="/static/zalive-logo.svg" alt="zAlive" style="height:26px;width:auto;display:block" loading="eager" decoding="async">
-  </a>
-  <div style="min-width:0">
-    <h1>Albert — Firmware <span style="color:var(--muted);font-weight:400">· curated 5→15 Pro (13) · ipsw.me live cache 1h</span></h1>
-    <nav aria-label="Breadcrumb" style="font-size:11.5px;color:var(--muted);margin-top:2px"><a href="/" style="color:var(--muted)">Home</a> › <a href="/dashboard" style="color:var(--muted)">Dashboard</a> › <span aria-current="page" style="color:var(--text)">Firmware</span> · <a href="/admin" style="color:var(--accent)">Admin</a></nav>
-  </div>
-  <select id="product" aria-label="Device model" style="margin-left:auto"></select>
-  <input id="q" placeholder="Search version / build" aria-label="Search version or build" style="min-width:180px">
-  <span id="status" style="color:var(--muted);font-size:12px" role="status" aria-live="polite"></span>
-  <a href="/dashboard" style="margin-left:8px;font-size:13px;font-weight:600">← Dashboard</a>
-</header>
-<main id="main" role="main">
-<div class="card">
-  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-    <span class="badge ok" aria-hidden="true">✓ curated 13</span>
-    <span style="font-size:12px;color:var(--muted)">Any iPhone 5 → 15 Pro · live <a href="https://api.ipsw.me" target="_blank" rel="noopener">ipsw.me</a> + local <code>*.ipsw</code></span>
-    <span style="margin-left:auto;font-size:11px;color:var(--muted)">Tip: type “18.7” or “22H374” to filter</span>
-  </div>
-  <div id="banner" style="display:none;padding:10px 12px;border-radius:10px;margin-bottom:10px;font-size:13px" role="alert"></div>
-  <div style="overflow:auto;max-height:72vh;border:1px solid var(--border);border-radius:10px">
-    <table role="table" aria-label="Firmware list"><thead><tr><th>Version</th><th>Build</th><th>Released</th><th>Size</th><th>Signed</th><th>Local</th><th>Download</th></tr></thead><tbody id="tbody"><tr><td colspan=7><span class="skeleton" style="width:100%;display:block"></span></td></tr></tbody></table>
-  </div>
-  <div class="mono" style="color:var(--muted);margin-top:10px;font-size:11px">Source: <a href="https://api.ipsw.me/v4/device/iPhone11,8" target="_blank" rel="noopener">api.ipsw.me</a> + local scan <code>*.ipsw</code> · <code>/api/firmwares?productType=iPhone11,8</code> · <code>/api/devices</code></div>
+<body class="layout-fixed-complete">
+<div class="app-wrapper">
+<nav class="app-header navbar navbar-expand bg-body">
+<div class="container-fluid">
+<ul class="navbar-nav">
+<li class="nav-item"><a class="nav-link" data-lte-toggle="sidebar" href="#"><i class="bi bi-list"></i></a></li>
+<li class="nav-item d-none d-md-block"><a href="/dashboard" class="nav-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:22px"></a></li>
+</ul>
+<ul class="navbar-nav ms-auto">
+<li class="nav-item"><select id="product" class="form-select form-select-sm" style="min-width:220px"></select></li>
+<li class="nav-item ms-2"><input id="q" class="form-control form-control-sm" placeholder="Search version / build" style="min-width:180px"></li>
+<li class="nav-item ms-2"><span id="status" class="text-secondary small"></span></li>
+<li class="nav-item ms-2"><a class="nav-link" href="/dashboard">← Dashboard</a></li>
+</ul>
 </div>
+</nav>
+<aside class="app-sidebar sidebar-dark">
+<div class="sidebar-brand"><a href="/dashboard" class="brand-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px"><span class="brand-text fw-light ms-2">zAlive Albert</span></a></div>
+<div class="sidebar-wrapper"><nav class="mt-2">
+<ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview">
+<li class="nav-item"><a href="/dashboard" class="nav-link"><i class="nav-icon bi bi-speedometer2"></i><p>Dashboard</p></a></li>
+<li class="nav-item"><a href="/firmware" class="nav-link active"><i class="nav-icon bi bi-hdd-stack"></i><p>Firmware</p></a></li>
+<li class="nav-item"><a href="/admin" class="nav-link"><i class="nav-icon bi bi-shield-lock"></i><p>Admin</p></a></li>
+<li class="nav-item"><a href="/api/status" class="nav-link"><i class="nav-icon bi bi-heart-pulse"></i><p>API Status</p></a></li>
+<li class="nav-header">LOGS</li>
+<li class="nav-item"><a href="/api/validate" class="nav-link"><i class="nav-icon bi bi-check2-square"></i><p>Validate</p></a></li>
+</ul>
+</nav></div>
+</aside>
+<main class="app-main">
+<div class="app-content-header"><div class="container-fluid">
+<div class="row"><div class="col-sm-6"><h3 class="mb-0">Albert — Firmware <small class="text-secondary">· curated 5→15 Pro (13) · ipsw.me live cache 1h</small></h3><small class="text-secondary">Template: AdminLTE 4 (dashboard-template #1) · Premium dark · Any iPhone 5→15 Pro</small></div><div class="col-sm-6"><ol class="breadcrumb float-sm-end"><li class="breadcrumb-item"><a href="/">Home</a></li><li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li><li class="breadcrumb-item active">Firmware</li></ol></div></div>
+</div></div>
+<div class="app-content"><div class="container-fluid">
+<div class="card">
+<div class="card-header d-flex align-items-center gap-2">
+<span class="badge ok">✓ curated 13</span>
+<span class="small text-secondary">Any iPhone 5 → 15 Pro · live <a href="https://api.ipsw.me" target="_blank">ipsw.me</a> + local *.ipsw</span>
+<span class="ms-auto small text-secondary">Tip: type “18.7” or “22H374” to filter</span>
+</div>
+<div class="card-body p-0">
+<div id="banner" class="alert alert-info d-none m-3" role="alert"></div>
+<div class="table-responsive" style="max-height:72vh;overflow:auto">
+<table class="table table-hover table-striped mb-0"><thead class="sticky-top" style="background:#151a21"><tr><th>Version</th><th>Build</th><th>Released</th><th>Size</th><th>Signed</th><th>Local</th><th>Download</th></tr></thead><tbody id="tbody"><tr><td colspan=7 class="text-center">loading…</td></tr></tbody></table>
+</div>
+</div>
+<div class="card-footer small text-secondary">Source: <a href="https://api.ipsw.me/v4/device/iPhone11,8" target="_blank">api.ipsw.me</a> + local scan <code>*.ipsw</code> · <code>/api/firmwares?productType=iPhone11,8</code></div>
+</div>
+</div></div>
 </main>
+<footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · <a href="/admin">admin</a> · Template <a href="https://github.com/topics/dashboard-template" target="_blank">dashboard-template</a> (AdminLTE 4)</footer>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
 
 <script>
 const $=id=>document.getElementById(id);
