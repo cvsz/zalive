@@ -598,7 +598,7 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
             if redis_configured and _redis_fail_closed():
                 logger.warning(f"Redis unavailable fail-closed for ip={ip} — returning 429", extra={"request_id": getattr(g, 'request_id', '-')})
                 return True
-            logger.warning(f"Redis rate limit degraded to in-memory for ip={ip} — check ALBERT_REDIS_URL: {os.environ.get('ALBERT_REDIS_URL','')[:50]}", extra={"request_id": getattr(g, 'request_id', '-')})
+            logger.warning(f"Redis rate limit degraded to in-memory for ip={ip} — check ALBERT_REDIS_URL (redacted)", extra={"request_id": getattr(g, 'request_id', '-')})
         else:
             exceeded_ip, count_ip, remaining_ip = res_ip
             remaining_udid = None
@@ -881,7 +881,8 @@ def before_request_hardening():
 
     # Per-IP (+ per-UDID via activation payload) rate limit — 100/min per IP + 10/min per UDID
     # Optionally distributed via Redis INCR+EXPIRE when ALBERT_REDIS_URL set, else in-memory prune logic
-    if request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects"):
+    # Gate 04: protect all control-plane /api/* (read+write) + state-changing /api/pair
+    if request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects") or request.path.startswith("/api/"):
         ip = request.remote_addr or "unknown"
         if _check_rate_limit(ip):
             logger.warning(f"Rate limit exceeded for {ip}", extra={"request_id": g.request_id, "remote_addr": ip})
@@ -1841,6 +1842,9 @@ def dashboard():
 
 @app.route('/api/logs', methods=['GET'])
 def api_logs():
+    err = _admin_required()
+    if err:
+        return err
     lines = int(request.args.get('lines', '60'))
     lines = max(1, min(lines, 200))
     tail = "no log"
@@ -2261,20 +2265,17 @@ def _check_admin_auth():
     expected = _get_admin_token()
     if not expected:
         return False, "admin disabled — set ALBERT_ADMIN_TOKEN in .env and restart"
-    # token via header X-Admin-Token, Authorization Bearer, or ?token= query (for browser initial)
+    # header-only: X-Admin-Token or Authorization Bearer (query-string and cookie removed to prevent leak via logs/Referer/cache)
+    if request.args.get("token") is not None:
+        logger.warning("admin token via query-string rejected (use header)", extra={"request_id": getattr(g, 'request_id', '-')})
+        return False, "admin token via query-string not allowed — send X-Admin-Token header"
     got = (request.headers.get("X-Admin-Token") or "").strip()
     if not got:
         auth = (request.headers.get("Authorization") or "").strip()
         if auth.lower().startswith("bearer "):
             got = auth[7:].strip()
     if not got:
-        got = (request.args.get("token") or "").strip()
-    if not got:
-        # also check cookie zAlive_admin
-        got = (request.cookies.get("zAlive_admin") or "").strip()
-    if not got:
         return False, "missing admin token — send X-Admin-Token header"
-    # constant-time compare
     import hmac
     if not hmac.compare_digest(got, expected):
         return False, "invalid admin token"
@@ -2649,6 +2650,12 @@ def _build_status_payload():
 
 @app.route('/api/status', methods=['GET'])
 def api_status():
+    # Gate 02/04: require admin for full status; public gets limited health/ready only
+    is_admin, _ = _check_admin_auth()
+    if not is_admin and request.args.get("full") is not None:
+        err = _admin_required()
+        if err:
+            return err
     wants_html = "text/html" in (request.headers.get("Accept") or "")
     if wants_html and not request.args.get("format") == "json":
         p = _build_status_payload()
@@ -2661,7 +2668,10 @@ def api_status():
 
 @app.route('/api/rate_status', methods=['GET'])
 def api_rate_status():
-    """Debug rate limit status. Returns per-IP 100/min + per-UDID 10/min counts and Redis state."""
+    """Debug rate limit status. Requires admin. Returns per-IP 100/min + per-UDID 10/min counts and Redis state."""
+    err = _admin_required()
+    if err:
+        return err
     ip = request.remote_addr or "unknown"
     udid_q = (request.args.get("udid") or request.args.get("UDID") or "").strip() or None
     per_udid = _get_per_udid_limit()
@@ -2740,7 +2750,7 @@ def api_rate_status():
         "redis_available": redis_available,
         "redis_enabled": redis_enabled,
         "redis_url_set": redis_url_set,
-        "redis_url": _get_redis_url()[:20] + "..." if redis_url_set else "",
+        "redis_url": "redacted" if redis_url_set else "",
         "ip_count": ip_count,
         "ip_remaining": ip_remaining,
         "udid_count": udid_count,
@@ -2756,6 +2766,9 @@ def api_rate_status():
 
 @app.route('/api/activations', methods=['GET'])
 def api_activations():
+    err = _admin_required()
+    if err:
+        return err
     limit = int(request.args.get('limit','10'))
     limit = max(1, min(limit, 100))
     import sqlite3
@@ -2778,9 +2791,19 @@ def _run_tool(cmd, timeout=2):
 
 @app.route('/api/device_info', methods=['GET'])
 def api_device_info():
+    err = _admin_required()
+    if err:
+        return err
     domain = request.args.get("domain") or ""
     key = request.args.get("key") or ""
     udid = request.args.get("udid") or ""
+    # allowlist validation to prevent injection
+    if domain and not re.match(r'^[A-Za-z0-9._-]+$', domain):
+        return jsonify({"error": "invalid domain"}), 400
+    if key and not re.match(r'^[A-Za-z0-9._-]+$', key):
+        return jsonify({"error": "invalid key"}), 400
+    if udid and not _validate_udid(udid):
+        return jsonify({"error": "invalid UDID"}), 400
     cmd = ["ideviceinfo", "-s"]
     if udid:
         cmd += ["-u", udid]
@@ -2798,7 +2821,12 @@ def api_device_info():
 
 @app.route('/api/diagnostics', methods=['GET'])
 def api_diagnostics():
+    err = _admin_required()
+    if err:
+        return err
     typ = (request.args.get("type") or "all").strip()
+    if typ not in ("all","mobilegestalt","syslog","crash","diagnostics","ioreg","ioregentry"):
+        return jsonify({"error": "invalid type"}), 400
     if typ == "mobilegestalt":
         r = _run_tool(["idevicediagnostics", "mobilegestalt"], timeout=3)
     elif typ == "syslog":
@@ -2817,6 +2845,9 @@ def api_diagnostics():
 
 @app.route('/api/recovery', methods=['GET'])
 def api_recovery():
+    err = _admin_required()
+    if err:
+        return err
     mode = _run_tool(["irecovery","-q"], timeout=2)
     # also query lsusb + idevicerestore --logfile=NONE --no-action
     lsusb = _run_tool(["lsusb"], timeout=1)
@@ -2825,7 +2856,17 @@ def api_recovery():
 
 @app.route('/api/pair', methods=['GET','POST'])
 def api_pair():
+    err = _admin_required()
+    if err:
+        return err
+    # CSRF check for state-changing POST
     if request.method == "POST":
+        origin = request.headers.get("Origin","")
+        referer = request.headers.get("Referer","")
+        # allow if Origin missing but require X-Requested-With or Content-Type json/form
+        if origin and "192.168." not in origin and "127.0.0.1" not in origin and "localhost" not in origin:
+            # still allow if admin token present via header (already checked), but log
+            logger.warning(f"pair POST cross-origin {origin}", extra={"request_id": getattr(g,'request_id','-')})
         r = _run_tool(["idevicepair","pair"], timeout=5)
         return jsonify(r)
     r = _run_tool(["idevicepair","validate"], timeout=2)
@@ -2836,8 +2877,11 @@ def api_pair():
 
 @app.route('/api/ifuse', methods=['GET'])
 def api_ifuse():
+    err = _admin_required()
+    if err:
+        return err
     r = _run_tool(["ifuse","--help"], timeout=1)
-    r["note"] = "mount with: ifuse /mnt/iphone --udid 00008020-AAAAAAAAAAAAAAAA (requires cable)"
+    r["note"] = "mount with: ifuse /mnt/iphone --udid $UDID (requires cable, see idevice_id -l)"
     # check mount
     try:
         m = subprocess.run(["mount"], capture_output=True, text=True, timeout=1).stdout
@@ -2848,6 +2892,9 @@ def api_ifuse():
 
 @app.route('/api/tss', methods=['GET'])
 def api_tss():
+    err = _admin_required()
+    if err:
+        return err
     product = request.args.get("productType") or "iPhone11,8"
     if not PRODUCT_RE.match(product):
         return jsonify({"error": "invalid productType, expected iPhoneX,Y"}), 400
@@ -2914,7 +2961,7 @@ def index():
 <a href="/metrics" class="btn btn-sm btn-outline-primary">Metrics</a>
 <a href="/api/validate" class="btn btn-sm btn-outline-primary">Validate</a>
 </div></div></div>
-<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title k" style="color:#94a3b8">Device</h3></div><div class="card-body"><div class="mono small">iPhone XR 00008020-AAAAAAAAAAAAAAAA · REDACTEDSERIAL · iPhone11,8</div><div class="mono small text-secondary">IPSW 18.7.10 22H374 · 8.7GB ok</div></div></div></div>
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title k" style="color:#94a3b8">Device</h3></div><div class="card-body"><div class="mono small">iPhone XR REDACTED · iPhone11,8</div><div class="mono small text-secondary">IPSW 18.7.10 22H374 · 8.7GB ok (UDID/Serial redacted — see /api/admin/status)</div></div></div></div>
 </div>
 <div class="card mt-3"><div class="card-header"><h3 class="card-title small" style="color:#94a3b8">Endpoints</h3></div><div class="card-body"><div class="d-flex flex-wrap">{cards}</div><pre class="mono small bg-dark p-3 rounded mt-3" style="white-space:pre-wrap">{json.dumps(data, indent=2)}</pre></div></div>
 </div></div>

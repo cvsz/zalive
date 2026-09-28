@@ -396,7 +396,7 @@ pytest -q  # 12 passed
 # Restore (needs USB passthrough, otherwise "Unable to discover device mode"):
 idevice_id -l  # or irecovery -a / lsusb 05ac
 idevicerestore -e -y iPhone11,8_18.7.10_22H374_Restore.ipsw
-python activate_device.py --albert-url http://127.0.0.1:18090 --udid 00008020-AAAAAAAAAAAAAAAA --json
+python activate_device.py --albert-url http://127.0.0.1:18090 --udid $UDID --json  # UDID from idevice_id -l, e.g. 00008020-AAAAAAAAAAAAAAAA
 ```
 
 ## What next (roadmap, P2 polish)
@@ -440,7 +440,7 @@ Live catalog from `https://api.ipsw.me/v4/device/{ProductType}` cached `1h` in `
 - `GET /api/devices` → `{"devices": [13]}` (curated `identifier/name/chip/internal`).
 - `GET /api/firmwares?productType=iPhone13,2` → `{"firmwares": [...], "local": [...], "cached": bool, "fetchedAt": iso, "stale": bool}` — `400` if `^iPhone\d+,\d+$` fails, `502` if upstream down and no cache, `8s` timeout.
 
-Any-iPhone: `GET /api/status` `device` now reads last `activations` row’s `producttype` (fallback XR `MT1A2TH/A 00008020-AAAAAAAAAAAAAAAA`); dashboard header `Albert — Any iPhone`.
+Any-iPhone: `GET /api/status` `device` now reads last `activations` row’s `producttype` (fallback XR `MT1A2TH/A` redacted); dashboard header `Albert — Any iPhone`.
 
 Try:
 ```bash

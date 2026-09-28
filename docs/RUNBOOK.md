@@ -24,12 +24,12 @@ curl http://127.0.0.1:18090/health
 ```
 
 ## Restore iPhone XR (iPhone11,8)
-1. Put device in Recovery: `ideviceenterrecovery 00008020-AAAAAAAAAAAAAAAA` or Home+Power.
+1. Put device in Recovery: `ideviceenterrecovery $UDID` or Home+Power (`idevice_id -l` to discover UDID, e.g. `00008020-AAAAAAAAAAAAAAAA`).
 2. Verify: `irecovery -a` or `idevice_id -l` (Recovery) / `lsusb` shows 05ac:12a8.
-3. Restore: `idevicerestore -e -y iPhone11,8_18.7.10_22H374_Restore.ipsw` (Erase). Use `-u UDID` if multiple devices.
+3. Restore: `idevicerestore -e -y iPhone11,8_18.7.10_22H374_Restore.ipsw` (Erase). Use `-u $UDID` if multiple devices.
 4. On Hello screen, activation via local Albert:
    - Option A (proxy): `LOCAL_ALBERT_PORT=18090 mitmproxy -s firmware_restore_proxy.py --set block_global=false` then device Wi-Fi proxy → host:18090, trust CA via `http://mitm.it`.
-   - Option B (direct): `python activate_device.py --albert-url http://127.0.0.1:18090 --udid 00008020-AAAAAAAAAAAAAAAA`
+   - Option B (direct): `python activate_device.py --albert-url http://127.0.0.1:18090 --udid $UDID`
 
 ## Logs
 - `albert.log` (host), `docker compose logs albert-server`, `mitmproxy.log`, `logs/`
