@@ -1,0 +1,10 @@
+[tool.ruff]
+line-length = 120
+exclude = ["venv", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", "logs", "certs", "tmp", ".git"]
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501", "F841", "E402", "F401", "E722"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

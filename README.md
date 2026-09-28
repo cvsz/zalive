@@ -1,0 +1,378 @@
+# Local Albert Activation Server for iOS Firmware Restore
+
+A complete solution for activating iOS devices after firmware restore using a local Albert activation server with proxy interception.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        iOS Device                               │
+│  (in Recovery/DFU mode or normal boot)                         │
+└──────────────────────┬──────────────────────────────────────────┘
+                       │ USB / Network
+                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     Host Computer                               │
+│  ┌─────────────────┐    ┌─────────────────────────────────┐    │
+│  │  mitmproxy      │───▶│  Local Albert Server (Flask)    │    │
+│  │  (Interceptor)  │    │  Port 18090 (gunicorn prod)     │    │
+│  └─────────────────┘    └─────────────────────────────────┘    │
+│         │                                                │       │
+│         │ HTTPS (443)                                    │       │
+│         ▼                                                ▼       │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Apple Servers (albert.apple.com, gs.apple.com, etc.)   │   │
+│  │  [BLOCKED/REDIRECTED: albert only; TSS pass-through]    │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+See `docs/ARCHITECTURE.md` for the full fixed-port (18090) diagram with gunicorn, TLS termination, SQLite, and `mitmproxy` layout.
+
+## Components
+
+1. **`albert_server.py`** - Flask-based local Albert activation server (gunicorn in prod)
+2. **`firmware_restore_proxy.py`** - mitmproxy script to intercept and redirect traffic
+3. **`activate_device.py`** - Python client for device activation
+4. **`setup.sh`** - Automated setup script
+5. **`gunicorn_conf.py`** - Production WSGI config (`18090`, `gthread`, `workers=2`)
+6. **`docker-compose.yml`** - Prod stack (albert-server + mitmproxy, `read_only`, `127.0.0.1` binds)
+
+## Prerequisites
+
+### System Requirements
+- Linux (Ubuntu 20.04+/Debian 11+) or macOS
+- Python 3.14 (matches `Dockerfile python:3.14-slim`; `3.9+` minimum)
+- USB access for iOS device connection
+
+### Required Tools
+```bash
+# Ubuntu/Debian
+sudo apt update && sudo apt install -y \
+    python3 python3-pip python3-venv \
+    libimobiledevice-utils usbmuxd \
+    mitmproxy \
+    libssl-dev libusb-1.0-0-dev libplist-dev \
+    libimobiledevice-dev libideviceactivation-dev
+
+# macOS (via Homebrew)
+brew install python3 libimobiledevice usbmuxd mitmproxy
+```
+
+### Python Dependencies
+```bash
+cd albert_server
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt  # flask 3.0.0, cryptography 48.0.1, pyOpenSSL 26.2.0, gunicorn 21.2.0, mitmproxy 12.2.3, pymobiledevice3 11.19.4
+```
+
+## Quick Start
+
+### 1. Setup Everything
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+### 2. Start the Local Albert Server
+```bash
+source venv/bin/activate
+python albert_server.py --host 0.0.0.0 --port 18090
+```
+
+### 3. Start the Proxy (in another terminal)
+```bash
+source venv/bin/activate
+mitmproxy -s firmware_restore_proxy.py --set block_global=false
+```
+
+### 4. Configure iOS Device to Use Proxy
+
+#### Option A: WiFi Proxy (for normal boot)
+1. On iOS device: Settings → WiFi → (i) → Configure Proxy → Manual
+2. Server: `<host-computer-ip>`
+3. Port: `18090`
+4. Install mitmproxy CA certificate: http://mitm.it
+
+#### Option B: USB with iproxy (for recovery/DFU mode)
+```bash
+# Forward device proxy to host 18090
+iproxy 18090 18090
+
+# For TSS (gs.apple.com) on port 443 — pass-through to Apple, not local
+iproxy 4433 443
+```
+
+### 5. Activate Device
+```bash
+# Check device connection
+idevice_id -l
+
+# Activate (default port 18090)
+python activate_device.py --udid <DEVICE_UDID> --albert-url http://127.0.0.1:18090
+```
+
+## Production Quick Start (gunicorn + docker)
+
+Host port `8080` is occupied on this machine (nginx/fastapi); production uses **`18090`** everywhere (`ALBERT_HTTP_PORT=18090` in `.env.example`, `start.sh`, `gunicorn_conf.py`, `docker-compose.yml`, `firmware_restore_proxy.py`, `docs/ARCHITECTURE.md`).
+
+### Host (gunicorn)
+```bash
+cp .env.example .env
+# Edit .env: set MITMPROXY_WEB_PASSWORD and ALBERT_ACCEPT_RISK=1 (required, see SECURITY.md)
+chmod 600 certs/*.key 2>/dev/null || true
+./start.sh prod
+# or: ALBERT_MODE=prod ./start.sh start
+curl http://127.0.0.1:18090/health   # 200 liveness
+curl http://127.0.0.1:18090/ready    # 200 when FairPlay key loaded, 503 otherwise
+curl http://127.0.0.1:18090/metrics  # prometheus albert_up
+./start.sh status
+./start.sh logs
+```
+
+Direct gunicorn (without start.sh):
+```bash
+export ALBERT_ACCEPT_RISK=1
+export ALBERT_HTTP_PORT=18090
+gunicorn -c gunicorn_conf.py albert_server:app --access-logfile - --error-logfile -
+# gunicorn binds $ALBERT_HOST:$ALBERT_HTTP_PORT (gunicorn_conf.py: ALBERT_HOST/ALBERT_HTTP_PORT)
+```
+
+### Docker
+```bash
+cp .env.example .env
+# set MITMPROXY_WEB_PASSWORD and ALBERT_ACCEPT_RISK=1 in .env
+docker compose up -d --build
+docker compose logs -f
+curl http://127.0.0.1:18090/health
+curl http://127.0.0.1:18090/ready
+docker compose down
+```
+
+### Verify Production Stack
+```bash
+# health/readiness
+curl -s http://127.0.0.1:18090/health | grep -q '"status":"ok"' && echo "health ok"
+# config (no version: key, read_only, cap_drop, USER app)
+docker compose config | grep -E "18090|read_only|cap_drop|user:"
+# IPSW not committed, manifest kept
+./scripts/sha256_manifest.sh        # generates *.ipsw.sha256 + ipsw.sha256 without committing *.ipsw
+git status                         # *.ipsw ignored, *.sha256 tracked
+./scripts/sha256_manifest.sh --check  # verify
+# TLS (mitmproxy CA)
+# Device Wi-Fi proxy → host:18090, then http://mitm.it to install CA
+```
+
+## Detailed Usage
+
+### Firmware Restore Flow
+
+1. **Put device in Recovery Mode**
+   ```bash
+   ideviceenterrecovery <UDID>
+   ```
+
+2. **Restore with idevicerestore (using proxy)**
+   ```bash
+   # Set proxy environment variables (prod port 18090)
+   export HTTPS_PROXY=http://127.0.0.1:18090
+   export HTTP_PROXY=http://127.0.0.1:18090
+   
+   # Restore with idevicerestore (from libimobiledevice)
+   idevicerestore -e latest.ipsw
+   ```
+
+3. **After restore, device will attempt activation**
+   - Traffic goes through mitmproxy
+   - Only `albert.apple.com` redirected to local Albert (`18090`); `gs.apple.com` (TSS) passes through to Apple
+   - Local server returns valid activation record
+   - Device activates without Apple albert servers
+
+### Manual Activation (Post-Restore)
+
+If device boots to Hello screen but won't activate:
+
+```bash
+# Pair device first
+idevicepair pair
+
+# Check activation state
+ideviceactivation state
+
+# Activate via local server (port 18090)
+python activate_device.py --udid <UDID> --albert-url http://127.0.0.1:18090
+```
+
+### Using with pymobiledevice3 (Alternative)
+
+```bash
+pip install pymobiledevice3
+
+# Activate directly
+pymobiledevice3 mobileactivation activate --skip-apple-id-query
+```
+
+## Configuration
+
+### Albert Server Options
+```bash
+python albert_server.py --help
+
+# Options:
+#   --host HOST          Host to bind (default: 0.0.0.0)
+#   --port PORT          Port to bind (default: 18090)
+#   --ssl-cert FILE      SSL certificate for HTTPS
+#   --ssl-key FILE       SSL private key for HTTPS
+# Env (12-factor, .env.example):
+#   ALBERT_HTTP_PORT=18090  ALBERT_HTTPS_PORT=18443  ALBERT_HOST=127.0.0.1
+#   FAIRPLAY_KEY_PATH=certs/fairplay.key  FAIRPLAY_CERT_PATH=certs/fairplay.crt
+#   LOCAL_ALBERT_HOST/PORT/SCHEME, MITMPROXY_WEB_PASSWORD, ALBERT_ACCEPT_RISK=1
+```
+
+### Generate SSL Certificates (for HTTPS dev)
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.crt \
+    -days 365 -subj "/CN=albert.local"
+chmod 600 server.key
+
+# Run with SSL (dev, 18443)
+python albert_server.py --ssl-cert server.crt --ssl-key server.key --port 18443
+# Prod uses gunicorn on 18090 behind mitmproxy TLS (see SECURITY.md TLS)
+```
+
+### Proxy Configuration
+Edit `firmware_restore_proxy.py` to customize:
+- `LOCAL_ALBERT_HOST` - Local server IP (env `LOCAL_ALBERT_HOST`, default `127.0.0.1`, `albert-server` in docker)
+- `LOCAL_ALBERT_PORT` - Local server port (env `LOCAL_ALBERT_PORT`, default `18090`)
+- `LOCAL_ALBERT_SCHEME` - `http` (default, behind mitmproxy TLS) or `https`
+- `ALBERT_HOSTS` - Hosts to intercept (`albert.apple.com` only; `gs.apple.com` pass-through)
+
+## Troubleshooting
+
+### Device Not Detected
+```bash
+# Check USB connection
+lsusb | grep -i apple
+
+# Restart usbmuxd
+sudo systemctl restart usbmuxd
+
+# Re-pair
+idevicepair unpair && idevicepair pair
+```
+
+### Proxy Not Intercepting
+```bash
+# Check mitmproxy logs
+mitmproxy -s firmware_restore_proxy.py --set block_global=false -v
+
+# Verify proxy is running (prod port 18090)
+curl -x http://127.0.0.1:18090 http://httpbin.org/ip
+# Albert direct
+curl http://127.0.0.1:18090/health
+curl http://127.0.0.1:18090/ready
+```
+
+### Activation Fails
+1. Check Albert server logs for errors (`albert.log` or `docker compose logs albert-server`)
+2. Verify device UDID matches activation record
+3. Check if device is iCloud locked (requires Apple ID)
+4. Ensure correct IMEI/MEID for cellular devices
+5. Check `ALBERT_ACCEPT_RISK=1` is set (see `SECURITY.md` risk gate; prod refuses without it)
+6. For TLS pinning on A12+/iOS 18, use session mode (`drmHandshake`) or checkm8 `A11-`
+
+### Certificate Pinning Issues
+Modern iOS versions pin Apple certificates. Solutions:
+1. **Use checkm8 devices (A5-A11)**: No certificate pinning in DFU
+2. **Patch mobileactivationd**: Requires jailbreak
+3. **Use session-based activation**: A12+ devices with valid DRM handshake (`/deviceservices/drmHandshake`)
+
+## Supported Devices & iOS Versions
+
+| Device Range | Chip | iOS Version | Method |
+|--------------|------|-------------|--------|
+| iPhone 5s - X | A7-A11 | 12-16.x | checkm8 + local Albert |
+| iPhone XS - 14 | A12-A16 | 15-17.x | Session activation* |
+| iPhone 15+ | A17+ | 17+ | Session activation* |
+
+*Session activation requires valid DRM handshake with FairPlay keys (`certs/fairplay.key` `0600` persisted, see `SECURITY.md`).
+
+## Security Notes
+
+⚠️ **IMPORTANT LEGAL NOTICE**
+- This tool is for **educational and research purposes only**
+- Only use on devices you own or have explicit permission to test
+- Bypassing activation lock on stolen/lost devices is illegal
+- Respect Apple's Terms of Service and applicable laws — see `NOTICE` (Apple ToS disclaimer)
+- Production requires `ALBERT_ACCEPT_RISK=1` — no bypass without it (see `SECURITY.md` Risk Gate, Threat Model, TLS, Key Management `0600`)
+- Keys are `0600`: `certs/fairplay.key`, `certs/server.key` (see `SECURITY.md`)
+- IPSW (`*.ipsw` 8.1 GB) is not committed; `scripts/sha256_manifest.sh` tracks `*.sha256` only (`.gitignore` keeps manifest)
+
+## How It Works
+
+### Activation Protocol Flow
+
+1. **Device → Albert**: `drmHandshake` (session mode) or direct `deviceActivation`
+2. **Albert → Device**: Returns signed activation record with:
+   - `AccountToken` (device identity + certificates)
+   - `DeviceCertificate` (signed by Apple iPhone Device CA, via FairPlay `0600` key)
+   - `FairPlayKeyData` (DRM keys)
+   - `WildcardTicket` (cellular activation)
+3. **Device**: Validates signatures, stores record, activates
+
+### Local Server Implementation
+
+The local Albert server:
+- Generates RSA keys for FairPlay signing (`certs/fairplay.key` persisted `0600`, `gunicorn` prod, not Flask dev)
+- Creates valid X.509 device certificates from CSR
+- Signs activation records with FairPlay private key
+- Returns properly formatted plist responses with `MAX_CONTENT_LENGTH=512KB`, `X-Request-ID`, rate limit `100/min`
+- Includes ARS (Apple Response Signature) header (`SHA1` Apple-spec)
+- Persists to SQLite `logs/activations.db` (WAL), exposes `/health`, `/ready`, `/metrics`
+
+## Files Structure
+
+```
+albert_server/
+├── albert_server.py              # Flask server (prod: gunicorn, dev: python)
+├── gunicorn_conf.py              # Gunicorn prod config (18090, gthread, 2×4)
+├── firmware_restore_proxy.py     # mitmproxy interceptor (only albert.apple.com)
+├── activate_device.py            # Activation client
+├── setup.sh / start.sh           # Setup and prod/dev start (ALBERT_MODE, 18090)
+├── docker-compose.yml / Dockerfile  # Prod stack (python:3.14-slim, USER app, readOnly)
+├── certs/                        # fairplay.key (0600) / fairplay.crt (0600) / server.crt/key
+├── logs/                         # activations.db (WAL) + albert.log (gitignored)
+├── docs/
+│   ├── PRODUCTION_GAP_ANALYSIS.md
+│   ├── RUNBOOK.md                # health/ready, start host/docker, restore XR, rotation
+│   └── ARCHITECTURE.md           # fixed 18090 diagram
+├── scripts/sha256_manifest.sh    # SHA256 manifest for IPSW without committing IPSW
+├── SECURITY.md                   # threat model, TLS, key 0600, ALBERT_ACCEPT_RISK=1 gate
+├── LICENSE                       # MIT
+├── NOTICE                        # Apple ToS disclaimer
+├── .env.example                  # 12-factor env (ALBERT_HTTP_PORT=18090, ALBERT_ACCEPT_RISK)
+├── .gitignore                    # *.ipsw ignored, *.sha256 kept
+├── requirements.txt
+└── README.md                     # this file
+```
+
+## Compliance
+
+- **SECURITY.md** — full threat model, TLS (mitmproxy CA via `http://mitm.it`, `LOCAL_ALBERT_SCHEME`), key management `0600`, `ALBERT_ACCEPT_RISK=1` gate (no bypass without it)
+- **NOTICE** + **LICENSE** — Apple ToS disclaimer (owned devices only) + MIT
+- **docs/RUNBOOK.md** — health/ready, host vs docker start, iPhone XR restore, rotation (`rm certs/fairplay.* && ./start.sh restart`, `0600`), troubleshooting
+- **docs/ARCHITECTURE.md** — fixed `18090` diagram, component table, request flow, persistence
+- **scripts/sha256_manifest.sh** — `sha256sum` manifest for `*.ipsw` without committing the 8.1 GB file
+
+## License
+
+MIT License — see `LICENSE`. For educational and research purposes only. Apple ToS disclaimer in `NOTICE`.
+
+## References
+
+- [libimobiledevice](https://libimobiledevice.org/)
+- [libideviceactivation](https://github.com/libimobiledevice/libideviceactivation)
+- [pymobiledevice3](https://github.com/doronz88/pymobiledevice3)
+- [The iPhone Wiki - Albert](https://theapplewiki.com/wiki/Albert)
+- [Hana's Blog - Activation Research](https://hanakim3945.github.io/)
