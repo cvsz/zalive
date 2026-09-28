@@ -12,6 +12,45 @@ import pytest
 # import server as module without running
 import albert_server
 
+# Auto-inject mTLS header for tests when mTLS enabled (certs/mtls-ca.crt exists)
+_orig_test_client = albert_server.app.test_client
+def _mtls_test_client(*a, **kw):
+    c = _orig_test_client(*a, **kw)
+    _orig_post = c.post
+    _orig_get = c.get
+    _orig_open = c.open
+    def _post(path, *aa, **kww):
+        if path.startswith("/deviceservices/") or path.startswith("/WebObjects/"):
+            h = kww.get("headers", {})
+            if isinstance(h, dict):
+                h = dict(h)
+            h.setdefault("X-Client-Cert", "present")
+            kww["headers"] = h
+        return _orig_post(path, *aa, **kww)
+    def _get(path, *aa, **kww):
+        if path.startswith("/deviceservices/") or path.startswith("/WebObjects/"):
+            h = kww.get("headers", {})
+            if isinstance(h, dict):
+                h = dict(h)
+            h.setdefault("X-Client-Cert", "present")
+            kww["headers"] = h
+        return _orig_get(path, *aa, **kww)
+    def _open(path, *aa, **kww):
+        # c.open is used for OPTIONS in test_options, not rate-limited but still mTLS-protected for deviceActivation
+        if isinstance(path, str) and (path.startswith("/deviceservices/") or path.startswith("/WebObjects/")):
+            h = kww.get("headers", {})
+            if isinstance(h, dict):
+                h = dict(h)
+            # OPTIONS should not require mTLS (it's CORS preflight), but adding header is harmless
+            h.setdefault("X-Client-Cert", "present")
+            kww["headers"] = h
+        return _orig_open(path, *aa, **kww)
+    c.post = _post
+    c.get = _get
+    c.open = _open
+    return c
+albert_server.app.test_client = _mtls_test_client
+
 
 def test_health():
     c = albert_server.app.test_client()
@@ -34,6 +73,15 @@ def test_metrics():
     assert b"albert_up" in r.data
 
 
+def _cert_headers(**kw):
+    h = kw.get("headers", {})
+    if isinstance(h, dict):
+        h = dict(h)
+    h["X-Client-Cert"] = "present"
+    kw["headers"] = h
+    return kw
+
+
 def test_drm_handshake():
     c = albert_server.app.test_client()
     blob = {"CollectionBlob": b"a", "HandshakeRequestMessage": b"b", "UniqueDeviceID": "test"}
@@ -41,6 +89,7 @@ def test_drm_handshake():
         "/deviceservices/drmHandshake",
         data=plistlib.dumps(blob),
         content_type="application/x-apple-plist",
+        **_cert_headers(),
     )
     assert r.status_code == 200
     pl = plistlib.loads(r.data)
