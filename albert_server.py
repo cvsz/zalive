@@ -155,10 +155,9 @@ def _init_db():
                 serial TEXT,
                 created_at TEXT,
                 record TEXT,
-                producttype TEXT,
-                UNIQUE(udid, created_at) ON CONFLICT REPLACE
+                producttype TEXT
             )""")
-            # migrate old DBs without producttype / without unique constraint
+            # migrate old DBs without producttype
             try:
                 cur = conn.execute("PRAGMA table_info(activations)")
                 cols = [r[1] for r in cur.fetchall()]
@@ -166,9 +165,9 @@ def _init_db():
                     conn.execute("ALTER TABLE activations ADD COLUMN producttype TEXT")
             except Exception:
                 pass
-            # ensure unique index for pre-existing DBs (which lacked UNIQUE in original DDL)
+            # drop no-op UNIQUE index from prior deployment (UNIQUE(udid,created_at) never dedupes; see scrutinize)
             try:
-                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_activations_udid_created ON activations(udid, created_at)")
+                conn.execute("DROP INDEX IF EXISTS idx_activations_udid_created")
             except Exception:
                 pass
             conn.commit()
@@ -191,10 +190,9 @@ def log_activation(udid: str, serial: str, record, producttype: str = ""):
             record_text = json.dumps(record, ensure_ascii=False)
         else:
             record_text = str(record)
-        # INSERT OR REPLACE to honor UNIQUE(udid, created_at) under concurrent same-UDID bursts (P2)
         with sqlite3.connect(str(DB_PATH), timeout=30) as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO activations (udid, serial, created_at, record, producttype) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO activations (udid, serial, created_at, record, producttype) VALUES (?, ?, ?, ?, ?)",
                 (udid or "", serial or "", created_at, record_text, producttype or ""),
             )
             conn.commit()
@@ -584,6 +582,14 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
     udid_norm = udid.strip() if isinstance(udid, str) and udid.strip() else None
     client = _get_redis_client()
     redis_configured = bool(_get_redis_url())
+    # Fail-closed when Redis configured but client unavailable (e.g., connection down) — don't silently fall back
+    if client is None and redis_configured and _redis_fail_closed():
+        try:
+            rid = getattr(g, 'request_id', '-')  # type: ignore
+        except Exception:
+            rid = '-'
+        logger.warning(f"Redis unavailable fail-closed for ip={ip} — returning 429 (no Redis client)", extra={"request_id": rid})
+        return True
     if client is not None:
         ip_key = f"albert:ratelimit:ip:{ip}"
         res_ip = _redis_incr_with_expire(ip_key, _RATE_LIMIT_MAX, _RATE_LIMIT_WINDOW)
@@ -679,6 +685,14 @@ def _check_udid_rate_limit(udid: str) -> bool:
     if not udid_norm:
         return False
     client = _get_redis_client()
+    redis_configured = bool(_get_redis_url())
+    if client is None and redis_configured and _redis_fail_closed():
+        try:
+            rid = getattr(g, 'request_id', '-')  # type: ignore
+        except Exception:
+            rid = '-'
+        logger.warning(f"Redis unavailable fail-closed for UDID {udid_norm[:8]} — returning 429 (no Redis client)", extra={"request_id": rid})
+        return True
     if client is not None:
         udid_key = f"albert:ratelimit:udid:{udid_norm}"
         res = _redis_incr_with_expire(udid_key, per_udid, _RATE_LIMIT_WINDOW)
@@ -839,20 +853,23 @@ def before_request_hardening():
                     # Real PEM forwarded — verify fingerprint against ALBERT_MTLS_CERT if available (optional)
                     has_cert = True
                 elif cert_hdr:
-                    # Legacy header-only mode ("present"/"mtls") — only trust from localhost / trusted proxy
-                    # This is the vulnerable path the review flags: header alone over HTTP is spoofable.
+                    # Bare "present"/"mtls" over HTTP is spoofable — default DENY unless explicitly allowed.
+                    # Require ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1 plus localhost; otherwise require token/PEM.
+                    allow_fallback = os.environ.get("ALBERT_MTLS_ALLOW_HEADER_FALLBACK", "0").strip().lower() in ("1", "true", "yes")
                     trusted = (request.remote_addr in ("127.0.0.1", "::1", "localhost") or request.remote_addr == os.environ.get("LOCAL_ALBERT_HOST", "127.0.0.1"))
-                    if not trusted and os.environ.get("ALBERT_MTLS_ALLOW_HEADER_FALLBACK", "1").strip().lower() not in ("1", "true", "yes"):
-                        has_cert = False
+                    if cert_hdr.lower() in ("mtls", "present"):
+                        if not allow_fallback or not trusted:
+                            logger.warning(f"mTLS bare header {cert_hdr!r} denied for {request.path} from {request.remote_addr} — set ALBERT_MTLS_TOKEN or PEM or ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1 for localhost dev (request_id={g.request_id})")
+                            has_cert = False
+                        else:
+                            logger.warning(f"mTLS header-only mode used for {request.path} from {request.remote_addr} — spoofable; set ALBERT_MTLS_TOKEN or LOCAL_ALBERT_SCHEME=https + gunicorn cert_reqs=2 for real mTLS (request_id={g.request_id})")
+                            has_cert = True
                     else:
-                        # Allow with warning — document that HTTP-mode header is vulnerable, use HTTPS + TLS cert for production
-                        if cert_hdr.lower() in ("mtls", "present"):
-                            logger.warning(f"mTLS header-only mode used for {request.path} from {request.remote_addr} — spoofable; set LOCAL_ALBERT_SCHEME=https + gunicorn cert_reqs=2 for real mTLS (request_id={g.request_id})")
-                        has_cert = bool(cert_hdr) or (request.headers.get("X-Forwarded-By") == "firmware_restore_proxy" and bool(cert_hdr))
-                # also allow explicit header from mitmproxy when it presents client cert (legacy compat)
-                if not has_cert and request.headers.get("X-Forwarded-By") == "firmware_restore_proxy" and request.headers.get("X-Client-Cert"):
-                    # only if already warned above, still consider present for compat; real fix is to use X-MTLS-Token or PEM
-                    has_cert = True if request.headers.get("X-Client-Cert", "").strip() else False
+                        # non-PEM opaque string but not bare marker — still require fallback allow
+                        if not allow_fallback:
+                            has_cert = False
+                        else:
+                            has_cert = bool(cert_hdr) and trusted
         if not has_cert:
             logger.warning(f"mTLS required but no client cert for {request.path} from {request.remote_addr}", extra={"request_id": g.request_id, "remote_addr": request.remote_addr or '-'})
             resp = jsonify({"error": "client certificate required", "request_id": g.request_id})
@@ -911,12 +928,26 @@ def handle_legacy_options(subpath):
     resp.headers["Allow"] = "GET, POST, OPTIONS"
     return resp
 
+FALLBACK_KEY_PATH = os.environ.get('FALLBACK_KEY_PATH', 'certs/fallback.key')
+
 class AlbertServer:
     def __init__(self):
-        # Reusable fallback device key (P0 fix: do not generate new RSA key per activation without CSR)
+        # Reusable fallback device key — persisted per-cluster (certs/fallback.key 0600), not per-process.
+        # Loads fallback key if exists, else generates and persists; shared across gunicorn workers via file.
         self._fallback_key = None
         self._fallback_cert_cache: str | None = None
         self._fallback_lock = threading.Lock()
+        # Preload persisted fallback key if present (shared across workers)
+        try:
+            _fb = pathlib.Path(FALLBACK_KEY_PATH)
+            if _fb.exists():
+                try:
+                    self._fallback_key = serialization.load_pem_private_key(_fb.read_bytes(), password=None)  # type: ignore
+                    logger.info(f"Loaded persisted fallback key from {_fb}")
+                except Exception as _e:
+                    logger.warning(f"Failed to load fallback key {_fb}: {_e}")
+        except Exception:
+            pass
         # Persist FairPlay key across restarts (P0-1)
         key_path = pathlib.Path(FAIRPLAY_KEY_PATH) if 'FAIRPLAY_KEY_PATH' in globals() else pathlib.Path("certs/fairplay.key")
         cert_path = pathlib.Path(FAIRPLAY_CERT_PATH) if 'FAIRPLAY_CERT_PATH' in globals() else pathlib.Path("certs/fairplay.crt")
@@ -1051,12 +1082,29 @@ class AlbertServer:
         account_token_b64 = base64.b64encode(account_token_plist).decode()
         device_cert_request = self._get_device_cert_request(activation_info)
         device_cert_b64 = ""
-        # Helper: reusable fallback key/cert — do not generate unique key per activation (P0)
+        # Helper: reusable fallback key/cert — persisted per-cluster, not per-activation/per-worker
         def _fallback_cert(cn: str) -> str:
             try:
                 with self._fallback_lock:
                     if self._fallback_key is None:
-                        self._fallback_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                        # try load persisted first (another worker may have created it)
+                        try:
+                            _fb2 = pathlib.Path(FALLBACK_KEY_PATH)
+                            if _fb2.exists():
+                                self._fallback_key = serialization.load_pem_private_key(_fb2.read_bytes(), password=None)  # type: ignore
+                        except Exception:
+                            pass
+                        if self._fallback_key is None:
+                            self._fallback_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                            # persist for other workers (0600)
+                            try:
+                                _fbp = pathlib.Path(FALLBACK_KEY_PATH)
+                                _fbp.parent.mkdir(parents=True, exist_ok=True)
+                                _fbp.write_bytes(self._fallback_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()))
+                                _fbp.chmod(0o600)
+                                logger.info(f"Persisted fallback key to {_fbp}")
+                            except Exception as _pe:
+                                logger.warning(f"Failed to persist fallback key: {_pe}")
                     fk = self._fallback_key
                     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
                     cert = x509.CertificateBuilder().subject_name(subject).issuer_name(
@@ -2246,19 +2294,10 @@ def api_admin_status():
     err = _admin_required()
     if err:
         return err
-    # Return same payload as /api/status but with ok flag; call handler directly (no test_request_context)
     try:
-        resp = api_status()
-        if isinstance(resp, tuple):
-            resp = resp[0]
-        try:
-            j = resp.get_json()
-        except Exception:
-            import json as _json
-            j = _json.loads(resp.get_data(as_text=True))
-        if isinstance(j, dict):
-            j["ok"] = True
-        return jsonify(j)
+        payload = _build_status_payload()
+        payload["ok"] = True
+        return jsonify(payload)
     except Exception as e:
         logger.warning(f"api_admin_status error: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -2482,9 +2521,8 @@ def api_firmwares():
         return jsonify({"error": "upstream unavailable", "details": str(e), "retryAfter": 60}), 502
 
 
-@app.route('/api/status', methods=['GET'])
-def api_status():
-    # Gather realtime status without blocking
+def _build_status_payload():
+    """Helper that gathers realtime status dict (no jsonify) — used by /api/status and /api/admin/status."""
     import sqlite3
     import subprocess
     now = datetime.now(timezone.utc).isoformat()
@@ -2606,7 +2644,11 @@ def api_status():
                 rate["sample"] = f"{k[:6]}...:{len(v)}"
     except Exception:
         pass
-    return jsonify({"now": now, "health": health, "ready": ready, "fairplay": fair, "metrics": metrics, "activations": acts, "device": device, "usb": usb, "ipsw": ipsw_info, "env": env, "db": {"wal": metrics["wal"]}, "rate": rate})
+    return {"now": now, "health": health, "ready": ready, "fairplay": fair, "metrics": metrics, "activations": acts, "device": device, "usb": usb, "ipsw": ipsw_info, "env": env, "db": {"wal": metrics["wal"]}, "rate": rate}
+
+@app.route('/api/status', methods=['GET'])
+def api_status():
+    return jsonify(_build_status_payload())
 
 @app.route('/api/rate_status', methods=['GET'])
 def api_rate_status():
