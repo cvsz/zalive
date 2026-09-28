@@ -2,6 +2,7 @@
 import os
 import logging as _logging
 # mTLS toggle for proxy→Albert (env ALBERT_MTLS_CA)
+# NOTE: Changing ALBERT_MTLS_CA requires gunicorn restart — TLS config is evaluated at import (cert_reqs=2). See docs/RUNBOOK.md mTLS section.
 # If ALBERT_MTLS_CA is set, require client cert for incoming connections (mitmproxy must present ALBERT_MTLS_CERT/KEY).
 # If not set, warn that proxy→Albert is unauthenticated.
 _mtls_ca = os.environ.get("ALBERT_MTLS_CA", "").strip()

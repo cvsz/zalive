@@ -45,3 +45,27 @@ Keys are `0600` persisted; backup `certs/` before rotation.
 - `8080` conflict → `ALBERT_HTTP_PORT=18090` already default; check `ss -tln`.
 - `413 payload too large` → plist >512KB; device should not send.
 - Legal: for owned devices only; `ALBERT_ACCEPT_RISK=1` required to start prod (future gate).
+
+## mTLS (proxy → Albert)
+- Toggle via `.env` `ALBERT_MTLS_CA=/path/to/ca.pem` (CA bundle that signed `ALBERT_MTLS_CERT`).
+- Proxy must present client cert: `ALBERT_MTLS_CERT`/`ALBERT_MTLS_KEY` in `firmware_restore_proxy.py` env.
+- `gunicorn_conf.py` reads `ALBERT_MTLS_CA` at **import time** (`cert_reqs=2`), not per-request. Changing the var requires full restart:
+  ```bash
+  sudo systemctl restart albert-server  # systemd
+  # or
+  ./start.sh restart  # host
+  # or
+  docker compose restart albert-server  # docker
+  ```
+- Verify: `curl http://127.0.0.1:18090/health` still 200, but `curl -k https://127.0.0.1:18443/deviceservices/drmHandshake` without cert should 401 when mTLS on.
+
+## Rate limiting
+- Defaults `100/min per IP` + `10/min per UDID` (env `ALBERT_REDIS_URL` → Redis `INCR+EXPIRE` distributed, else in-memory per-worker).
+- When `ALBERT_REDIS_URL` is set but Redis is unreachable, server logs `WARNING Redis rate limit degraded to in-memory...` and falls back to per-process in-memory (2 workers → effective `200/min` per IP). To fail closed set `ALBERT_REDIS_REQUIRED=1` (future).
+- Inspect: `curl http://127.0.0.1:18090/api/rate_status` or `GET /api/validate`.
+
+## Logs
+- All logs under `logs/` (host: `logs/albert.log`, `logs/mitmproxy.log`, `logs/restore/restore_*.log`, `logs/validate.log`; docker volume `logs:/app/logs`). Old root `*.log` ignored via `.gitignore`.
+- `logs/` is gitignored; `logs/.gitkeep` + `logs/restore/README.md` kept.
+- Retention: SQLite `activations` pruned to `10k` rows + `30d` via `DELETE ... NOT IN (SELECT id ... LIMIT 10000)` in `api_admin/checkpoint` and `albert_server.py` every 100 writes.
+

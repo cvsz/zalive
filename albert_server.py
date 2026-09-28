@@ -571,7 +571,7 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
         ip_key = f"albert:ratelimit:ip:{ip}"
         res_ip = _redis_incr_with_expire(ip_key, _RATE_LIMIT_MAX, _RATE_LIMIT_WINDOW)
         if res_ip is None:
-            pass
+            logger.warning(f"Redis rate limit degraded to in-memory for ip={ip} — check ALBERT_REDIS_URL: {os.environ.get('ALBERT_REDIS_URL','')[:50]}", extra={"request_id": getattr(g, 'request_id', '-')})
         else:
             exceeded_ip, count_ip, remaining_ip = res_ip
             remaining_udid = None
@@ -580,6 +580,7 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
                 udid_key = f"albert:ratelimit:udid:{udid_norm}"
                 res_udid = _redis_incr_with_expire(udid_key, per_udid, _RATE_LIMIT_WINDOW)
                 if res_udid is None:
+                    logger.warning(f"Redis UDID rate limit degraded to in-memory for udid={udid_norm[:8] if udid_norm else 'none'}...", extra={"request_id": getattr(g, 'request_id', '-')})
                     now = time.time()
                     with _rate_limit_lock:
                         ul = _rate_limit_udid_store.get(udid_norm, [])
