@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>zAlive — Admin Control Panel</title>
+<style>
+:root{--bg:#0b0f14;--card:#151a21;--card-hover:#1c2330;--border:#232b36;--border-hover:#2d3a4b;--accent:#3b82f6;--accent-hover:#2563eb;--accent-soft:rgba(59,130,246,.12);--ok:#16a34a;--ok-soft:rgba(22,163,74,.12);--warn:#eab308;--bad:#dc2626;--bad-soft:rgba(220,38,38,.12);--text:#e5e7eb;--text-strong:#f1f5f9;--muted:#94a3b8;--radius:14px;--radius-sm:10px;--radius-pill:999px;--shadow:0 8px 32px rgba(0,0,0,.45);--transition:180ms cubic-bezier(.2,.8,.2,1);}
+*{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;font-family:-apple-system,Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none} a:hover{color:var(--accent-hover)} a:focus-visible, button:focus-visible, input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;top:-40px;left:12px;background:var(--card);color:var(--text);padding:8px 14px;border-radius:10px;border:1px solid var(--border);z-index:100;font-size:13px;font-weight:600} .skip:focus{top:12px}
+header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:rgba(11,15,20,.92);backdrop-filter:blur(12px);z-index:10}
+header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.2px}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:16px;max-width:1440px;margin:0 auto}
+.card{grid-column:span 6;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);transition:border-color var(--transition), box-shadow var(--transition)}
+.card.full{grid-column:span 12} .card.third{grid-column:span 4} .card.half{grid-column:span 6}
+@media(max-width:1000px){.card,.card.third,.card.half{grid-column:span 12}}
+.k{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;font-weight:650}
+.v{font-size:22px;font-weight:750;margin-top:8px;letter-spacing:-.3px}
+.mono{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:4px 9px;border-radius:999px;border:1px solid var(--border);font-weight:600}
+.badge.ok{background:var(--ok-soft);color:var(--ok);border-color:rgba(22,163,74,.25)} .badge.bad{background:var(--bad-soft);color:var(--bad);border-color:rgba(220,38,38,.25)} .badge.warn{background:rgba(234,179,8,.12);color:var(--warn)}
+button{font-size:13px;padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-weight:600;transition:all var(--transition)}
+button.primary{background:var(--accent);border-color:var(--accent);color:white} button.primary:hover{background:var(--accent-hover)}
+button.danger{background:var(--bad-soft);border-color:rgba(220,38,38,.3);color:var(--bad)} button.danger:hover{background:rgba(220,38,38,.2)}
+button:disabled{opacity:.6;cursor:not-allowed}
+input{font-size:13px;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%}
+input:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
+table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px} th{font-size:11px;color:var(--muted);text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);font-weight:650;white-space:nowrap} td{font-size:13px;padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.05)}
+.log{max-height:300px;overflow:auto;background:#0f141b;border:1px solid var(--border);border-radius:10px;padding:12px;font-family:ui-monospace,monospace;font-size:11px;white-space:pre-wrap;line-height:1.6}
+.footer{padding:14px;text-align:center;color:var(--muted);font-size:11.5px;border-top:1px solid var(--border);background:rgba(255,255,255,.01);margin-top:16px}
+.skeleton{background:linear-gradient(90deg,var(--card) 25%, var(--border) 50%, var(--card) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px;height:14px} @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+</style>
+</head>
+<body>
+<a href="#main" class="skip">Skip to content</a>
+<header role="banner">
+  <a href="/dashboard" style="display:flex;align-items:center;gap:8px;text-decoration:none" aria-label="zAlive home"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:26px;width:auto;display:block" loading="eager"></a>
+  <div>
+    <h1>Admin Control Panel <span style="color:var(--muted);font-weight:400">· gated by ALBERT_ADMIN_TOKEN</span></h1>
+    <nav aria-label="Breadcrumb" style="font-size:11.5px;color:var(--muted);margin-top:2px"><a href="/" style="color:var(--muted)">Home</a> › <a href="/dashboard" style="color:var(--muted)">Dashboard</a> › <span aria-current="page" style="color:var(--text)">Admin</span> · <a href="/firmware" style="color:var(--accent)">Firmware</a></nav>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+    <span id="authPill" class="badge warn" role="status" aria-live="polite">checking auth…</span>
+    <a href="/dashboard">← Dashboard</a>
+  </div>
+</header>
+<main id="main" role="main" style="max-width:1440px;margin:0 auto">
+<div id="gate" style="max-width:520px;margin:32px auto;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)">
+  <div class="k">Admin authentication</div>
+  <p class="mono" style="color:var(--muted);margin-top:6px">Enter <code>ALBERT_ADMIN_TOKEN</code> to unlock. Token is sent as <code>X-Admin-Token</code> header and stored in this browser only (localStorage). Set via <code>.env ALBERT_ADMIN_TOKEN=…</code> and restart.</p>
+  <form id="gateForm" style="display:flex;gap:8px;margin-top:12px" onsubmit="return false">
+    <input id="tokenInput" type="password" placeholder="Paste admin token" aria-label="Admin token" autocomplete="current-password">
+    <button class="primary" id="unlockBtn" type="submit">Unlock</button>
+    <button id="logoutBtn" type="button" style="display:none">Lock</button>
+  </form>
+  <div id="gateMsg" class="mono" style="margin-top:8px;color:var(--muted)"></div>
+</div>
+<div id="panel" style="display:none">
+  <div class="grid">
+    <section class="card third" aria-labelledby="status-title"><div class="k" id="status-title">Status</div><div id="aStatus" class="mono" style="margin-top:8px"><span class="skeleton" style="width:100%;height:60px;display:block"></span></div></section>
+    <section class="card third" aria-labelledby="actions-title"><div class="k" id="actions-title">Actions</div><div style="display:grid;gap:8px;margin-top:10px">
+      <button id="btnRefresh">↻ Refresh status</button>
+      <button id="btnClearCache">Clear firmware cache</button>
+      <button id="btnResetRate">Reset rate limits</button>
+      <button id="btnCheckpoint">DB checkpoint + prune</button>
+      <button class="danger" id="btnPurge">⚠ Purge activations (>30d)</button>
+    </div><div id="actionMsg" class="mono" style="margin-top:8px;color:var(--muted)" role="status" aria-live="polite"></div></section>
+    <section class="card third" aria-labelledby="env-title"><div class="k" id="env-title">Environment</div><div id="aEnv" class="mono" style="margin-top:8px"><span class="skeleton" style="width:100%;height:60px;display:block"></span></div></section>
+    <section class="card half" aria-labelledby="acts-title"><div class="k" id="acts-title">Recent activations</div><div style="overflow:auto;max-height:360px"><table><thead><tr><th>#</th><th>UDID</th><th>Serial</th><th>At</th></tr></thead><tbody id="aActs"><tr><td colspan=4><span class="skeleton" style="width:100%"></span></td></tr></tbody></table></div></section>
+    <section class="card half" aria-labelledby="logs-title"><div class="k" id="logs-title">Logs tail</div><div id="aLogs" class="log" style="margin-top:8px">loading…</div><div style="margin-top:8px;display:flex;gap:8px"><button id="btnLogs">Refresh logs</button><a href="/api/logs?lines=200" target="_blank" style="font-size:13px;align-self:center">/api/logs</a></div></section>
+    <section class="card full" aria-labelledby="rate-title"><div class="k" id="rate-title">Rate limits</div><div id="aRate" class="mono" style="margin-top:8px"><span class="skeleton" style="width:100%;height:40px;display:block"></span></div></section>
+  </div>
+</div>
+</main>
+<div class="footer"><span style="display:inline-flex;align-items:center;gap:6px"><img src="/static/zalive-icon.svg" alt="" style="height:14px;width:14px" loading="lazy"> zAlive</span> · Admin · <a href="/dashboard">dashboard</a> · <a href="/firmware">firmware</a> · gated · See <a href="/docs/RUNBOOK.md" target="_blank">RUNBOOK</a></div>
+<script>
+const $ = id => document.getElementById(id);
+const TOKEN_KEY = 'zalive_admin_token';
+function getToken(){ return localStorage.getItem(TOKEN_KEY) || ''; }
+function setToken(v){ if(v) localStorage.setItem(TOKEN_KEY, v); else localStorage.removeItem(TOKEN_KEY); }
+function authHeaders(){ const t=getToken(); return t ? {'X-Admin-Token': t} : {}; }
+async function checkAuth(){
+  const t=getToken();
+  if(!t){ $('authPill').textContent='locked — enter token'; $('authPill').className='badge warn'; $('panel').style.display='none'; $('gate').style.display='block'; $('logoutBtn').style.display='none'; return false; }
+  try{
+    const r=await fetch('/api/admin/status', {headers: authHeaders()});
+    const j=await r.json();
+    if(r.ok && j.ok){
+      $('authPill').textContent='unlocked ✓'; $('authPill').className='badge ok';
+      $('panel').style.display='block'; $('gate').style.display='none'; $('logoutBtn').style.display='inline-block';
+      $('gateMsg').textContent='Authenticated as admin.';
+      return true;
+    } else {
+      $('authPill').textContent='invalid token'; $('authPill').className='badge bad';
+      $('gateMsg').textContent=(j.error||'Invalid token') + ' — check .env ALBERT_ADMIN_TOKEN';
+      $('panel').style.display='none'; $('gate').style.display='block';
+      return false;
+    }
+  }catch(e){ $('authPill').textContent='error'; $('authPill').className='badge bad'; $('gateMsg').textContent='Error: '+e.message; return false; }
+}
+async function load(){
+  if(!(await checkAuth())) return;
+  try{
+    const r=await fetch('/api/admin/status', {headers: authHeaders()});
+    const j=await r.json();
+    $('aStatus').innerHTML = '<div><span class="badge ok">live</span> fairplay '+(j.fairplay?.loaded?'loaded':'missing')+' · activations '+j.metrics.activations+' · up '+j.metrics.up+'</div><div class="mono" style="margin-top:6px;color:var(--muted)">ipsw '+j.ipsw.name+' · '+j.ipsw.sizeGB+'GB · '+j.ipsw.sha256.slice(0,16)+'…</div>';
+    $('aEnv').textContent = JSON.stringify(j.env, null, 2);
+    const acts = j.activations||[];
+    const tbody=$('aActs'); tbody.innerHTML='';
+    if(!acts.length) tbody.innerHTML='<tr><td colspan=4 style="color:var(--muted)">no activations</td></tr>';
+    else acts.forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML='<td>'+r.id+'</td><td class="mono">'+(r.udid?r.udid.slice(0,4)+'…'+r.udid.slice(-4):'-')+'</td><td>'+(r.serial||'-')+'</td><td class="mono">'+r.created_at.slice(0,19)+'</td>'; tbody.appendChild(tr); });
+    $('aRate').textContent = 'IPs '+j.rate.ips+' · sample '+(j.rate.sample||'-')+' · window 60s · max 100/min + 10/min per-UDID';
+  }catch(e){ $('aStatus').textContent='load error: '+e.message; }
+  try{
+    const r=await fetch('/api/logs?lines=60', {headers: authHeaders()});
+    const j=await r.json(); $('aLogs').textContent = j.tail||'no logs';
+  }catch(e){ $('aLogs').textContent='logs error: '+e.message; }
+}
+$('gateForm').addEventListener('submit', async (e)=>{ e.preventDefault(); const v=$('tokenInput').value.trim(); if(!v){ $('gateMsg').textContent='Enter token'; return; } setToken(v); $('tokenInput').value=''; await load(); });
+$('logoutBtn').addEventListener('click', ()=>{ setToken(''); $('authPill').textContent='locked'; $('authPill').className='badge warn'; $('panel').style.display='none'; $('gate').style.display='block'; $('gateMsg').textContent='Locked — token cleared from this browser.'; });
+$('btnRefresh').addEventListener('click', load);
+$('btnLogs').addEventListener('click', async()=>{ const r=await fetch('/api/logs?lines=60',{headers:authHeaders()}); const j=await r.json(); $('aLogs').textContent=j.tail||'no logs'; });
+$('btnClearCache').addEventListener('click', async()=>{ $('actionMsg').textContent='clearing…'; const r=await fetch('/api/admin/clear-cache',{method:'POST',headers:authHeaders()}); const j=await r.json(); $('actionMsg').textContent=r.ok?('cleared: '+(j.cleared||'ok')):('error: '+(j.error||r.status)); });
+$('btnResetRate').addEventListener('click', async()=>{ $('actionMsg').textContent='resetting…'; const r=await fetch('/api/admin/reset-rate',{method:'POST',headers:authHeaders()}); const j=await r.json(); $('actionMsg').textContent=r.ok?('reset: ips '+j.reset?.ips+' udid '+j.reset?.udid):('error: '+(j.error||r.status)); });
+$('btnCheckpoint').addEventListener('click', async()=>{ $('actionMsg').textContent='checkpointing…'; const r=await fetch('/api/admin/checkpoint',{method:'POST',headers:authHeaders()}); const j=await r.json(); $('actionMsg').textContent=r.ok?('checkpoint: '+(j.wal||j.status||'ok')):('error: '+(j.error||r.status)); });
+$('btnPurge').addEventListener('click', async()=>{ if(!confirm('Purge activations older than 30 days?')) return; $('actionMsg').textContent='purging…'; const r=await fetch('/api/admin/purge',{method:'POST',headers:authHeaders()}); const j=await r.json(); $('actionMsg').textContent=r.ok?('purged: '+j.purged):('error: '+(j.error||r.status)); if(r.ok) load(); });
+(async()=>{ const t=getToken(); if(t) $('tokenInput').placeholder='token saved — unlock or lock to change'; await load(); })();
+</script>
+</body>
+</html>
