@@ -1,9 +1,9 @@
 SHELL := /bin/sh
 
-.PHONY: help validate-template setup format lint test build security ci
+.PHONY: help validate-template setup format lint test build security ci trivy
 
 help:
-	@printf '%s\n' 'Template: validate-template' 'Project (configure before use): setup format lint test build security ci' 'Bootstrap: python3 scripts/bootstrap.py --help'
+	@printf '%s\n' 'Template: validate-template' 'Project (configure before use): setup format lint test build security ci' 'Bootstrap: python3 scripts/bootstrap.py --help' 'Security: trivy'
 
 validate-template:
 	python3 -m unittest discover -s tests -v
@@ -13,3 +13,6 @@ setup format lint test build security:
 	@exit 2
 
 ci: validate-template lint test build security
+
+trivy:
+	trivy fs . --severity HIGH,CRITICAL

@@ -426,8 +426,8 @@ python activate_device.py --albert-url http://127.0.0.1:18090 --udid 00008020-AA
 
 Live catalog from `https://api.ipsw.me/v4/device/{ProductType}` cached `1h` in `logs/firmware_cache.json` (`0600`) + local scan `*.ipsw` overlay.
 
-- `GET /firmware` — dark table: Version | Build | Released | Size | Signed `✓`/`✗` | Local `✅` | Download `⬇` (Apple `url`). Dropdown curated `iPhone11,8` XR · `iPhone12,1` 11 · `iPhone13,2` 12 · `iPhone14,5` 13 · `iPhone15,2` 14 Pro + search filter, `cached`/`stale` banner.
-- `GET /api/devices` → `{"devices": [5]}` (curated `identifier/name/chip/internal`).
+- `GET /firmware` — dark table: Version | Build | Released | Size | Signed `✓`/`✗` | Local `✅` | Download `⬇` (Apple `url`). Dropdown curated 13: `iPhone5,1` 5 `A6` · `iPhone6,1` 5s `A7` · `iPhone7,2` 6 `A8` · `iPhone8,1` 6s · `iPhone9,1` 7 · `iPhone10,1` 8 · `iPhone10,3` X · `iPhone11,8` XR · `iPhone12,1` 11 · `iPhone13,2` 12 · `iPhone14,5` 13 · `iPhone15,2` 14 Pro + search, `cached`/`stale` banner.
+- `GET /api/devices` → `{"devices": [13]}` (curated `identifier/name/chip/internal`).
 - `GET /api/firmwares?productType=iPhone13,2` → `{"firmwares": [...], "local": [...], "cached": bool, "fetchedAt": iso, "stale": bool}` — `400` if `^iPhone\d+,\d+$` fails, `502` if upstream down and no cache, `8s` timeout.
 
 Any-iPhone: `GET /api/status` `device` now reads last `activations` row’s `producttype` (fallback XR `MT1A2TH/A 00008020-AAAAAAAAAAAAAAAA`); dashboard header `Albert — Any iPhone`.

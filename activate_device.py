@@ -4,8 +4,9 @@ iOS Device Activation Client - FIXED + Production Hardening
 - Correctly base64-encodes activation-info for form submission
 - Handles session mode handshake properly
 - Fixes headers and error handling
-- Production hardening: timeouts/retries (manual 3 retries 3 retries exponential backoff),
+- Production hardening: timeouts/retries (tenacity with fallback, exponential backoff),
   structured logging with request_id, input validation UDID/IMEI, --json output, X-Request-ID header, 413/429 handling
+  circuit breaker per base_url (open after 5 failures for 30s, 503 + X-Circuit-Breaker)
 """
 import asyncio
 import argparse
@@ -36,7 +37,108 @@ except ImportError:
     LIBIMOBILEDEVICE_AVAILABLE = False
     pass
 
-# --- Retry: manual exponential backoff (no tenacity dependency) ---
+# --- Tenacity import with fallback ---
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    TENACITY_AVAILABLE = True
+except ImportError:
+    TENACITY_AVAILABLE = False
+
+    def retry(*dargs, **dkw):
+        def decorator(func):
+            return func
+        return decorator
+
+    def stop_after_attempt(n):
+        return None
+
+    def wait_exponential(*args, **kwargs):
+        return None
+
+    def retry_if_exception_type(exc):
+        return None
+
+# --- Circuit breaker: in-memory FAIL_COUNT per base_url, open after 5 failures for 30s, return 503 + header X-Circuit-Breaker ---
+FAIL_COUNT: Dict[str, int] = {}
+_CIRCUIT_OPENED_AT: Dict[str, float] = {}
+CIRCUIT_THRESHOLD = 5
+CIRCUIT_TIMEOUT = 30  # seconds
+
+def _is_circuit_open(base_url: str) -> bool:
+    opened = _CIRCUIT_OPENED_AT.get(base_url)
+    if opened is None:
+        return False
+    if time.time() - opened < CIRCUIT_TIMEOUT:
+        return True
+    # timeout expired -> half-open, reset
+    FAIL_COUNT.pop(base_url, None)
+    _CIRCUIT_OPENED_AT.pop(base_url, None)
+    return False
+
+def _record_failure(base_url: str) -> None:
+    cnt = FAIL_COUNT.get(base_url, 0) + 1
+    FAIL_COUNT[base_url] = cnt
+    if cnt >= CIRCUIT_THRESHOLD:
+        _CIRCUIT_OPENED_AT[base_url] = time.time()
+
+def _record_success(base_url: str) -> None:
+    FAIL_COUNT.pop(base_url, None)
+    _CIRCUIT_OPENED_AT.pop(base_url, None)
+
+def _reset_circuit_breaker(base_url: str = None) -> None:
+    if base_url is not None:
+        FAIL_COUNT.pop(base_url, None)
+        _CIRCUIT_OPENED_AT.pop(base_url, None)
+    else:
+        FAIL_COUNT.clear()
+        _CIRCUIT_OPENED_AT.clear()
+
+def _circuit_open_response(url: str) -> requests.Response:
+    resp = requests.Response()
+    resp.status_code = 503
+    resp.headers["X-Circuit-Breaker"] = "open"
+    resp._content = b'{"error": "circuit breaker open"}'
+    resp.url = url
+    resp.reason = "Circuit Breaker Open"
+    return resp
+
+def _tenacity_retry_error_callback(retry_state) -> None:
+    # Called when tenacity retries exhausted (kept for spec compliance, used as retry_error_callback if needed)
+    try:
+        self_obj = retry_state.args[0] if retry_state.args else None
+        base_url = getattr(self_obj, 'base_url', None) if self_obj else None
+        if base_url:
+            _record_failure(base_url)
+    except Exception:
+        pass
+    return None
+
+def _handle_tenacity_retry_error(func):
+    """Wrapper to convert tenacity RetryError into None and record circuit failure."""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            # Handle tenacity RetryError (when reraise=False)
+            try:
+                from tenacity import RetryError
+                if isinstance(e, RetryError):
+                    self_obj = args[0] if args else None
+                    base_url = getattr(self_obj, 'base_url', None) if self_obj else None
+                    if base_url:
+                        _record_failure(base_url)
+                    return None
+            except ImportError:
+                pass
+            # Handle direct ConnectionError/TimeoutError after retries (when reraise=True)
+            if isinstance(e, (ConnectionError, TimeoutError)):
+                self_obj = args[0] if args else None
+                base_url = getattr(self_obj, 'base_url', None) if self_obj else None
+                if base_url:
+                    _record_failure(base_url)
+                return None
+            raise
+    return wrapper
 
 # --- Structured logging with request_id ---
 class RequestIdFilter(logging.Filter):
@@ -125,8 +227,18 @@ class LocalAlbertClient:
     def _generate_request_id(self) -> str:
         return str(uuid.uuid4())
 
+    # Wire tenacity + manual 429 handling; try import tenacity else fallback
+    # Required decorator: @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8), retry=retry_if_exception_type((ConnectionError, TimeoutError)))
+    # plus manual 429 handling inside
+    @_handle_tenacity_retry_error
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8), retry=retry_if_exception_type((ConnectionError, TimeoutError))) if TENACITY_AVAILABLE else lambda f: f
     def _post_with_retry(self, url: str, data, headers: Dict[str, str], request_id: str) -> Optional[requests.Response]:
-        """POST with manual exponential backoff, handling 413/429 specifically. Returns Response or None."""
+        """POST with tenacity (if available) + manual exponential backoff for 429/5xx + circuit breaker. Returns Response or None, or 503 if circuit open."""
+        # Circuit breaker check at entry
+        if _is_circuit_open(self.base_url):
+            logger.warning(f"Circuit breaker open for {self.base_url} request_id={request_id} returning 503", extra={"request_id": request_id})
+            return _circuit_open_response(url)
+
         # Ensure X-Request-ID header
         headers = dict(headers)
         headers["X-Request-ID"] = request_id
@@ -138,6 +250,7 @@ class LocalAlbertClient:
                 # Handle 413/429 specifically before raise_for_status
                 if response.status_code == 413:
                     logger.error(f"Payload too large (413) for {url} request_id={request_id} response: {response.text[:500]}", extra={"request_id": request_id})
+                    _record_failure(self.base_url)
                     return None
                 if response.status_code == 429:
                     retry_after = response.headers.get("Retry-After")
@@ -153,6 +266,7 @@ class LocalAlbertClient:
                         continue
                     else:
                         logger.error(f"Rate limit exceeded after {self.max_retries} attempts request_id={request_id}", extra={"request_id": request_id})
+                        _record_failure(self.base_url)
                         return None
                 # For 5xx, retry
                 if 500 <= response.status_code < 600:
@@ -162,29 +276,57 @@ class LocalAlbertClient:
                         time.sleep(wait)
                         continue
                     else:
-                        response.raise_for_status()
+                        try:
+                            response.raise_for_status()
+                        except Exception as e:
+                            last_exc = e
+                        _record_failure(self.base_url)
+                        return None
                 response.raise_for_status()
                 logger.info(f"POST {url} succeeded status={response.status_code} request_id={request_id}", extra={"request_id": request_id})
+                _record_success(self.base_url)
                 return response
             except requests.exceptions.Timeout as e:
                 last_exc = e
                 logger.warning(f"Timeout for {url} attempt {attempt+1}/{self.max_retries} request_id={request_id}: {e}", extra={"request_id": request_id})
+                if TENACITY_AVAILABLE:
+                    # Convert to builtin for tenacity retry
+                    raise TimeoutError(str(e)) from e
                 if attempt < self.max_retries - 1:
                     wait = BACKOFF_FACTOR * (2 ** attempt)
                     time.sleep(wait)
                     continue
                 else:
                     logger.error(f"Timeout after {self.max_retries} attempts for {url} request_id={request_id}", extra={"request_id": request_id})
+                    _record_failure(self.base_url)
                     return None
             except requests.exceptions.ConnectionError as e:
                 last_exc = e
                 logger.warning(f"Connection error for {url} attempt {attempt+1}/{self.max_retries} request_id={request_id}: {e}", extra={"request_id": request_id})
+                if TENACITY_AVAILABLE:
+                    raise ConnectionError(str(e)) from e
                 if attempt < self.max_retries - 1:
                     wait = BACKOFF_FACTOR * (2 ** attempt)
                     time.sleep(wait)
                     continue
                 else:
                     logger.error(f"Connection failed after {self.max_retries} attempts for {url} request_id={request_id}", extra={"request_id": request_id})
+                    _record_failure(self.base_url)
+                    return None
+            except (ConnectionError, TimeoutError) as e:
+                # Builtin exceptions (from tenacity path or direct)
+                last_exc = e
+                logger.warning(f"Connection/Timeout (builtin) for {url} attempt {attempt+1}/{self.max_retries} request_id={request_id}: {e}", extra={"request_id": request_id})
+                if TENACITY_AVAILABLE:
+                    # Let tenacity handle retry; re-raise
+                    raise
+                if attempt < self.max_retries - 1:
+                    wait = BACKOFF_FACTOR * (2 ** attempt)
+                    time.sleep(wait)
+                    continue
+                else:
+                    logger.error(f"Failed after {self.max_retries} attempts for {url} request_id={request_id}: {e}", extra={"request_id": request_id})
+                    _record_failure(self.base_url)
                     return None
             except requests.exceptions.HTTPError as e:
                 # Already handled 413/429/5xx, other 4xx are not retryable
@@ -194,6 +336,7 @@ class LocalAlbertClient:
                         logger.error(f"Response: {e.response.text[:500]}", extra={"request_id": request_id})
                     except Exception:
                         pass
+                _record_failure(self.base_url)
                 return None
             except Exception as e:
                 last_exc = e
@@ -203,11 +346,12 @@ class LocalAlbertClient:
                     time.sleep(wait)
                     continue
                 else:
+                    _record_failure(self.base_url)
                     return None
         if last_exc:
             logger.error(f"All retries exhausted for {url} request_id={request_id}: {last_exc}", extra={"request_id": request_id})
+            _record_failure(self.base_url)
         return None
-
     def drm_handshake(self, collection_blob: bytes, handshake_msg: bytes, udid: str) -> Optional[bytes]:
         request_id = self._generate_request_id()
         # Input validation for UDID before call
