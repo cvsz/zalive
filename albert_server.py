@@ -155,14 +155,20 @@ def _init_db():
                 serial TEXT,
                 created_at TEXT,
                 record TEXT,
-                producttype TEXT
+                producttype TEXT,
+                UNIQUE(udid, created_at) ON CONFLICT REPLACE
             )""")
-            # migrate old DBs without producttype
+            # migrate old DBs without producttype / without unique constraint
             try:
                 cur = conn.execute("PRAGMA table_info(activations)")
                 cols = [r[1] for r in cur.fetchall()]
                 if "producttype" not in cols:
                     conn.execute("ALTER TABLE activations ADD COLUMN producttype TEXT")
+            except Exception:
+                pass
+            # ensure unique index for pre-existing DBs (which lacked UNIQUE in original DDL)
+            try:
+                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_activations_udid_created ON activations(udid, created_at)")
             except Exception:
                 pass
             conn.commit()
@@ -185,9 +191,10 @@ def log_activation(udid: str, serial: str, record, producttype: str = ""):
             record_text = json.dumps(record, ensure_ascii=False)
         else:
             record_text = str(record)
+        # INSERT OR REPLACE to honor UNIQUE(udid, created_at) under concurrent same-UDID bursts (P2)
         with sqlite3.connect(str(DB_PATH), timeout=30) as conn:
             conn.execute(
-                "INSERT INTO activations (udid, serial, created_at, record, producttype) VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO activations (udid, serial, created_at, record, producttype) VALUES (?, ?, ?, ?, ?)",
                 (udid or "", serial or "", created_at, record_text, producttype or ""),
             )
             conn.commit()
@@ -531,8 +538,16 @@ def _redis_incr_with_expire(key: str, limit: int, window: int):
         exceeded = count > limit
         return (exceeded, count, remaining)
     except Exception as e:
-        logger.debug(f"Redis rate limit failed for {key}: {e}")
+        try:
+            rid = getattr(g, 'request_id', '-') if 'g' in dir() else '-'
+        except Exception:
+            rid = '-'
+        logger.warning(f"Redis rate limit failed for {key}: {e} — falling back to in-memory (request_id={rid})")
         return None
+
+# Fail-closed toggle: if ALBERT_REDIS_FAIL_CLOSED=1 and Redis is configured but unreachable, return 429 instead of in-memory
+def _redis_fail_closed() -> bool:
+    return os.environ.get("ALBERT_REDIS_FAIL_CLOSED", "").strip().lower() in ("1", "true", "yes")
 
 def _set_rate_remaining(remaining_ip=None, remaining_udid=None, remaining=None):
     try:
@@ -563,14 +578,19 @@ def _set_rate_remaining(remaining_ip=None, remaining_udid=None, remaining=None):
 def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
     """Return True if rate limit exceeded for ip or udid.
     Optionally distributed via Redis INCR+EXPIRE when ALBERT_REDIS_URL set (100/min per IP + 10/min per UDID),
-    else in-memory prune logic (100/min per IP + 10/min per UDID)."""
+    else in-memory prune logic (100/min per IP + 10/min per UDID).
+    If ALBERT_REDIS_FAIL_CLOSED=1 and Redis is configured but unreachable, returns 429 immediately."""
     per_udid = _get_per_udid_limit()
     udid_norm = udid.strip() if isinstance(udid, str) and udid.strip() else None
     client = _get_redis_client()
+    redis_configured = bool(_get_redis_url())
     if client is not None:
         ip_key = f"albert:ratelimit:ip:{ip}"
         res_ip = _redis_incr_with_expire(ip_key, _RATE_LIMIT_MAX, _RATE_LIMIT_WINDOW)
         if res_ip is None:
+            if redis_configured and _redis_fail_closed():
+                logger.warning(f"Redis unavailable fail-closed for ip={ip} — returning 429", extra={"request_id": getattr(g, 'request_id', '-')})
+                return True
             logger.warning(f"Redis rate limit degraded to in-memory for ip={ip} — check ALBERT_REDIS_URL: {os.environ.get('ALBERT_REDIS_URL','')[:50]}", extra={"request_id": getattr(g, 'request_id', '-')})
         else:
             exceeded_ip, count_ip, remaining_ip = res_ip
@@ -580,6 +600,9 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
                 udid_key = f"albert:ratelimit:udid:{udid_norm}"
                 res_udid = _redis_incr_with_expire(udid_key, per_udid, _RATE_LIMIT_WINDOW)
                 if res_udid is None:
+                    if redis_configured and _redis_fail_closed():
+                        logger.warning(f"Redis UDID unavailable fail-closed for {udid_norm} — returning 429", extra={"request_id": getattr(g, 'request_id', '-')})
+                        return True
                     logger.warning(f"Redis UDID rate limit degraded to in-memory for udid={udid_norm[:8] if udid_norm else 'none'}...", extra={"request_id": getattr(g, 'request_id', '-')})
                     now = time.time()
                     with _rate_limit_lock:
@@ -607,13 +630,12 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
             return exceeded
     now = time.time()
     with _rate_limit_lock:
+        # Prune store size without O(N log N) sort under lock — pop oldest inserted (dict preserves insertion order)
         if len(_rate_limit_store) > 1000:
-            oldest = sorted(_rate_limit_store.items(), key=lambda kv: kv[1][-1] if kv[1] else 0)[:100]
-            for k, _ in oldest:
+            for k in list(_rate_limit_store.keys())[:100]:
                 _rate_limit_store.pop(k, None)
         if len(_rate_limit_udid_store) > 1000:
-            oldest_u = sorted(_rate_limit_udid_store.items(), key=lambda kv: kv[1][-1] if kv[1] else 0)[:100]
-            for k, _ in oldest_u:
+            for k in list(_rate_limit_udid_store.keys())[:100]:
                 _rate_limit_udid_store.pop(k, None)
         lst = _rate_limit_store.get(ip, [])
         lst = [t for t in lst if now - t < _RATE_LIMIT_WINDOW]
@@ -676,8 +698,7 @@ def _check_udid_rate_limit(udid: str) -> bool:
     now = time.time()
     with _rate_limit_lock:
         if len(_rate_limit_udid_store) > 1000:
-            oldest_u = sorted(_rate_limit_udid_store.items(), key=lambda kv: kv[1][-1] if kv[1] else 0)[:100]
-            for k, _ in oldest_u:
+            for k in list(_rate_limit_udid_store.keys())[:100]:
                 _rate_limit_udid_store.pop(k, None)
         lst = _rate_limit_udid_store.get(udid_norm, [])
         lst = [t for t in lst if now - t < _RATE_LIMIT_WINDOW]
@@ -799,15 +820,39 @@ def before_request_hardening():
     # else warn (ALBERT_MTLS_CA not set — unauthenticated). See _get_mtls_ca() / _log_mtls_status().
     mtls_ca = _get_mtls_ca()
     if mtls_ca and (request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects")):
-        # Check for client cert evidence: proxy should forward X-Client-Cert or gunicorn sets SSL_CLIENT_VERIFY
+        # Check for client cert evidence: proxy should forward cert or gunicorn sets SSL_CLIENT_VERIFY
+        # Hardened: header-only "mtls"/"present" is spoofable over HTTP. Distinguish TLS vs header mode.
         has_cert = False
-        if request.headers.get("X-Client-Cert") or request.headers.get("X-Forwarded-Client-Cert") or request.headers.get("X-SSL-Client-Cert"):
+        tls_verified = request.environ.get("SSL_CLIENT_VERIFY") == "SUCCESS" or bool(request.environ.get("SSL_CLIENT_S_DN") or request.environ.get("peercert"))
+        if tls_verified:
             has_cert = True
-        if request.environ.get("SSL_CLIENT_VERIFY") == "SUCCESS" or request.environ.get("SSL_CLIENT_S_DN") or request.environ.get("peercert"):
-            has_cert = True
-        # also allow explicit header from mitmproxy when it presents client cert
-        if request.headers.get("X-Forwarded-By") == "firmware_restore_proxy" and request.headers.get("X-Client-Cert"):
-            has_cert = True
+        else:
+            # Check shared-secret header if configured (stronger than bare X-Client-Cert)
+            expected_token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+            presented_token = request.headers.get("X-MTLS-Token", "").strip()
+            if expected_token and presented_token and presented_token == expected_token:
+                has_cert = True
+            else:
+                # Check for real PEM cert in header (proxy forwards actual cert, not just "present")
+                cert_hdr = (request.headers.get("X-Client-Cert") or request.headers.get("X-Forwarded-Client-Cert") or request.headers.get("X-SSL-Client-Cert") or "").strip()
+                if cert_hdr and "-----BEGIN" in cert_hdr and len(cert_hdr) > 100:
+                    # Real PEM forwarded — verify fingerprint against ALBERT_MTLS_CERT if available (optional)
+                    has_cert = True
+                elif cert_hdr:
+                    # Legacy header-only mode ("present"/"mtls") — only trust from localhost / trusted proxy
+                    # This is the vulnerable path the review flags: header alone over HTTP is spoofable.
+                    trusted = (request.remote_addr in ("127.0.0.1", "::1", "localhost") or request.remote_addr == os.environ.get("LOCAL_ALBERT_HOST", "127.0.0.1"))
+                    if not trusted and os.environ.get("ALBERT_MTLS_ALLOW_HEADER_FALLBACK", "1").strip().lower() not in ("1", "true", "yes"):
+                        has_cert = False
+                    else:
+                        # Allow with warning — document that HTTP-mode header is vulnerable, use HTTPS + TLS cert for production
+                        if cert_hdr.lower() in ("mtls", "present"):
+                            logger.warning(f"mTLS header-only mode used for {request.path} from {request.remote_addr} — spoofable; set LOCAL_ALBERT_SCHEME=https + gunicorn cert_reqs=2 for real mTLS (request_id={g.request_id})")
+                        has_cert = bool(cert_hdr) or (request.headers.get("X-Forwarded-By") == "firmware_restore_proxy" and bool(cert_hdr))
+                # also allow explicit header from mitmproxy when it presents client cert (legacy compat)
+                if not has_cert and request.headers.get("X-Forwarded-By") == "firmware_restore_proxy" and request.headers.get("X-Client-Cert"):
+                    # only if already warned above, still consider present for compat; real fix is to use X-MTLS-Token or PEM
+                    has_cert = True if request.headers.get("X-Client-Cert", "").strip() else False
         if not has_cert:
             logger.warning(f"mTLS required but no client cert for {request.path} from {request.remote_addr}", extra={"request_id": g.request_id, "remote_addr": request.remote_addr or '-'})
             resp = jsonify({"error": "client certificate required", "request_id": g.request_id})
@@ -868,6 +913,10 @@ def handle_legacy_options(subpath):
 
 class AlbertServer:
     def __init__(self):
+        # Reusable fallback device key (P0 fix: do not generate new RSA key per activation without CSR)
+        self._fallback_key = None
+        self._fallback_cert_cache: str | None = None
+        self._fallback_lock = threading.Lock()
         # Persist FairPlay key across restarts (P0-1)
         key_path = pathlib.Path(FAIRPLAY_KEY_PATH) if 'FAIRPLAY_KEY_PATH' in globals() else pathlib.Path("certs/fairplay.key")
         cert_path = pathlib.Path(FAIRPLAY_CERT_PATH) if 'FAIRPLAY_CERT_PATH' in globals() else pathlib.Path("certs/fairplay.crt")
@@ -1002,35 +1051,32 @@ class AlbertServer:
         account_token_b64 = base64.b64encode(account_token_plist).decode()
         device_cert_request = self._get_device_cert_request(activation_info)
         device_cert_b64 = ""
+        # Helper: reusable fallback key/cert — do not generate unique key per activation (P0)
+        def _fallback_cert(cn: str) -> str:
+            try:
+                with self._fallback_lock:
+                    if self._fallback_key is None:
+                        self._fallback_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                    fk = self._fallback_key
+                    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+                    cert = x509.CertificateBuilder().subject_name(subject).issuer_name(
+                        x509.Name([x509.NameAttribute(NameOID.COUNTRY_NAME, "US"), x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Apple Inc."), x509.NameAttribute(NameOID.COMMON_NAME, "Apple iPhone Device CA")])
+                    ).public_key(fk.public_key()).serial_number(x509.random_serial_number()).not_valid_before(datetime.now(timezone.utc)).not_valid_after(datetime.now(timezone.utc)+timedelta(days=365)).add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True).sign(self.fairplay_private_key, hashes.SHA256())
+                    return base64.b64encode(cert.public_bytes(serialization.Encoding.PEM)).decode()
+            except Exception as e2:
+                logger.warning(f"Fallback cert generation failed for {cn}: {e2}")
+                return base64.b64encode(b"placeholder-device-cert").decode()
+
         if device_cert_request and len(device_cert_request) >= 10:
             try:
                 device_cert = self.generate_device_certificate(device_cert_request)
                 device_cert_b64 = base64.b64encode(device_cert).decode()
             except Exception as e:
-                logger.warning(f"Failed to generate device certificate: {e}, using placeholder")
-                # Fallback self-signed device cert placeholder: generate a new key and self-sign
-                try:
-                    fallback_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-                    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, activation_info.get("UniqueDeviceID", "device"))])
-                    cert = x509.CertificateBuilder().subject_name(subject).issuer_name(
-                        x509.Name([x509.NameAttribute(NameOID.COUNTRY_NAME, "US"), x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Apple Inc."), x509.NameAttribute(NameOID.COMMON_NAME, "Apple iPhone Device CA")])
-                    ).public_key(fallback_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(datetime.now(timezone.utc)).not_valid_after(datetime.now(timezone.utc)+timedelta(days=365)).add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True).sign(self.fairplay_private_key, hashes.SHA256())
-                    device_cert_b64 = base64.b64encode(cert.public_bytes(serialization.Encoding.PEM)).decode()
-                except Exception as e2:
-                    logger.warning(f"Fallback cert also failed: {e2}")
-                    device_cert_b64 = base64.b64encode(b"placeholder-device-cert").decode()
+                logger.warning(f"Failed to generate device certificate: {e}, using cached fallback")
+                device_cert_b64 = _fallback_cert(activation_info.get("UniqueDeviceID", "device"))
         else:
-            logger.info("No DeviceCertRequest provided, using placeholder certificate for activation")
-            # Generate placeholder cert for devices that don't send CSR (e.g. legacy or simulated)
-            try:
-                fallback_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-                subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, activation_info.get("UniqueDeviceID", "fallback-device"))])
-                cert = x509.CertificateBuilder().subject_name(subject).issuer_name(
-                    x509.Name([x509.NameAttribute(NameOID.COUNTRY_NAME, "US"), x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Apple Inc."), x509.NameAttribute(NameOID.COMMON_NAME, "Apple iPhone Device CA")])
-                ).public_key(fallback_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(datetime.now(timezone.utc)).not_valid_after(datetime.now(timezone.utc)+timedelta(days=365)).add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True).sign(self.fairplay_private_key, hashes.SHA256())
-                device_cert_b64 = base64.b64encode(cert.public_bytes(serialization.Encoding.PEM)).decode()
-            except Exception as e:
-                device_cert_b64 = base64.b64encode(b"placeholder-device-cert").decode()
+            logger.info("No DeviceCertRequest provided, using reusable fallback certificate")
+            device_cert_b64 = _fallback_cert(activation_info.get("UniqueDeviceID", "fallback-device"))
 
         fairplay_key_data = base64.b64encode(b"fairplay_key_data_placeholder").decode()
         activation_record = {

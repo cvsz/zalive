@@ -63,35 +63,41 @@ FAIL_COUNT: Dict[str, int] = {}
 _CIRCUIT_OPENED_AT: Dict[str, float] = {}
 CIRCUIT_THRESHOLD = 5
 CIRCUIT_TIMEOUT = 30  # seconds
+import threading as _cb_threading
+_circuit_lock = _cb_threading.Lock()
 
 def _is_circuit_open(base_url: str) -> bool:
-    opened = _CIRCUIT_OPENED_AT.get(base_url)
-    if opened is None:
-        return False
-    if time.time() - opened < CIRCUIT_TIMEOUT:
-        return True
-    # timeout expired -> half-open, reset
-    FAIL_COUNT.pop(base_url, None)
-    _CIRCUIT_OPENED_AT.pop(base_url, None)
-    return False
-
-def _record_failure(base_url: str) -> None:
-    cnt = FAIL_COUNT.get(base_url, 0) + 1
-    FAIL_COUNT[base_url] = cnt
-    if cnt >= CIRCUIT_THRESHOLD:
-        _CIRCUIT_OPENED_AT[base_url] = time.time()
-
-def _record_success(base_url: str) -> None:
-    FAIL_COUNT.pop(base_url, None)
-    _CIRCUIT_OPENED_AT.pop(base_url, None)
-
-def _reset_circuit_breaker(base_url: str = None) -> None:
-    if base_url is not None:
+    with _circuit_lock:
+        opened = _CIRCUIT_OPENED_AT.get(base_url)
+        if opened is None:
+            return False
+        if time.time() - opened < CIRCUIT_TIMEOUT:
+            return True
+        # timeout expired -> half-open, reset
         FAIL_COUNT.pop(base_url, None)
         _CIRCUIT_OPENED_AT.pop(base_url, None)
-    else:
-        FAIL_COUNT.clear()
-        _CIRCUIT_OPENED_AT.clear()
+        return False
+
+def _record_failure(base_url: str) -> None:
+    with _circuit_lock:
+        cnt = FAIL_COUNT.get(base_url, 0) + 1
+        FAIL_COUNT[base_url] = cnt
+        if cnt >= CIRCUIT_THRESHOLD:
+            _CIRCUIT_OPENED_AT[base_url] = time.time()
+
+def _record_success(base_url: str) -> None:
+    with _circuit_lock:
+        FAIL_COUNT.pop(base_url, None)
+        _CIRCUIT_OPENED_AT.pop(base_url, None)
+
+def _reset_circuit_breaker(base_url: str = None) -> None:
+    with _circuit_lock:
+        if base_url is not None:
+            FAIL_COUNT.pop(base_url, None)
+            _CIRCUIT_OPENED_AT.pop(base_url, None)
+        else:
+            FAIL_COUNT.clear()
+            _CIRCUIT_OPENED_AT.clear()
 
 def _circuit_open_response(url: str) -> requests.Response:
     resp = requests.Response()
