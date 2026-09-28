@@ -1086,7 +1086,7 @@ def api_activations():
 
 @app.route('/', methods=['GET'])
 def index():
-    return jsonify({"service":"albert-local","endpoints":["/health","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]})
+    return jsonify({"service":"albert-local","endpoints":["/dashboard","/api/status","/api/activations","/api/logs","/health","/ready","/metrics","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]})
 
 if __name__ == '__main__':
     import argparse
