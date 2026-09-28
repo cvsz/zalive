@@ -1,3 +1,14 @@
+# Albert Activation Server — systemd unit
+# Install & enable:
+#   sudo cp systemd/albert-server.service /etc/systemd/system/albert-server.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now albert-server
+# Verify:
+#   systemctl is-enabled albert-server   # should print "enabled"
+#   systemctl status albert-server
+#   journalctl -u albert-server -f
+# Disable:
+#   sudo systemctl disable --now albert-server
 [Unit]
 Description=Albert Activation Server
 After=network.target

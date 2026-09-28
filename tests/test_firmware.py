@@ -8,8 +8,8 @@ def test_firmware_devices():
     assert r.status_code == 200
     j = r.get_json()
     ids = [d['identifier'] for d in j['devices']]
-    assert len(ids) == 5
-    assert 'iPhone11,8' in ids and 'iPhone15,2' in ids
+    assert len(ids) == 13
+    assert 'iPhone11,8' in ids and 'iPhone15,2' in ids and 'iPhone5,1' in ids and 'iPhone5,3' in ids and 'iPhone10,3' in ids
     for d in j['devices']:
         assert 'chip' in d and 'name' in d
 
@@ -54,10 +54,12 @@ def test_any_iphone_dynamic_device():
     # Should be XR initially, but after logging an activation for iPhone15,2 it flips
     assert j['device']['ProductType'] in ['iPhone11,8','iPhone15,2','iPhone14,5']
     # log a new activation for iPhone15,2
-    import plistlib, base64
+    import plistlib
+    import base64
     info={"DeviceClass":"iPhone","ProductType":"iPhone15,2","UniqueDeviceID":"00008020-1111111111111111","SerialNumber":"TEST123","DeviceCertRequest": b""}
     # Use direct DB log to simulate
-    import pathlib, sqlite3
+    import pathlib
+    import sqlite3
     # Simulate via activation
     b64 = base64.b64encode(plistlib.dumps(info)).decode()
     c.post('/deviceservices/deviceActivation', data={'activation-info': b64})

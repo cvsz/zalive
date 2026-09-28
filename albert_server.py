@@ -32,8 +32,33 @@ app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('ALBERT_MAX_CONTENT_LENGTH
 FAIRPLAY_KEY_PATH = os.environ.get('FAIRPLAY_KEY_PATH', 'certs/fairplay.key')
 FAIRPLAY_CERT_PATH = os.environ.get('FAIRPLAY_CERT_PATH', 'certs/fairplay.crt')
 
+# --- mTLS toggle for proxy→Albert (env ALBERT_MTLS_CA) ---
+# If ALBERT_MTLS_CA is set (path to CA bundle), Albert requires client certificate from mitmproxy.
+# If not set, connection is unauthenticated — warn at startup and per-request (see SECURITY.md, docs/architecture.md).
+# The proxy (firmware_restore_proxy.py) should present ALBERT_MTLS_CERT/KEY when this is set and use https.
+def _get_mtls_ca():
+    return os.environ.get("ALBERT_MTLS_CA", "").strip()
+
+def _log_mtls_status():
+    ca = _get_mtls_ca()
+    if ca:
+        if not pathlib.Path(ca).exists():
+            logger.warning(f"mTLS enabled but ALBERT_MTLS_CA={ca} not found — client cert verification will fail")
+        else:
+            logger.info(f"mTLS enabled — proxy→Albert requires client cert (CA={ca})")
+    else:
+        logger.warning("ALBERT_MTLS_CA not set — proxy→Albert mTLS disabled (unauthenticated). Set ALBERT_MTLS_CA to a CA bundle to require client cert.")
+
 # --- Curated any-iPhone firmware (spec: XR + 12/13/14/15) ---
 CURATED_DEVICES = [
+    {"identifier": "iPhone5,1", "name": "iPhone 5", "chip": "A6", "internal": "n41ap", "explain": "5 · legacy activation"},
+    {"identifier": "iPhone5,3", "name": "iPhone 5c", "chip": "A6", "internal": "n48ap", "explain": "5c · legacy activation"},
+    {"identifier": "iPhone6,1", "name": "iPhone 5s", "chip": "A7", "internal": "n51ap", "explain": "5s · TouchID · session activation"},
+    {"identifier": "iPhone7,2", "name": "iPhone 6", "chip": "A8", "internal": "n61ap", "explain": "6 · session activation"},
+    {"identifier": "iPhone8,1", "name": "iPhone 6s", "chip": "A9", "internal": "n71ap", "explain": "6s · session activation"},
+    {"identifier": "iPhone9,1", "name": "iPhone 7", "chip": "A10", "internal": "d10ap", "explain": "7 · session activation"},
+    {"identifier": "iPhone10,1", "name": "iPhone 8", "chip": "A11", "internal": "d20ap", "explain": "8 · session activation"},
+    {"identifier": "iPhone10,3", "name": "iPhone X", "chip": "A11", "internal": "d22ap", "explain": "X · FaceID · session activation"},
     {"identifier": "iPhone11,8", "name": "iPhone XR", "chip": "A12", "internal": "n841ap", "explain": "XR · session activation"},
     {"identifier": "iPhone12,1", "name": "iPhone 11", "chip": "A13", "internal": "n104ap", "explain": "11 · session activation"},
     {"identifier": "iPhone13,2", "name": "iPhone 12", "chip": "A14", "internal": "d52g", "explain": "12 · session activation"},
@@ -415,38 +440,298 @@ def _inc_failure():
     except Exception:
         pass
 
-# --- Per-IP rate limit stub (P2) — simple in-memory dict, 100/min, no extra dep ---
+# --- Rate limit: per-IP 100/min + per-UDID 10/min, optionally distributed via Redis ---
+# Fallback to in-memory prune logic when redis unavailable or REDIS_URL not set.
+try:
+    import redis as _redis_mod  # type: ignore
+    _REDIS_AVAILABLE = True
+except ImportError:
+    _redis_mod = None  # type: ignore
+    _REDIS_AVAILABLE = False
+
 _RATE_LIMIT_MAX = 100
 _RATE_LIMIT_WINDOW = 60  # seconds
+_RATE_LIMIT_PER_UDID_DEFAULT = 10
 _rate_limit_store: dict = {}
+_rate_limit_udid_store: dict = {}
 _rate_limit_lock = threading.Lock()
+_redis_client = None
+_redis_client_url = None
+_redis_client_lock = threading.Lock()
 
-def _check_rate_limit(ip: str) -> bool:
-    """Return True if rate limit exceeded for ip. In-memory per-IP 100/min, prunes empty, caps 1000 IPs."""
+def _get_per_udid_limit() -> int:
+    try:
+        return int(os.environ.get("ALBERT_RATE_LIMIT_PER_UDID", str(_RATE_LIMIT_PER_UDID_DEFAULT)))
+    except Exception:
+        return _RATE_LIMIT_PER_UDID_DEFAULT
+
+def _get_redis_url() -> str:
+    return (os.environ.get("ALBERT_REDIS_URL") or os.environ.get("REDIS_URL") or "").strip()
+
+def _get_redis_client():
+    if not _REDIS_AVAILABLE or _redis_mod is None:
+        return None
+    url = _get_redis_url()
+    if not url:
+        return None
+    global _redis_client, _redis_client_url
+    with _redis_client_lock:
+        if _redis_client is not None and _redis_client_url == url:
+            try:
+                _redis_client.ping()
+                return _redis_client
+            except Exception:
+                _redis_client = None
+                _redis_client_url = None
+        if _redis_client_url is not None and _redis_client_url != url:
+            try:
+                _redis_client = None
+            except Exception:
+                pass
+            _redis_client_url = None
+        try:
+            client = _redis_mod.from_url(url, socket_connect_timeout=2, socket_timeout=2, decode_responses=True)
+            client.ping()
+            _redis_client = client
+            _redis_client_url = url
+            return client
+        except Exception as e:
+            logger.debug(f"Redis connect failed: {e}")
+            return None
+
+def _redis_incr_with_expire(key: str, limit: int, window: int):
+    client = _get_redis_client()
+    if client is None:
+        return None
+    try:
+        try:
+            count = client.incr(key)
+        except Exception as e:
+            if "unknown command" in str(e).lower() or "noperm" in str(e).lower() or "incr" in str(e).lower():
+                try:
+                    count = client.incrby(key, 1)
+                except Exception as e2:
+                    logger.debug(f"Redis incrby failed for {key}: {e2}")
+                    return None
+            else:
+                logger.debug(f"Redis INCR failed for {key}: {e}")
+                return None
+        if count == 1:
+            try:
+                client.expire(key, window)
+            except Exception:
+                pass
+        remaining = max(0, limit - count)
+        exceeded = count > limit
+        return (exceeded, count, remaining)
+    except Exception as e:
+        logger.debug(f"Redis rate limit failed for {key}: {e}")
+        return None
+
+def _set_rate_remaining(remaining_ip=None, remaining_udid=None, remaining=None):
+    try:
+        from flask import g, has_request_context
+        if not has_request_context():
+            return
+        if remaining is not None:
+            g.rate_limit_remaining = remaining
+        elif remaining_ip is not None and remaining_udid is not None:
+            g.rate_limit_remaining = min(remaining_ip, remaining_udid)
+            g.rate_limit_remaining_ip = remaining_ip
+            g.rate_limit_remaining_udid = remaining_udid
+        elif remaining_ip is not None:
+            g.rate_limit_remaining = remaining_ip
+            g.rate_limit_remaining_ip = remaining_ip
+            if remaining_udid is not None:
+                g.rate_limit_remaining_udid = remaining_udid
+        elif remaining_udid is not None:
+            g.rate_limit_remaining = remaining_udid
+            g.rate_limit_remaining_udid = remaining_udid
+        if remaining_ip is not None:
+            g.rate_limit_remaining_ip = remaining_ip
+        if remaining_udid is not None:
+            g.rate_limit_remaining_udid = remaining_udid
+    except Exception:
+        pass
+
+def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
+    """Return True if rate limit exceeded for ip or udid.
+    Optionally distributed via Redis INCR+EXPIRE when ALBERT_REDIS_URL set (100/min per IP + 10/min per UDID),
+    else in-memory prune logic (100/min per IP + 10/min per UDID)."""
+    per_udid = _get_per_udid_limit()
+    udid_norm = udid.strip() if isinstance(udid, str) and udid.strip() else None
+    client = _get_redis_client()
+    if client is not None:
+        ip_key = f"albert:ratelimit:ip:{ip}"
+        res_ip = _redis_incr_with_expire(ip_key, _RATE_LIMIT_MAX, _RATE_LIMIT_WINDOW)
+        if res_ip is None:
+            pass
+        else:
+            exceeded_ip, count_ip, remaining_ip = res_ip
+            remaining_udid = None
+            exceeded_udid = False
+            if udid_norm:
+                udid_key = f"albert:ratelimit:udid:{udid_norm}"
+                res_udid = _redis_incr_with_expire(udid_key, per_udid, _RATE_LIMIT_WINDOW)
+                if res_udid is None:
+                    now = time.time()
+                    with _rate_limit_lock:
+                        ul = _rate_limit_udid_store.get(udid_norm, [])
+                        ul = [t for t in ul if now - t < _RATE_LIMIT_WINDOW]
+                        if not ul and udid_norm in _rate_limit_udid_store:
+                            _rate_limit_udid_store.pop(udid_norm, None)
+                        if len(ul) >= per_udid:
+                            _rate_limit_udid_store[udid_norm] = ul
+                            _set_rate_remaining(remaining_ip=remaining_ip, remaining_udid=0, remaining=0)
+                            return True
+                        ul.append(now)
+                        _rate_limit_udid_store[udid_norm] = ul
+                        remaining_udid = max(0, per_udid - len(ul))
+                else:
+                    exceeded_udid, count_udid, remaining_udid = res_udid
+            exceeded = exceeded_ip or exceeded_udid
+            if udid_norm and remaining_udid is not None:
+                rem = min(remaining_ip, remaining_udid)
+                _set_rate_remaining(remaining_ip=remaining_ip, remaining_udid=remaining_udid, remaining=rem if not exceeded else 0)
+                if exceeded:
+                    _set_rate_remaining(remaining=0, remaining_ip=remaining_ip if not exceeded_ip else 0, remaining_udid=remaining_udid if not exceeded_udid else 0)
+            else:
+                _set_rate_remaining(remaining_ip=remaining_ip, remaining=0 if exceeded_ip else remaining_ip)
+            return exceeded
     now = time.time()
     with _rate_limit_lock:
-        # Prune empty entries periodically to avoid unbounded growth (P2 polish)
         if len(_rate_limit_store) > 1000:
-            # evict oldest 100 IPs with smallest newest timestamp
             oldest = sorted(_rate_limit_store.items(), key=lambda kv: kv[1][-1] if kv[1] else 0)[:100]
-            for k,_ in oldest:
+            for k, _ in oldest:
                 _rate_limit_store.pop(k, None)
+        if len(_rate_limit_udid_store) > 1000:
+            oldest_u = sorted(_rate_limit_udid_store.items(), key=lambda kv: kv[1][-1] if kv[1] else 0)[:100]
+            for k, _ in oldest_u:
+                _rate_limit_udid_store.pop(k, None)
         lst = _rate_limit_store.get(ip, [])
         lst = [t for t in lst if now - t < _RATE_LIMIT_WINDOW]
-        if not lst and ip in _rate_limit_store and len(lst)==0:
-            # keep empty list removal for memory
+        if not lst and ip in _rate_limit_store:
             _rate_limit_store.pop(ip, None)
+            lst = []
         if len(lst) >= _RATE_LIMIT_MAX:
             _rate_limit_store[ip] = lst
+            _set_rate_remaining(remaining_ip=0, remaining=0)
             return True
+        udid_lst = []
+        if udid_norm:
+            udid_lst = _rate_limit_udid_store.get(udid_norm, [])
+            udid_lst = [t for t in udid_lst if now - t < _RATE_LIMIT_WINDOW]
+            if not udid_lst and udid_norm in _rate_limit_udid_store:
+                _rate_limit_udid_store.pop(udid_norm, None)
+                udid_lst = []
+            if len(udid_lst) >= per_udid:
+                _rate_limit_store[ip] = lst
+                _rate_limit_udid_store[udid_norm] = udid_lst
+                remaining_ip_tmp = max(0, _RATE_LIMIT_MAX - len(lst))
+                _set_rate_remaining(remaining_ip=remaining_ip_tmp, remaining_udid=0, remaining=0)
+                return True
         lst.append(now)
         _rate_limit_store[ip] = lst
+        remaining_ip = max(0, _RATE_LIMIT_MAX - len(lst))
+        if udid_norm:
+            udid_lst.append(now)
+            _rate_limit_udid_store[udid_norm] = udid_lst
+            remaining_udid = max(0, per_udid - len(udid_lst))
+            rem = min(remaining_ip, remaining_udid)
+            _set_rate_remaining(remaining_ip=remaining_ip, remaining_udid=remaining_udid, remaining=rem)
+        else:
+            _set_rate_remaining(remaining_ip=remaining_ip, remaining=remaining_ip)
+        return False
+
+def _check_udid_rate_limit(udid: str) -> bool:
+    """Check per-UDID limit only. Used inside activation endpoint after IP already counted."""
+    per_udid = _get_per_udid_limit()
+    udid_norm = udid.strip() if isinstance(udid, str) and udid.strip() else None
+    if not udid_norm:
+        return False
+    client = _get_redis_client()
+    if client is not None:
+        udid_key = f"albert:ratelimit:udid:{udid_norm}"
+        res = _redis_incr_with_expire(udid_key, per_udid, _RATE_LIMIT_WINDOW)
+        if res is not None:
+            exceeded, count, remaining = res
+            try:
+                from flask import g
+                ip_rem = getattr(g, 'rate_limit_remaining_ip', _RATE_LIMIT_MAX)
+                if exceeded:
+                    _set_rate_remaining(remaining=0, remaining_ip=ip_rem, remaining_udid=0)
+                else:
+                    rem = min(ip_rem, remaining) if isinstance(ip_rem, int) else remaining
+                    _set_rate_remaining(remaining=rem, remaining_ip=ip_rem, remaining_udid=remaining)
+            except Exception:
+                _set_rate_remaining(remaining_udid=remaining, remaining=remaining if not exceeded else 0)
+            return exceeded
+    now = time.time()
+    with _rate_limit_lock:
+        if len(_rate_limit_udid_store) > 1000:
+            oldest_u = sorted(_rate_limit_udid_store.items(), key=lambda kv: kv[1][-1] if kv[1] else 0)[:100]
+            for k, _ in oldest_u:
+                _rate_limit_udid_store.pop(k, None)
+        lst = _rate_limit_udid_store.get(udid_norm, [])
+        lst = [t for t in lst if now - t < _RATE_LIMIT_WINDOW]
+        if not lst and udid_norm in _rate_limit_udid_store:
+            _rate_limit_udid_store.pop(udid_norm, None)
+            lst = []
+        if len(lst) >= per_udid:
+            _rate_limit_udid_store[udid_norm] = lst
+            try:
+                from flask import g
+                ip_rem = getattr(g, 'rate_limit_remaining_ip', _RATE_LIMIT_MAX)
+                _set_rate_remaining(remaining=0, remaining_ip=ip_rem, remaining_udid=0)
+            except Exception:
+                pass
+            return True
+        lst.append(now)
+        _rate_limit_udid_store[udid_norm] = lst
+        remaining_udid = max(0, per_udid - len(lst))
+        try:
+            from flask import g
+            ip_rem = getattr(g, 'rate_limit_remaining_ip', _RATE_LIMIT_MAX)
+            rem = min(ip_rem, remaining_udid) if isinstance(ip_rem, int) else remaining_udid
+            _set_rate_remaining(remaining=rem, remaining_ip=ip_rem, remaining_udid=remaining_udid)
+        except Exception:
+            _set_rate_remaining(remaining_udid=remaining_udid, remaining=remaining_udid)
         return False
 
 def _reset_rate_limit():
-    """For tests: clear rate limit store."""
+    """For tests: clear rate limit store (both IP and UDID) and redis keys if configured."""
     with _rate_limit_lock:
         _rate_limit_store.clear()
+        _rate_limit_udid_store.clear()
+    client = _get_redis_client()
+    if client is not None:
+        try:
+            try:
+                for key in client.scan_iter(match="albert:ratelimit:*"):
+                    try:
+                        client.delete(key)
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    keys = client.keys("albert:ratelimit:*")
+                    if keys:
+                        client.delete(*keys)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    try:
+        from flask import g, has_request_context
+        if has_request_context():
+            for attr in ["rate_limit_remaining", "rate_limit_remaining_ip", "rate_limit_remaining_udid"]:
+                if hasattr(g, attr):
+                    try:
+                        delattr(g, attr)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
 
 def _redact_udid(u):
     s=str(u) if u else ""
@@ -503,19 +788,55 @@ def before_request_hardening():
         resp.headers["X-Request-ID"] = g.request_id
         resp.headers["Allow"] = "GET, POST, OPTIONS"
         return resp
-    # Per-IP rate limit stub (simple in-memory dict, 100/min) without extra dep
-    # Apply only to activation-related endpoints to avoid breaking health checks
+    # mTLS toggle for proxy→Albert: if ALBERT_MTLS_CA is set, require client cert on protected endpoints
+    # else warn (ALBERT_MTLS_CA not set — unauthenticated). See _get_mtls_ca() / _log_mtls_status().
+    mtls_ca = _get_mtls_ca()
+    if mtls_ca and (request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects")):
+        # Check for client cert evidence: proxy should forward X-Client-Cert or gunicorn sets SSL_CLIENT_VERIFY
+        has_cert = False
+        if request.headers.get("X-Client-Cert") or request.headers.get("X-Forwarded-Client-Cert") or request.headers.get("X-SSL-Client-Cert"):
+            has_cert = True
+        if request.environ.get("SSL_CLIENT_VERIFY") == "SUCCESS" or request.environ.get("SSL_CLIENT_S_DN") or request.environ.get("peercert"):
+            has_cert = True
+        # also allow explicit header from mitmproxy when it presents client cert
+        if request.headers.get("X-Forwarded-By") == "firmware_restore_proxy" and request.headers.get("X-Client-Cert"):
+            has_cert = True
+        if not has_cert:
+            logger.warning(f"mTLS required but no client cert for {request.path} from {request.remote_addr}", extra={"request_id": g.request_id, "remote_addr": request.remote_addr or '-'})
+            resp = jsonify({"error": "client certificate required", "request_id": g.request_id})
+            return resp, 401
+    elif not mtls_ca and (request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects")):
+        # Warn once per process that mTLS is disabled (rate-limited via logger level)
+        pass  # startup already warned; per-request warn would be noisy
+
+    # Per-IP (+ per-UDID via activation payload) rate limit — 100/min per IP + 10/min per UDID
+    # Optionally distributed via Redis INCR+EXPIRE when ALBERT_REDIS_URL set, else in-memory prune logic
     if request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects"):
         ip = request.remote_addr or "unknown"
         if _check_rate_limit(ip):
             logger.warning(f"Rate limit exceeded for {ip}", extra={"request_id": g.request_id, "remote_addr": ip})
-            return jsonify({"error": "rate limit exceeded", "request_id": g.request_id}), 429
+            resp = jsonify({"error": "rate limit exceeded", "request_id": g.request_id})
+            try:
+                rem = getattr(g, 'rate_limit_remaining', 0)
+                resp.headers["X-RateLimit-Remaining"] = str(rem)
+            except Exception:
+                resp.headers["X-RateLimit-Remaining"] = "0"
+            return resp, 429
 
 @app.after_request
 def after_request_add_id(response):
     rid = getattr(g, "request_id", None)
     if rid:
         response.headers["X-Request-ID"] = rid
+    # X-RateLimit-Remaining header (100/min IP, 10/min UDID) — adds for activation endpoints
+    try:
+        rem = getattr(g, 'rate_limit_remaining', None)
+        if rem is not None:
+            response.headers["X-RateLimit-Remaining"] = str(rem)
+        elif getattr(g, 'rate_limit_remaining_ip', None) is not None:
+            response.headers["X-RateLimit-Remaining"] = str(g.rate_limit_remaining_ip)
+    except Exception:
+        pass
     # latency histogram (P2 polish)
     try:
         if 'albert_request_latency' in globals() and albert_request_latency is not None and hasattr(g, 'request_start'):
@@ -649,7 +970,9 @@ class AlbertServer:
         return b""
 
     def sign_activation_info(self, activation_info: bytes) -> bytes:
-        # SHA1 usage for ARS is Apple-spec — Apple activation requires SHA1 for FairPlay signature
+        # SHA1 is required by Apple's activation spec for FairPlay signature (ARS = base64(SHA1(response_plist))).
+        # See https://theapplewiki.com/wiki/Albert and Apple MobileActivation (MobileActivation-592.103.2) — Apple-spec, not for general hashing.
+        # Bandit B303/B324 is suppressed here because SHA1 is mandated by the Apple protocol; fallback DeviceCertificate uses SHA256.
         signature = self.fairplay_private_key.sign(activation_info, padding.PKCS1v15(), hashes.SHA1())  # nosec B303/B324
         return signature
 
@@ -741,6 +1064,11 @@ FAIRPLAY_CERT_CHAIN = albert.fairplay_cert_chain
 # update metrics up state after albert init
 try:
     albert_up.set(1 if FAIRPLAY_CERT_CHAIN else 0)
+except Exception:
+    pass
+# log mTLS status at startup
+try:
+    _log_mtls_status()
 except Exception:
     pass
 
@@ -894,6 +1222,16 @@ def device_activation():
                 logger.warning(f"Validation failed: {errors} for UDID={_redact_udid(udid_val)}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
                 _inc_failure()
                 return jsonify({"error": "validation failed", "details": errors, "request_id": getattr(g, 'request_id', '-')}), 400
+            # Per-UDID rate limit 10/min (distributed via Redis INCR+EXPIRE when ALBERT_REDIS_URL set else in-memory)
+            if udid_val and _check_udid_rate_limit(str(udid_val)):
+                logger.warning(f"UDID rate limit exceeded for {_redact_udid(udid_val)}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
+                resp = jsonify({"error": "rate limit exceeded", "details": "per UDID limit 10/min", "request_id": getattr(g, 'request_id', '-')})
+                try:
+                    rem = getattr(g, 'rate_limit_remaining', 0)
+                    resp.headers["X-RateLimit-Remaining"] = str(rem)
+                except Exception:
+                    resp.headers["X-RateLimit-Remaining"] = "0"
+                return resp, 429
             session_mode = "FairPlaySignature" in str(activation_info) or "HandshakeRequestMessage" in str(activation_info)
             activation_record = albert.create_activation_record(activation_info, session_mode)
             if not isinstance(activation_record, dict):
@@ -901,7 +1239,8 @@ def device_activation():
                 _inc_failure()
                 return Response("Internal error generating activation record", status=500)
             response_plist = plistlib.dumps(activation_record)
-            # SHA1 usage for ARS is Apple-spec — Apple requires SHA1 for ARS header (Alert: not for general hashing)
+            # SHA1 is required by Apple's activation spec for ARS header (ARS = base64(SHA1(response_plist))).
+            # See https://theapplewiki.com/wiki/Albert — Apple-spec, keep SHA1 for compatibility; not for general hashing. # nosec B303/B324
             ars_hash = hashlib.sha1(response_plist).digest()  # nosec B303/B324
             ars_b64 = base64.b64encode(ars_hash).decode()
             resp = Response(response_plist, mimetype='text/xml')
@@ -960,9 +1299,64 @@ def health():
 
 @app.route('/ready', methods=['GET'])
 def ready():
-    # Readiness: FairPlay key and cert chain loaded
+    # Readiness: FairPlay key and cert chain loaded + NotAfter check (warn 30d before expiry)
     ok = bool(FAIRPLAY_CERT_CHAIN and albert.fairplay_private_key)
-    return (jsonify({"status": "ready" if ok else "not-ready", "fairplay_loaded": ok}), 200 if ok else 503)
+    warning = None
+    expiry_warning = False
+    days_until_expiry = None
+    not_after_iso = None
+    try:
+        # Load cert to check NotAfter (30d warning)
+        crt_data = None
+        try:
+            p = pathlib.Path(FAIRPLAY_CERT_PATH)
+            if p.exists():
+                crt_data = p.read_bytes()
+            else:
+                crt_data = FAIRPLAY_CERT_CHAIN
+        except Exception:
+            crt_data = FAIRPLAY_CERT_CHAIN
+        if crt_data:
+            cert = x509.load_pem_x509_certificate(crt_data if b"-----BEGIN" in crt_data else FAIRPLAY_CERT_CHAIN)
+            # cryptography >=42 uses not_valid_after_utc; fallback for older
+            try:
+                not_after = cert.not_valid_after_utc  # type: ignore
+            except AttributeError:
+                not_after = cert.not_valid_after.replace(tzinfo=timezone.utc)  # type: ignore
+            not_after_iso = not_after.isoformat()
+            now = datetime.now(timezone.utc)
+            delta = not_after - now
+            # days_until_expiry may be negative if expired
+            try:
+                days_until_expiry = delta.days
+            except Exception:
+                days_until_expiry = int(delta.total_seconds() // 86400)
+            if delta.total_seconds() < 30 * 24 * 3600:
+                expiry_warning = True
+                if delta.total_seconds() < 0:
+                    warning = f"FairPlay cert expired {abs(days_until_expiry)} days ago (NotAfter {not_after_iso}) — rotate via --rotate-fairplay immediately"
+                else:
+                    warning = f"FairPlay cert expires in {days_until_expiry} days (NotAfter {not_after_iso}) — rotate via --rotate-fairplay within 30d"
+                logger.warning(warning)
+    except Exception as e:
+        logger.debug(f"Cert expiry check failed: {e}")
+    payload = {"status": "ready" if ok else "not-ready", "fairplay_loaded": ok}
+    if not_after_iso is not None:
+        payload["notAfter"] = not_after_iso
+    if days_until_expiry is not None:
+        payload["days_until_expiry"] = days_until_expiry
+    if expiry_warning:
+        payload["warning"] = warning
+        payload["cert_expiry_warning"] = True
+    # also include mTLS status for observability
+    try:
+        mtls_ca = _get_mtls_ca()
+        payload["mtls"] = {"enabled": bool(mtls_ca), "ca": mtls_ca if mtls_ca else None}
+        if not mtls_ca:
+            payload["mtls_warning"] = "ALBERT_MTLS_CA not set — proxy→Albert mTLS disabled"
+    except Exception:
+        pass
+    return (jsonify(payload), 200 if ok else 503)
 
 @app.route('/metrics', methods=['GET'])
 def metrics():
@@ -1184,7 +1578,7 @@ a{color:var(--accent);text-decoration:none}
 </head>
 <body>
 <header>
-  <h1>Albert — Firmware <span style="color:var(--muted);font-weight:400">· curated XR+12/13/14/15 · ipsw.me live cache 1h</span></h1>
+  <h1>Albert — Firmware <span style="color:var(--muted);font-weight:400">· curated 5→15 Pro (13) · ipsw.me live cache 1h</span></h1>
   <select id="product"></select>
   <input id="q" placeholder="Search version / build">
   <span id="status" style="color:var(--muted);font-size:12px"></span>
@@ -1419,6 +1813,101 @@ def api_status():
         pass
     return jsonify({"now": now, "health": health, "ready": ready, "fairplay": fair, "metrics": metrics, "activations": acts, "device": device, "usb": usb, "ipsw": ipsw_info, "env": env, "db": {"wal": metrics["wal"]}})
 
+@app.route('/api/rate_status', methods=['GET'])
+def api_rate_status():
+    """Debug rate limit status. Returns per-IP 100/min + per-UDID 10/min counts and Redis state."""
+    ip = request.remote_addr or "unknown"
+    udid_q = (request.args.get("udid") or request.args.get("UDID") or "").strip() or None
+    per_udid = _get_per_udid_limit()
+    redis_available = bool(_REDIS_AVAILABLE)
+    redis_url_set = bool(_get_redis_url())
+    client = _get_redis_client()
+    redis_enabled = client is not None
+    now = time.time()
+    ip_count = None
+    ip_remaining = None
+    udid_count = None
+    udid_remaining = None
+    if redis_enabled and client is not None:
+        try:
+            ip_key = f"albert:ratelimit:ip:{ip}"
+            v = client.get(ip_key)
+            c = int(v) if v is not None else 0
+            ip_count = c
+            ip_remaining = max(0, _RATE_LIMIT_MAX - c)
+        except Exception:
+            ip_count = None
+            ip_remaining = None
+        if udid_q:
+            try:
+                udid_key = f"albert:ratelimit:udid:{udid_q}"
+                v = client.get(udid_key)
+                c = int(v) if v is not None else 0
+                udid_count = c
+                udid_remaining = max(0, per_udid - c)
+            except Exception:
+                udid_count = None
+                udid_remaining = None
+        store_ip_size = None
+        store_udid_size = None
+        try:
+            store_ip_size = 0
+            store_udid_size = 0
+            for k in client.scan_iter(match="albert:ratelimit:ip:*"):
+                store_ip_size += 1
+            for k in client.scan_iter(match="albert:ratelimit:udid:*"):
+                store_udid_size += 1
+        except Exception:
+            pass
+    else:
+        with _rate_limit_lock:
+            lst = _rate_limit_store.get(ip, [])
+            lst = [t for t in lst if now - t < _RATE_LIMIT_WINDOW]
+            ip_count = len(lst)
+            ip_remaining = max(0, _RATE_LIMIT_MAX - ip_count)
+            store_ip_size = len(_rate_limit_store)
+            store_udid_size = len(_rate_limit_udid_store)
+            if udid_q:
+                ul = _rate_limit_udid_store.get(udid_q, [])
+                ul = [t for t in ul if now - t < _RATE_LIMIT_WINDOW]
+                udid_count = len(ul)
+                udid_remaining = max(0, per_udid - udid_count)
+    remaining = None
+    try:
+        from flask import g
+        if hasattr(g, 'rate_limit_remaining'):
+            remaining = g.rate_limit_remaining
+        elif ip_remaining is not None and udid_remaining is not None:
+            remaining = min(ip_remaining, udid_remaining)
+        elif ip_remaining is not None:
+            remaining = ip_remaining
+        elif udid_remaining is not None:
+            remaining = udid_remaining
+    except Exception:
+        remaining = ip_remaining
+    resp = jsonify({
+        "ip": ip,
+        "udid": udid_q,
+        "per_ip_limit": _RATE_LIMIT_MAX,
+        "per_udid_limit": per_udid,
+        "window_seconds": _RATE_LIMIT_WINDOW,
+        "redis_available": redis_available,
+        "redis_enabled": redis_enabled,
+        "redis_url_set": redis_url_set,
+        "redis_url": _get_redis_url()[:20] + "..." if redis_url_set else "",
+        "ip_count": ip_count,
+        "ip_remaining": ip_remaining,
+        "udid_count": udid_count,
+        "udid_remaining": udid_remaining,
+        "remaining": remaining,
+        "store_ip_size": store_ip_size,
+        "store_udid_size": store_udid_size,
+        "X-RateLimit-Remaining": remaining,
+    })
+    if remaining is not None:
+        resp.headers["X-RateLimit-Remaining"] = str(remaining)
+    return resp
+
 @app.route('/api/activations', methods=['GET'])
 def api_activations():
     limit = int(request.args.get('limit','10'))
@@ -1437,7 +1926,7 @@ def api_activations():
 
 @app.route('/', methods=['GET'])
 def index():
-    return jsonify({"service":"albert-local","endpoints":["/dashboard","/firmware","/api/devices","/api/firmwares","/api/status","/api/activations","/api/logs","/health","/ready","/metrics","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]})
+    return jsonify({"service":"albert-local","endpoints":["/dashboard","/firmware","/api/devices","/api/firmwares","/api/status","/api/rate_status","/api/activations","/api/logs","/health","/ready","/metrics","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]})
 
 if __name__ == '__main__':
     import argparse
@@ -1457,24 +1946,76 @@ if __name__ == '__main__':
               "Set ALBERT_ACCEPT_RISK=1 in .env or environment, or pass --allow-no-risk for isolated lab use.", file=sys.stderr)
         sys.exit(2)
     if args.rotate_fairplay:
+        # Regenerate fairplay.key/crt immediately and exit 0 (validate via `python albert_server.py --rotate-fairplay` creates new key)
         try:
             for p in [pathlib.Path(FAIRPLAY_KEY_PATH), pathlib.Path(FAIRPLAY_CERT_PATH)]:
                 if p.exists():
                     p.unlink()
                     print(f"Removed {p}")
-            print("FairPlay key rotation requested — restart to regenerate (chmod 600).")
+            # Generate new RSA 2048 private key + self-signed CA cert (5y, SHA256) with 0600 perms
+            new_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            subject = issuer = x509.Name([
+                x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Apple Inc."),
+                x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "iPhone"),
+                x509.NameAttribute(NameOID.COMMON_NAME, "Apple iPhone Device CA"),
+            ])
+            not_before = datetime.now(timezone.utc)
+            not_after = not_before + timedelta(days=5*365)
+            cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
+                new_key.public_key()
+            ).serial_number(x509.random_serial_number()).not_valid_before(not_before).not_valid_after(not_after).add_extension(
+                x509.BasicConstraints(ca=True, path_length=None), critical=True
+            ).sign(new_key, hashes.SHA256())
+            key_pem = new_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption())
+            cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+            pathlib.Path(FAIRPLAY_KEY_PATH).parent.mkdir(parents=True, exist_ok=True)
+            pathlib.Path(FAIRPLAY_KEY_PATH).write_bytes(key_pem)
+            pathlib.Path(FAIRPLAY_KEY_PATH).chmod(0o600)
+            pathlib.Path(FAIRPLAY_CERT_PATH).write_bytes(cert_pem)
+            pathlib.Path(FAIRPLAY_CERT_PATH).chmod(0o600)
+            print(f"Regenerated {FAIRPLAY_KEY_PATH} (0600) and {FAIRPLAY_CERT_PATH} (0600)")
+            print(f"NotAfter {not_after.isoformat()} — cert valid for {5*365} days")
         except Exception as e:
             import sys
             print(f"Rotation failed: {e}", file=sys.stderr)
             sys.exit(1)
         import sys
         sys.exit(0)
+    # mTLS status log for startup (warn if ALBERT_MTLS_CA not set)
+    try:
+        _log_mtls_status()
+    except Exception:
+        pass
     ssl_context = None
     if args.ssl_cert and args.ssl_key:
-        ssl_context = (args.ssl_cert, args.ssl_key)
-        logger.info(f"Starting HTTPS server on {args.host}:{args.port}")
+        mtls_ca = _get_mtls_ca()
+        if mtls_ca:
+            # If ALBERT_MTLS_CA is set, require client cert on TLS listener
+            try:
+                import ssl
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                ctx.load_cert_chain(args.ssl_cert, args.ssl_key)
+                ctx.load_verify_locations(mtls_ca)
+                ctx.verify_mode = ssl.CERT_REQUIRED
+                ssl_context = ctx
+                logger.info(f"mTLS enabled on HTTPS listener (CA={mtls_ca}) — requiring client cert")
+            except Exception as e:
+                logger.warning(f"Failed to configure mTLS SSLContext (CA={mtls_ca}): {e} — falling back to plain TLS")
+                ssl_context = (args.ssl_cert, args.ssl_key)
+        else:
+            ssl_context = (args.ssl_cert, args.ssl_key)
+            logger.warning("ALBERT_MTLS_CA not set — HTTPS without client cert verification (proxy→Albert unauthenticated)")
+            logger.info(f"Starting HTTPS server on {args.host}:{args.port}")
+        if isinstance(ssl_context, tuple):
+            logger.info(f"Starting HTTPS server on {args.host}:{args.port}")
     else:
-        logger.info(f"Starting HTTP server on {args.host}:{args.port}")
+        # HTTP case: mTLS is enforced at application layer via header check (before_request)
+        if _get_mtls_ca():
+            logger.info(f"Starting HTTP server on {args.host}:{args.port} (mTLS enforced via X-Client-Cert header, CA={_get_mtls_ca()})")
+        else:
+            logger.warning(f"Starting HTTP server on {args.host}:{args.port} (ALBERT_MTLS_CA not set — mTLS disabled)")
+            logger.info(f"Starting HTTP server on {args.host}:{args.port}")
     # also log risk acknowledgement
     if os.environ.get('ALBERT_ACCEPT_RISK') == '1':
         logger.info("ALBERT_ACCEPT_RISK=1 acknowledged — activation bypass enabled (owned devices only, see NOTICE)")

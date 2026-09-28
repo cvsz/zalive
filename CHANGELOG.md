@@ -6,7 +6,7 @@ All notable changes to `albert_server` (Local Albert for iPhone XR) documented p
 
 ### Added
 - Any-iPhone curated `XR + 12/13/14/15` (`iPhone11,8/12,1/13,2/14,5/15,2`, `A12/A13/A14/A15/A16`) with dynamic `activations.producttype` (fallback XR `MT1A2TH/A 00008020-001224C81178002E`), dashboard `Any iPhone`.
-- Firmware pages `GET /firmware` (dark table Version|Build|Release|Size|Signed `✓`/`✗`|Local `✅`|Download `⬇` Apple `url`) + `GET /api/devices` (5 curated) + `GET /api/firmwares?productType=X` live `https://api.ipsw.me/v4/device/{ProductType}` cached 1h `logs/firmware_cache.json 0600` + local `*.ipsw` overlay.
+- Firmware pages `GET /firmware` (dark table Version|Build|Release|Size|Signed `✓`/`✗`|Local `✅`|Download `⬇` Apple `url`) + `GET /api/devices` (13 curated) + `GET /api/firmwares?productType=X` live `https://api.ipsw.me/v4/device/{ProductType}` cached 1h `logs/firmware_cache.json 0600` + local `*.ipsw` overlay.
 - Dashboard realtime `GET /dashboard` 2s poll `/api/status` (health/ready/fairplay 0600, metrics `activations/wal`, iPhone redacted `0000...002E`, USB `05ac`, IPSW `b30474b…`) + `/api/activations` `/api/logs` + `GET /` endpoints list.
 - Production hardening: persisted `certs/fairplay.key/crt 0600` (was ephemeral), `gunicorn 2×4 30s`, `MAX_CONTENT_LENGTH 512K 413`, per-IP `100/min 429` (prune cap 1000), UDID/IMEI validation `400`, `X-Request-ID` UUID echo, JSON logs (`python-json-logger`), `{{prometheus}}` histogram `albert_request_latency_seconds`, SQLite WAL `logs/activations.db` `10k/30d` retention + `wal_checkpoint`, UDID redaction `...2E`.
 - Security: `0600` keys, `SECURITY.md` `ALBERT_ACCEPT_RISK=1` gate, `Bandit` `B303/B324 nosec` SHA1 ARS Apple-spec, `.gitignore` `*.ipsw !*.sha256`, `0600 .env` real `ALBERT_ACCEPT_RISK=1`.

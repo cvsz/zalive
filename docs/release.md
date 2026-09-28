@@ -1,7 +1,7 @@
 # Release — albert_server
 
 ## Versioning
-SemVer recommended. Current `1.1-fixed` (health), next `v0.1.0` with `any iPhone curated XR+12/13/14/15` + `/firmware` live cache. Keep `CHANGELOG.md`.
+SemVer recommended. Current `1.1-fixed` (health), next `v0.1.0` with `any iPhone curated iPhone 5→15 Pro (13)` + `/firmware` live cache. Keep `CHANGELOG.md`.
 
 ## Release checklist
 1. `GPG` commits `EDDSA CD57FEA` (all local commits signed), `pytest 18 passed`, `ruff/bandit 0`, `docker compose config ok`, `gunicorn --check-config`, `curl /health /ready /firmware`.

@@ -78,7 +78,7 @@ externally; scripts/sha256_manifest.sh produces *.ipsw.sha256 + ipsw.sha256.
 Upstream: api.ipsw.me/v4/device/{productType} live cache 1h (logs/firmware_cache.json, TTL 3600, stale fallback).
 ```
 
-Flow: `iOS device` → `mitmproxy :8082` (intercepts only `albert.apple.com`) → `Albert :18090` (`Flask` + `gunicorn` 2 workers ×4 threads) → `SQLite WAL logs/activations.db` + `fairplay.key 0600` + `ipsw.me live cache 1h` (curated `CURATED_DEVICES` 5, `FIRMWARE_CACHE`, `FIRMWARE_TTL=3600`). `FairPlay` key/cert `0600` (`certs/fairplay.key` RSA 2048, CA `Apple iPhone Device CA`, 5y SHA256) persisted once. `IPSW` 8.1G external, `local_overlay` scan `*.ipsw`.
+Flow: `iOS device` → `mitmproxy :8082` (intercepts only `albert.apple.com`) → `Albert :18090` (`Flask` + `gunicorn` 2 workers ×4 threads) → `SQLite WAL logs/activations.db` + `fairplay.key 0600` + `ipsw.me live cache 1h` (curated `CURATED_DEVICES` 13, `FIRMWARE_CACHE`, `FIRMWARE_TTL=3600`). `FairPlay` key/cert `0600` (`certs/fairplay.key` RSA 2048, CA `Apple iPhone Device CA`, 5y SHA256) persisted once. `IPSW` 8.1G external, `local_overlay` scan `*.ipsw`.
 
 ## Components and Responsibilities
 

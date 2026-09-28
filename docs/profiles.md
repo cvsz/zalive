@@ -11,4 +11,4 @@
 
 Not adopted: `CLI/desktop` (`idevicerestore` via `libimobiledevice` external), `Infrastructure` (Cloudflare `docs/cloudflare-terraform.md` loopback first, no `infrastructure/terraform/cloudflare`).
 
-Data: `activations` `producttype` dynamic (any `iPhoneXX,Y`), `firmware_cache.json` `0600` 1h TTL live `api.ipsw.me` + local `*.ipsw` overlay (curated XR `iPhone11,8` + 12/13/14/15).
+Data: `activations` `producttype` dynamic (any `iPhoneXX,Y`), `firmware_cache.json` `0600` 1h TTL live `api.ipsw.me` + local `*.ipsw` overlay (curated 5→15 Pro `iPhone5,1`→`iPhone15,2` (13)).
