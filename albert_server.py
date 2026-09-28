@@ -341,6 +341,74 @@ except Exception as e:
         albert_activation_total = Counter("albert_activation_total", "Total activations")  # type: ignore
         albert_activation_failures_total = Counter("albert_activation_failures_total", "Total activation failures")  # type: ignore
 
+# --- OpenTelemetry tracing (optional, OTEL_EXPORTER_OTLP_ENDPOINT) ---
+# Uses optional opentelemetry import; enabled only when OTEL_EXPORTER_OTLP_ENDPOINT env is set.
+# Provides Tracer for deviceActivation with span attributes: udid (redacted) and productType.
+from contextlib import nullcontext
+OTEL_EXPORTER_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+tracer = None
+try:
+    if OTEL_EXPORTER_ENDPOINT:
+        from opentelemetry import trace as _otel_trace
+        from opentelemetry.sdk.trace import TracerProvider as _OtelTracerProvider
+        from opentelemetry.sdk.resources import Resource as _OtelResource
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor as _OtelBatchProcessor
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as _OtelExporter
+        _otel_resource = _OtelResource.create({"service.name": os.environ.get("OTEL_SERVICE_NAME", "albert-server")})
+        _otel_provider = _OtelTracerProvider(resource=_otel_resource)
+        _otel_exporter = _OtelExporter(endpoint=OTEL_EXPORTER_ENDPOINT)
+        _otel_processor = _OtelBatchProcessor(_otel_exporter)
+        _otel_provider.add_span_processor(_otel_processor)
+        try:
+            _otel_trace.set_tracer_provider(_otel_provider)
+        except Exception:
+            pass
+        tracer = _otel_trace.get_tracer("albert_server")
+        logger.info(f"OpenTelemetry tracing enabled endpoint={OTEL_EXPORTER_ENDPOINT}")
+except Exception as _otel_e:
+    logger.warning(f"OpenTelemetry init failed (optional): {_otel_e}")
+    tracer = None
+
+
+def _set_otel_span_attributes(udid_val, activation_info):
+    """Set span attributes for deviceActivation: udid redacted and productType."""
+    if tracer is None:
+        return
+    try:
+        from opentelemetry import trace as _trace_mod
+        span = _trace_mod.get_current_span()
+        if span is None:
+            return
+        if not hasattr(span, "set_attribute"):
+            return
+        redacted = _redact_udid(udid_val) if udid_val else "-"
+        try:
+            span.set_attribute("udid", redacted)
+            span.set_attribute("udid.redacted", redacted)
+            span.set_attribute("device.udid", redacted)
+        except Exception:
+            pass
+        prod = ""
+        try:
+            if isinstance(activation_info, dict):
+                prod = activation_info.get("ProductType") or activation_info.get("productType") or activation_info.get("Producttype") or ""
+        except Exception:
+            prod = ""
+        if prod:
+            try:
+                span.set_attribute("productType", str(prod))
+                span.set_attribute("product_type", str(prod))
+                span.set_attribute("device.productType", str(prod))
+            except Exception:
+                pass
+        try:
+            span.set_attribute("http.route", "/deviceservices/deviceActivation")
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def _inc_failure():
     try:
         albert_activation_failures_total.inc()
@@ -714,70 +782,54 @@ def drm_handshake():
 
 @app.route('/deviceservices/deviceActivation', methods=['POST','GET'])
 def device_activation():
-    logger.info(f"Received device activation request: {request.method} {request.content_type} from {request.remote_addr}")
+    _otel_ctx = tracer.start_as_current_span("deviceActivation") if tracer else nullcontext()
+    _otel_entered = False
+    _otel_span = None
     try:
-        activation_info = None
-        content_type = (request.content_type or "").lower()
-        # Preferred: form-encoded activation-info (most devices + libimobiledevice)
-        if request.form.get("activation-info"):
-            activation_info_b64 = request.form.get("activation-info", "")
-            if not activation_info_b64:
-                _inc_failure()
-                return Response("Missing activation-info", status=400)
-            # Handle both base64 string and raw plist bytes accidentally sent
-            try:
-                # If value looks like plist xml, treat as raw
-                if activation_info_b64.strip().startswith("<?xml") or activation_info_b64.strip().startswith("bplist"):
-                    activation_info = plistlib.loads(activation_info_b64.encode() if isinstance(activation_info_b64, str) else activation_info_b64)
-                else:
-                    # Try base64 decode with padding fix
-                    b64 = activation_info_b64.strip()
-                    # Flask may have already url-decoded; add padding
-                    missing_padding = len(b64) % 4
-                    if missing_padding:
-                        b64 += "=" * (4 - missing_padding)
-                    decoded = base64.b64decode(b64, validate=False)
-                    activation_info = plistlib.loads(decoded)
-            except Exception as e:
-                logger.warning(f"Failed to decode form activation-info as base64 plist, trying raw: {e}")
-                try:
-                    activation_info = plistlib.loads(base64.b64decode(activation_info_b64, validate=False))
-                except Exception as e2:
-                    _inc_failure()
-                    return Response(f"Invalid activation-info: {e2}", status=400)
-        elif "application/x-apple-plist" in content_type or "application/xml" in content_type or "text/xml" in content_type:
-            try:
-                activation_info = plistlib.loads(request.get_data())
-            except Exception as e:
-                _inc_failure()
-                return Response(f"Invalid plist: {e}", status=400)
-        elif "multipart/form-data" in content_type:
-            # Flask parses multipart into form as well, but fallback to raw
+        if hasattr(_otel_ctx, "__enter__"):
+            _otel_span = _otel_ctx.__enter__()
+            _otel_entered = True
+        logger.info(f"Received device activation request: {request.method} {request.content_type} from {request.remote_addr}")
+        try:
+            activation_info = None
+            content_type = (request.content_type or "").lower()
+            # Preferred: form-encoded activation-info (most devices + libimobiledevice)
             if request.form.get("activation-info"):
-                b64 = request.form.get("activation-info")
+                activation_info_b64 = request.form.get("activation-info", "")
+                if not activation_info_b64:
+                    _inc_failure()
+                    return Response("Missing activation-info", status=400)
+                # Handle both base64 string and raw plist bytes accidentally sent
                 try:
-                    activation_info = plistlib.loads(base64.b64decode(b64, validate=False))
+                    # If value looks like plist xml, treat as raw
+                    if activation_info_b64.strip().startswith("<?xml") or activation_info_b64.strip().startswith("bplist"):
+                        activation_info = plistlib.loads(activation_info_b64.encode() if isinstance(activation_info_b64, str) else activation_info_b64)
+                    else:
+                        # Try base64 decode with padding fix
+                        b64 = activation_info_b64.strip()
+                        # Flask may have already url-decoded; add padding
+                        missing_padding = len(b64) % 4
+                        if missing_padding:
+                            b64 += "=" * (4 - missing_padding)
+                        decoded = base64.b64decode(b64, validate=False)
+                        activation_info = plistlib.loads(decoded)
+                except Exception as e:
+                    logger.warning(f"Failed to decode form activation-info as base64 plist, trying raw: {e}")
+                    try:
+                        activation_info = plistlib.loads(base64.b64decode(activation_info_b64, validate=False))
+                    except Exception as e2:
+                        _inc_failure()
+                        return Response(f"Invalid activation-info: {e2}", status=400)
+            elif "application/x-apple-plist" in content_type or "application/xml" in content_type or "text/xml" in content_type:
+                try:
+                    activation_info = plistlib.loads(request.get_data())
                 except Exception as e:
                     _inc_failure()
-                    return Response(f"Invalid activation-info: {e}", status=400)
-            else:
-                _inc_failure()
-                return Response("Missing activation-info in multipart", status=400)
-        else:
-            # Fallback: try to detect activation-info in raw body or plist body
-            raw = request.get_data()
-            if not raw:
-                _inc_failure()
-                return Response("Missing activation-info", status=400)
-            # Try plist directly
-            try:
-                activation_info = plistlib.loads(raw)
-            except Exception:
-                # Try form parsing from raw body
-                from urllib.parse import parse_qs
-                qs = parse_qs(raw.decode(errors='ignore'))
-                if "activation-info" in qs:
-                    b64 = qs["activation-info"][0]
+                    return Response(f"Invalid plist: {e}", status=400)
+            elif "multipart/form-data" in content_type:
+                # Flask parses multipart into form as well, but fallback to raw
+                if request.form.get("activation-info"):
+                    b64 = request.form.get("activation-info")
                     try:
                         activation_info = plistlib.loads(base64.b64decode(b64, validate=False))
                     except Exception as e:
@@ -785,65 +837,95 @@ def device_activation():
                         return Response(f"Invalid activation-info: {e}", status=400)
                 else:
                     _inc_failure()
-                    return Response("Unsupported content type", status=400)
-        if not isinstance(activation_info, dict):
-            logger.warning(f"Activation info not dict: {type(activation_info)}")
-            _inc_failure()
-            return Response("Invalid activation-info: expected dict", status=400)
-        logger.debug(f"Activation info keys: {list(activation_info.keys())}")
-        # --- Input validation for IMEI (15 digits), UDID (hex 40 or 00008020-*), Serial (alnum), reject 400 with JSON ---
-        imei_val = activation_info.get("IMEI", activation_info.get("InternationalMobileEquipmentIdentity"))
-        # Normalize None vs empty: retrieval fallback above may give "" if missing; treat empty as not-provided
-        if imei_val == "":
-            imei_val = None
-        # Also handle case where IMEI key exists but alternate key fallback gave ""; check both
-        if imei_val is None and "IMEI" in activation_info:
-            imei_val = activation_info.get("IMEI")
+                    return Response("Missing activation-info in multipart", status=400)
+            else:
+                # Fallback: try to detect activation-info in raw body or plist body
+                raw = request.get_data()
+                if not raw:
+                    _inc_failure()
+                    return Response("Missing activation-info", status=400)
+                # Try plist directly
+                try:
+                    activation_info = plistlib.loads(raw)
+                except Exception:
+                    # Try form parsing from raw body
+                    from urllib.parse import parse_qs
+                    qs = parse_qs(raw.decode(errors='ignore'))
+                    if "activation-info" in qs:
+                        b64 = qs["activation-info"][0]
+                        try:
+                            activation_info = plistlib.loads(base64.b64decode(b64, validate=False))
+                        except Exception as e:
+                            _inc_failure()
+                            return Response(f"Invalid activation-info: {e}", status=400)
+                    else:
+                        _inc_failure()
+                        return Response("Unsupported content type", status=400)
+            if not isinstance(activation_info, dict):
+                logger.warning(f"Activation info not dict: {type(activation_info)}")
+                _inc_failure()
+                return Response("Invalid activation-info: expected dict", status=400)
+            logger.debug(f"Activation info keys: {list(activation_info.keys())}")
+            # --- Input validation for IMEI (15 digits), UDID (hex 40 or 00008020-*), Serial (alnum), reject 400 with JSON ---
+            imei_val = activation_info.get("IMEI", activation_info.get("InternationalMobileEquipmentIdentity"))
+            # Normalize None vs empty: retrieval fallback above may give "" if missing; treat empty as not-provided
             if imei_val == "":
                 imei_val = None
-        udid_val = activation_info.get("UniqueDeviceID")
-        if udid_val == "":
-            udid_val = None
-        serial_val = activation_info.get("SerialNumber")
-        if serial_val == "":
-            serial_val = None
-        errors = []
-        if imei_val is not None and not _validate_imei(imei_val):
-            errors.append("Invalid IMEI: must be 15 digits")
-        if udid_val is not None and not _validate_udid(udid_val):
-            errors.append("Invalid UDID: must be 40 hex or 00008020-<16 hex>")
-        if serial_val is not None and not _validate_serial(serial_val):
-            errors.append("Invalid SerialNumber: must be alphanumeric")
-        if errors:
-            logger.warning(f"Validation failed: {errors} for UDID={_redact_udid(udid_val)}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
-            _inc_failure()
-            return jsonify({"error": "validation failed", "details": errors, "request_id": getattr(g, 'request_id', '-')}), 400
-        session_mode = "FairPlaySignature" in str(activation_info) or "HandshakeRequestMessage" in str(activation_info)
-        activation_record = albert.create_activation_record(activation_info, session_mode)
-        if not isinstance(activation_record, dict):
-            logger.error(f"create_activation_record returned non-dict: {type(activation_record)}")
-            _inc_failure()
-            return Response("Internal error generating activation record", status=500)
-        response_plist = plistlib.dumps(activation_record)
-        # SHA1 usage for ARS is Apple-spec — Apple requires SHA1 for ARS header (Alert: not for general hashing)
-        ars_hash = hashlib.sha1(response_plist).digest()  # nosec B303/B324
-        ars_b64 = base64.b64encode(ars_hash).decode()
-        resp = Response(response_plist, mimetype='text/xml')
-        resp.headers['ARS'] = ars_b64
-        resp.headers['Cache-Control'] = 'private, no-cache, no-store, must-revalidate, max-age=0'
-        resp.headers['Connection'] = 'Keep-alive'
-        return resp
-    except RequestEntityTooLarge as e:
-        logger.warning(f"Device activation payload too large: {e}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
-        _inc_failure()
-        return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
-    except Exception as e:
-        if getattr(e, 'code', None) == 413:
+            # Also handle case where IMEI key exists but alternate key fallback gave ""; check both
+            if imei_val is None and "IMEI" in activation_info:
+                imei_val = activation_info.get("IMEI")
+                if imei_val == "":
+                    imei_val = None
+            udid_val = activation_info.get("UniqueDeviceID")
+            if udid_val == "":
+                udid_val = None
+            serial_val = activation_info.get("SerialNumber")
+            if serial_val == "":
+                serial_val = None
+            _set_otel_span_attributes(udid_val, activation_info)
+            errors = []
+            if imei_val is not None and not _validate_imei(imei_val):
+                errors.append("Invalid IMEI: must be 15 digits")
+            if udid_val is not None and not _validate_udid(udid_val):
+                errors.append("Invalid UDID: must be 40 hex or 00008020-<16 hex>")
+            if serial_val is not None and not _validate_serial(serial_val):
+                errors.append("Invalid SerialNumber: must be alphanumeric")
+            if errors:
+                logger.warning(f"Validation failed: {errors} for UDID={_redact_udid(udid_val)}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
+                _inc_failure()
+                return jsonify({"error": "validation failed", "details": errors, "request_id": getattr(g, 'request_id', '-')}), 400
+            session_mode = "FairPlaySignature" in str(activation_info) or "HandshakeRequestMessage" in str(activation_info)
+            activation_record = albert.create_activation_record(activation_info, session_mode)
+            if not isinstance(activation_record, dict):
+                logger.error(f"create_activation_record returned non-dict: {type(activation_record)}")
+                _inc_failure()
+                return Response("Internal error generating activation record", status=500)
+            response_plist = plistlib.dumps(activation_record)
+            # SHA1 usage for ARS is Apple-spec — Apple requires SHA1 for ARS header (Alert: not for general hashing)
+            ars_hash = hashlib.sha1(response_plist).digest()  # nosec B303/B324
+            ars_b64 = base64.b64encode(ars_hash).decode()
+            resp = Response(response_plist, mimetype='text/xml')
+            resp.headers['ARS'] = ars_b64
+            resp.headers['Cache-Control'] = 'private, no-cache, no-store, must-revalidate, max-age=0'
+            resp.headers['Connection'] = 'Keep-alive'
+            return resp
+        except RequestEntityTooLarge as e:
+            logger.warning(f"Device activation payload too large: {e}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
             _inc_failure()
             return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
-        logger.error(f"Device activation error: {e}", exc_info=True)
-        _inc_failure()
-        return Response(f"Error: {str(e)}", status=500)
+        except Exception as e:
+            if getattr(e, 'code', None) == 413:
+                _inc_failure()
+                return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
+            logger.error(f"Device activation error: {e}", exc_info=True)
+            _inc_failure()
+            return Response(f"Error: {str(e)}", status=500)
+    finally:
+        if _otel_entered:
+            try:
+                _otel_ctx.__exit__(None, None, None)
+            except Exception:
+                pass
 
 @app.route('/deviceservices/activity', methods=['POST','GET'])
 def activity():
@@ -1188,7 +1270,7 @@ def api_firmwares():
     if not productType:
         return jsonify({"error": "missing productType, e.g. ?productType=iPhone11,8"}), 400
     if not PRODUCT_RE.fullmatch(productType):
-        return jsonify({"error": "invalid ProductType, must match ^iPhone\d+,\d+$"}), 400
+        return jsonify({"error": "invalid ProductType, must match ^iPhone\\d+,\\d+$"}), 400
     if productType not in CURATED_SET:
         # allow any valid but warn if not curated
         pass
@@ -1214,7 +1296,8 @@ def api_firmwares():
 @app.route('/api/status', methods=['GET'])
 def api_status():
     # Gather realtime status without blocking
-    import subprocess, sqlite3
+    import sqlite3
+    import subprocess
     now = datetime.now(timezone.utc).isoformat()
     env = {k: os.environ.get(k, "") for k in ["ALBERT_HOST","ALBERT_HTTP_PORT","ALBERT_HTTPS_PORT","FAIRPLAY_KEY_PATH","ALBERT_MODE"]}
     if not env["ALBERT_HTTP_PORT"]:
