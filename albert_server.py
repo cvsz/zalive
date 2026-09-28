@@ -17,6 +17,7 @@ import uuid
 import re
 import time
 import threading
+import subprocess
 import requests
 # Load .env early (so ALBERT_ADMIN_TOKEN etc. are available without export)
 try:
@@ -2768,10 +2769,104 @@ def api_activations():
         return jsonify({"error": str(e)}), 500
     return jsonify({"activations": rows, "total": len(rows)})
 
+def _run_tool(cmd, timeout=2):
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return {"ok": out.returncode == 0, "returncode": out.returncode, "stdout": (out.stdout or "")[:4000], "stderr": (out.stderr or "")[:4000], "cmd": " ".join(cmd)}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "cmd": " ".join(cmd)}
+
+@app.route('/api/device_info', methods=['GET'])
+def api_device_info():
+    domain = request.args.get("domain") or ""
+    key = request.args.get("key") or ""
+    udid = request.args.get("udid") or ""
+    cmd = ["ideviceinfo", "-s"]
+    if udid:
+        cmd += ["-u", udid]
+    if domain:
+        cmd += ["-q", domain]
+    if key:
+        cmd += ["-k", key]
+    r = _run_tool(cmd, timeout=2)
+    # also try json-like parse for simple keys
+    if r["ok"] and not r["stdout"].strip().startswith("{"):
+        r["connected"] = True
+    else:
+        r["connected"] = "No device" not in r.get("stderr","") and r.get("returncode") == 0
+    return jsonify(r)
+
+@app.route('/api/diagnostics', methods=['GET'])
+def api_diagnostics():
+    typ = (request.args.get("type") or "all").strip()
+    if typ == "mobilegestalt":
+        r = _run_tool(["idevicediagnostics", "mobilegestalt"], timeout=3)
+    elif typ == "syslog":
+        lines = int(request.args.get("lines","50"))
+        lines = max(1, min(lines, 200))
+        r = _run_tool(["timeout","2","idevicesyslog","-n"], timeout=3)
+        if r["ok"]:
+            out = r["stdout"].splitlines()[-lines:]
+            r["stdout"] = "\n".join(out)
+    elif typ == "crash":
+        r = _run_tool(["idevicecrashreport","-e","/tmp"], timeout=3)
+    else:
+        r = _run_tool(["idevicediagnostics","help"], timeout=2)
+        r["note"] = "use ?type=mobilegestalt|syslog|crash"
+    return jsonify(r)
+
+@app.route('/api/recovery', methods=['GET'])
+def api_recovery():
+    mode = _run_tool(["irecovery","-q"], timeout=2)
+    # also query lsusb + idevicerestore --logfile=NONE --no-action
+    lsusb = _run_tool(["lsusb"], timeout=1)
+    mode["lsusb_has_apple"] = "05ac" in (lsusb.get("stdout","")+lsusb.get("stderr","")).lower()
+    return jsonify({"recovery": mode, "lsusb": lsusb})
+
+@app.route('/api/pair', methods=['GET','POST'])
+def api_pair():
+    if request.method == "POST":
+        r = _run_tool(["idevicepair","pair"], timeout=5)
+        return jsonify(r)
+    r = _run_tool(["idevicepair","validate"], timeout=2)
+    if not r["ok"]:
+        r2 = _run_tool(["idevicepair","list"], timeout=2)
+        r["pair_list"] = r2
+    return jsonify(r)
+
+@app.route('/api/ifuse', methods=['GET'])
+def api_ifuse():
+    r = _run_tool(["ifuse","--help"], timeout=1)
+    r["note"] = "mount with: ifuse /mnt/iphone --udid 00008020-AAAAAAAAAAAAAAAA (requires cable)"
+    # check mount
+    try:
+        m = subprocess.run(["mount"], capture_output=True, text=True, timeout=1).stdout
+        r["mounts"] = [line for line in m.splitlines() if "ifuse" in line or "iphone" in line.lower()][:5]
+    except Exception:
+        r["mounts"] = []
+    return jsonify(r)
+
+@app.route('/api/tss', methods=['GET'])
+def api_tss():
+    product = request.args.get("productType") or "iPhone11,8"
+    if not PRODUCT_RE.match(product):
+        return jsonify({"error": "invalid productType, expected iPhoneX,Y"}), 400
+    # tsschecker not installed by default — probe
+    r = _run_tool(["which","tsschecker"], timeout=1)
+    if not r["ok"] or not r["stdout"].strip():
+        return jsonify({"ok": False, "error": "tsschecker not installed (apt build)", "hint": "build tsschecker or use futurerestore --help", "productType": product})
+    ecid = request.args.get("ecid") or ""
+    cmd = ["tsschecker","-d",product,"-i","18.7.10","--apnonce","--save"]
+    if ecid:
+        cmd += ["-e", ecid]
+    r2 = _run_tool(cmd, timeout=8)
+    r2["productType"] = product
+    return jsonify(r2)
+
 
 @app.route('/', methods=['GET'])
 def index():
-    endpoints = ["/dashboard","/firmware","/admin","/health","/ready","/metrics","/api/validate","/api/devices","/api/firmwares","/api/status","/api/rate_status","/api/activations","/api/logs","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]
+    endpoints = ["/dashboard","/firmware","/admin","/health","/ready","/metrics","/api/validate","/api/devices","/api/firmwares","/api/status","/api/rate_status","/api/activations","/api/logs","/api/device_info","/api/diagnostics","/api/recovery","/api/pair","/api/ifuse","/api/tss","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]
     data = {"service":"albert-local","endpoints":endpoints}
     wants_html = "text/html" in (request.headers.get("Accept") or "")
     if wants_html and not request.args.get("format") == "json":
