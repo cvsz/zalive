@@ -2604,7 +2604,7 @@ def _build_status_payload():
     except Exception:
         pass
     try:
-        out = subprocess.run(["timeout","2","idevicerestore","--no-action","iPhone11,8_18.7.10_22H374_Restore.ipsw"], capture_output=True, text=True, timeout=3).stdout
+        out = subprocess.run(["timeout","2","idevicerestore","--logfile=NONE","--no-action","iPhone11,8_18.7.10_22H374_Restore.ipsw"], capture_output=True, text=True, timeout=3).stdout
         usb["restore"] = "ready" if "ready" in out.lower() else "Unable to discover device mode"
     except Exception:
         pass
