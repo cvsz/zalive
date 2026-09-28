@@ -115,12 +115,9 @@ class FirmwareRestoreProxy:
                                 ctx.options.client_certs = str(d)
                                 ctx.log.info(f"mTLS client_certs dir prepared {d} (from {cert}+{key})")
                             except Exception as e2:
-                                # fallback: set to file and warn
-                                ctx.options.client_certs = cert
-                                ctx.log.warn(f"mTLS client_certs file fallback {cert}: {e2}")
+                                ctx.log.error(f"mTLS client_certs dir prepare failed for {cert}: {e2} — not setting fallback (file mode silently fails)")
                         except Exception as e2:
-                            ctx.options.client_certs = cert
-                            ctx.log.warn(f"mTLS client_certs dir prep failed, file fallback {cert}: {e2}")
+                            ctx.log.error(f"mTLS client_certs dir prep failed {cert}: {e2} — not setting client_certs")
                 elif cert and os.path.exists(cert):
                     ctx.log.info(f"mTLS client cert {cert} will be used for upstream")
             except Exception as e:
