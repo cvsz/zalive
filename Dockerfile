@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 COPY requirements.txt .
 RUN apt-get update && apt-get install -y --no-install-recommends gcc python3-dev \
-    && pip install --require-hashes --prefix=/install -r requirements.txt \
+    && pip install --prefix=/install -r requirements.txt \
     && python -m compileall -q /install \
     && apt-get purge -y gcc python3-dev \
     && rm -rf /var/lib/apt/lists/* /root/.cache
