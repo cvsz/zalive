@@ -19,31 +19,49 @@ def _mtls_test_client(*a, **kw):
     _orig_post = c.post
     _orig_get = c.get
     _orig_open = c.open
+    # auto-inject admin token for gated /api/* endpoints in tests
+    _admin_token = (os.environ.get("ALBERT_ADMIN_TOKEN") or "").strip()
+    if not _admin_token:
+        try:
+            _admin_token = pathlib.Path(".env").read_text().split("ALBERT_ADMIN_TOKEN=")[1].split()[0].strip().strip('"').strip("'")
+        except Exception:
+            _admin_token = ""
+    def _inject_admin(path, h):
+        if path.startswith("/api/device_info") or path.startswith("/api/diagnostics") or path.startswith("/api/recovery") or path.startswith("/api/pair") or path.startswith("/api/ifuse") or path.startswith("/api/tss") or path.startswith("/api/activations") or path.startswith("/api/logs") or path.startswith("/api/rate_status"):
+            if isinstance(h, dict) and "X-Admin-Token" not in h and "Authorization" not in h:
+                h["X-Admin-Token"] = _admin_token
+        return h
     def _post(path, *aa, **kww):
+        h = kww.get("headers", {})
+        if isinstance(h, dict):
+            h = dict(h)
         if path.startswith("/deviceservices/") or path.startswith("/WebObjects/"):
-            h = kww.get("headers", {})
-            if isinstance(h, dict):
-                h = dict(h)
             h.setdefault("X-Client-Cert", "present")
-            kww["headers"] = h
+        h = _inject_admin(path, h)
+        kww["headers"] = h
         return _orig_post(path, *aa, **kww)
     def _get(path, *aa, **kww):
+        h = kww.get("headers", {})
+        if isinstance(h, dict):
+            h = dict(h)
         if path.startswith("/deviceservices/") or path.startswith("/WebObjects/"):
-            h = kww.get("headers", {})
-            if isinstance(h, dict):
-                h = dict(h)
             h.setdefault("X-Client-Cert", "present")
-            kww["headers"] = h
+        h = _inject_admin(path, h)
+        kww["headers"] = h
         return _orig_get(path, *aa, **kww)
     def _open(path, *aa, **kww):
-        # c.open is used for OPTIONS in test_options, not rate-limited but still mTLS-protected for deviceActivation
         if isinstance(path, str) and (path.startswith("/deviceservices/") or path.startswith("/WebObjects/")):
             h = kww.get("headers", {})
             if isinstance(h, dict):
                 h = dict(h)
-            # OPTIONS should not require mTLS (it's CORS preflight), but adding header is harmless
             h.setdefault("X-Client-Cert", "present")
             kww["headers"] = h
+        if isinstance(path, str):
+            h = kww.get("headers", {})
+            if isinstance(h, dict):
+                h = dict(h)
+                h = _inject_admin(path, h)
+                kww["headers"] = h
         return _orig_open(path, *aa, **kww)
     c.post = _post
     c.get = _get
