@@ -83,6 +83,8 @@ mitmproxy.log
 tmp/
 certs/*
 !certs/.gitkeep
+!certs/green-ca.crt
+!certs/server-green.crt
 Library/
 grafana/data/
 *.pid
