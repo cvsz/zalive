@@ -14,11 +14,11 @@ def _admin_headers():
         try:
             token = pathlib.Path(".env").read_text().split("ALBERT_ADMIN_TOKEN=")[1].split()[0].strip().strip('"').strip("'")
         except Exception:
-            token = "dummy"
-    return {"X-Admin-Token": token}
+            token = ""  # nosec B105 - test helper fallback, not a real password
+    return {"X-Admin-Token": token}  # nosec B105
 
 def _no_admin_headers():
-    return {"X-Admin-Token": "invalid-token-for-test"}
+    return {"X-Admin-Token": "invalid-token-for-test"}  # nosec B105
 
 def test_rbac_device_info_requires_admin():
     c = albert_server.app.test_client()
