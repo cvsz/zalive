@@ -119,6 +119,7 @@ def _init_db():
 
 _init_db()
 
+_log_counter = 0
 def log_activation(udid: str, serial: str, record):
     """Persist activation record to SQLite. Accepts dict or str record."""
     try:
@@ -136,6 +137,19 @@ def log_activation(udid: str, serial: str, record):
             conn.commit()
         try:
             albert_activation_total.inc()
+        except Exception:
+            pass
+        # WAL checkpoint + retention every 100 writes (P2 polish)
+        try:
+            global _log_counter
+            _log_counter += 1
+            if _log_counter % 100 == 0:
+                with sqlite3.connect(str(DB_PATH), timeout=30) as c:
+                    c.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                    # retention: keep last 10000 rows, delete older >30d
+                    c.execute("DELETE FROM activations WHERE id NOT IN (SELECT id FROM activations ORDER BY id DESC LIMIT 10000)")
+                    c.execute("DELETE FROM activations WHERE created_at < datetime('now', '-30 days')")
+                    c.commit()
         except Exception:
             pass
     except Exception as e:
@@ -207,6 +221,11 @@ try:
         albert_activation_failures_total = REGISTRY._names_to_collectors["albert_activation_failures_total"]
     else:
         albert_up = Gauge("albert_up", "Albert server up status")
+    try:
+        from prometheus_client import Histogram as _Hist
+        albert_request_latency = _Hist("albert_request_latency_seconds", "Request latency", ["endpoint"])
+    except Exception:
+        albert_request_latency = None
         albert_activation_total = Counter("albert_activation_total", "Total activations")
         albert_activation_failures_total = Counter("albert_activation_failures_total", "Total activation failures")
         try:
@@ -216,7 +235,12 @@ try:
 except Exception as e:
     logger.warning(f"Metrics init fallback: {e}")
     if 'albert_up' not in globals():
-        albert_up = Gauge("albert_up", "Albert server up status")  # type: ignore
+        albert_up = Gauge("albert_up", "Albert server up status")
+    try:
+        from prometheus_client import Histogram as _Hist
+        albert_request_latency = _Hist("albert_request_latency_seconds", "Request latency", ["endpoint"])
+    except Exception:
+        albert_request_latency = None  # type: ignore
         albert_activation_total = Counter("albert_activation_total", "Total activations")  # type: ignore
         albert_activation_failures_total = Counter("albert_activation_failures_total", "Total activation failures")  # type: ignore
 
@@ -233,12 +257,20 @@ _rate_limit_store: dict = {}
 _rate_limit_lock = threading.Lock()
 
 def _check_rate_limit(ip: str) -> bool:
-    """Return True if rate limit exceeded for ip."""
+    """Return True if rate limit exceeded for ip. In-memory per-IP 100/min, prunes empty, caps 1000 IPs."""
     now = time.time()
     with _rate_limit_lock:
+        # Prune empty entries periodically to avoid unbounded growth (P2 polish)
+        if len(_rate_limit_store) > 1000:
+            # evict oldest 100 IPs with smallest newest timestamp
+            oldest = sorted(_rate_limit_store.items(), key=lambda kv: kv[1][-1] if kv[1] else 0)[:100]
+            for k,_ in oldest:
+                _rate_limit_store.pop(k, None)
         lst = _rate_limit_store.get(ip, [])
-        # filter timestamps within window
         lst = [t for t in lst if now - t < _RATE_LIMIT_WINDOW]
+        if not lst and ip in _rate_limit_store and len(lst)==0:
+            # keep empty list removal for memory
+            _rate_limit_store.pop(ip, None)
         if len(lst) >= _RATE_LIMIT_MAX:
             _rate_limit_store[ip] = lst
             return True
@@ -250,6 +282,10 @@ def _reset_rate_limit():
     """For tests: clear rate limit store."""
     with _rate_limit_lock:
         _rate_limit_store.clear()
+
+def _redact_udid(u):
+    s=str(u) if u else ""
+    return s[:4]+"..."+s[-4:] if len(s)>8 else "..."+s[-2:] if s else "-"
 
 # --- Input validation (P2) ---
 _IMEI_RE = re.compile(r"^\d{15}$")
@@ -287,6 +323,7 @@ def before_request_hardening():
     if not rid or not rid.strip():
         rid = str(uuid.uuid4())
     g.request_id = rid
+    g.request_start = time.time()
     # OPTIONS handler for /deviceservices/* returning 204 (P2 CORS)
     # Flask will route OPTIONS via this early return; ensures 204 without CORS needed
     if request.method == "OPTIONS" and request.path.startswith("/deviceservices"):
@@ -314,6 +351,12 @@ def after_request_add_id(response):
     rid = getattr(g, "request_id", None)
     if rid:
         response.headers["X-Request-ID"] = rid
+    # latency histogram (P2 polish)
+    try:
+        if 'albert_request_latency' in globals() and albert_request_latency is not None and hasattr(g, 'request_start'):
+            albert_request_latency.labels(endpoint=request.path).observe(time.time() - g.request_start)
+    except Exception:
+        pass
     return response
 
 # Explicit OPTIONS route for /deviceservices/* (ensures Flask url_map covers it, returns 204)
@@ -673,7 +716,7 @@ def device_activation():
         if serial_val is not None and not _validate_serial(serial_val):
             errors.append("Invalid SerialNumber: must be alphanumeric")
         if errors:
-            logger.warning(f"Validation failed: {errors} for UDID={udid_val}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
+            logger.warning(f"Validation failed: {errors} for UDID={_redact_udid(udid_val)}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
             _inc_failure()
             return jsonify({"error": "validation failed", "details": errors, "request_id": getattr(g, 'request_id', '-')}), 400
         session_mode = "FairPlaySignature" in str(activation_info) or "HandshakeRequestMessage" in str(activation_info)
