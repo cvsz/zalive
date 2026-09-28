@@ -1408,120 +1408,82 @@ def metrics():
 # Dashboard realtime status (production UI)
 # ---------------------------------------------------------------------------
 DASHBOARD_HTML = r'''<!doctype html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <link rel="alternate icon" type="image/png" href="/static/zalive-icon.svg">
-<title>zAlive — Albert — Any iPhone Restore Dashboard</title>
+<title>zAlive — Albert — Dashboard (AdminLTE 4 Premium)</title>
+<!-- AdminLTE 4 (Bootstrap 5.3) via CDN — premium base from https://github.com/topics/dashboard-template top #1 -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/css/adminlte.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <style>
-:root { --bg:#0b0f14; --card:#151a21; --card-hover:#1c2330; --border:#232b36; --border-hover:#2d3a4b; --accent:#3b82f6; --accent-hover:#2563eb; --accent-soft:rgba(59,130,246,.12); --ok:#16a34a; --ok-soft:rgba(22,163,74,.12); --warn:#eab308; --warn-soft:rgba(234,179,8,.12); --bad:#dc2626; --bad-soft:rgba(220,38,38,.12); --text:#e5e7eb; --text-strong:#f1f5f9; --muted:#94a3b8; --muted-strong:#cbd5e1; --radius:14px; --radius-sm:10px; --radius-pill:999px; --shadow:0 8px 32px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.3); --shadow-hover:0 12px 40px rgba(0,0,0,.55); --transition:180ms cubic-bezier(.2,.8,.2,1); }
-*{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;font-family: -apple-system, Inter, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
-a{color:var(--accent);text-decoration:none;transition:color var(--transition)}
-a:hover{color:var(--accent-hover)}
-a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
-.skip{position:absolute;top:-40px;left:12px;background:var(--card);color:var(--text);padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);z-index:100;font-size:13px;font-weight:600;transition:top var(--transition)}
-.skip:focus{top:12px}
-header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:rgba(11,15,20,.92);backdrop-filter:blur(12px) saturate(1.2);z-index:10;gap:16px}
-header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.2px;color:var(--text-strong)}
-header .pill{font-size:11px;padding:7px 10px;border-radius:var(--radius-pill);border:1px solid var(--border);background:var(--card);color:var(--muted);font-weight:500;display:inline-flex;align-items:center;gap:6px;transition:all var(--transition)}
-header .pill.live{border-color:rgba(22,163,74,.3);background:var(--ok-soft);color:var(--ok)}
-header .pill.warn{border-color:rgba(234,179,8,.3);background:var(--warn-soft);color:var(--warn)}
-header .pill.bad{border-color:rgba(220,38,38,.3);background:var(--bad-soft);color:var(--bad)}
-.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:16px;max-width:1440px;margin:0 auto}
-.card{grid-column:span 4;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);transition:transform var(--transition), box-shadow var(--transition), border-color var(--transition)}
-.card:hover{border-color:var(--border-hover);box-shadow:var(--shadow-hover);transform:translateY(-1px)}
-.card.wide{grid-column:span 8} .card.full{grid-column:span 12}
-@media(max-width:1000px){.card,.card.wide{grid-column:span 12}}
-.k{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;font-weight:650}
-.v{font-size:22px;font-weight:750;margin-top:8px;letter-spacing:-.3px;color:var(--text-strong)}
-.v small{font-size:11px;font-weight:550;color:var(--muted)}
-.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:4px 9px;border-radius:var(--radius-pill);border:1px solid var(--border);font-weight:600;letter-spacing:.1px}
-.badge.ok{background:var(--ok-soft);color:var(--ok);border-color:rgba(22,163,74,.25)}
-.badge.bad{background:var(--bad-soft);color:var(--bad);border-color:rgba(220,38,38,.25)}
-.badge.warn{background:var(--warn-soft);color:var(--warn);border-color:rgba(234,179,8,.25)}
-table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
-th{font-size:11px;color:var(--muted);text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);font-weight:650;letter-spacing:.3px;white-space:nowrap;position:sticky;top:0;background:var(--card)}
-td{font-size:13px;padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.05);transition:background var(--transition)}
-tbody tr:hover td{background:rgba(255,255,255,.02)}
-.mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:12px;word-break:break-all}
-.bar{height:8px;background:#0f172a;border-radius:var(--radius-pill);overflow:hidden;margin-top:10px;border:1px solid var(--border)}
-.bar>div{height:100%;background:linear-gradient(90deg,var(--accent),#06b6d4);transition:width 500ms ease}
-.log{max-height:240px;overflow:auto;background:#0f141b;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;font-family:ui-monospace, monospace;font-size:11px;white-space:pre-wrap;line-height:1.6;scrollbar-width:thin}
-.log::-webkit-scrollbar{width:6px;height:6px} .log::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
-.footer{padding:14px;color:var(--muted);font-size:11.5px;text-align:center;border-top:1px solid var(--border);margin-top:16px;background:rgba(255,255,255,.01)}
-nav.breadcrumbs{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);margin-top:6px}
-nav.breadcrumbs a{color:var(--muted)} nav.breadcrumbs a:hover{color:var(--text)}
-.empty{padding:18px;text-align:center;color:var(--muted);font-size:13px;border:1px dashed var(--border);border-radius:var(--radius-sm);background:rgba(255,255,255,.01)}
-.skeleton{background:linear-gradient(90deg, var(--card) 25%, var(--border) 50%, var(--card) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px;height:14px}
-@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+/* zAlive premium overrides — keep dark tokens + AdminLTE structure */
+:root{--zalive-accent:#3b82f6;--zalive-card:#151a21;--zalive-border:#232b36}
+.app-wrapper{min-height:100vh;background:#0b0f14}
+.app-header{border-bottom:1px solid var(--zalive-border)}
+.app-sidebar{background:#0f141b;border-right:1px solid var(--zalive-border)}
+.brand-link{border-bottom:1px solid var(--zalive-border)}
+.card{border:1px solid var(--zalive-border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.45)}
+.k{font-size:10.5px;color:#94a3b8;text-transform:uppercase;letter-spacing:.7px;font-weight:650}
+.v{font-size:22px;font-weight:750;color:#f1f5f9}
+.mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+.pill{font-size:11px;padding:6px 10px;border-radius:999px;border:1px solid var(--zalive-border)}
 </style>
 </head>
-<body>
-<a href="#main" class="skip">Skip to content</a>
-<header role="banner">
-  <div style="display:flex;align-items:center;gap:12px;min-width:0">
-    <a href="/dashboard" style="display:flex;align-items:center;gap:10px;text-decoration:none" aria-label="zAlive home">
-      <img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px;width:auto;display:block" loading="eager" decoding="async">
-    </a>
-    <div style="min-width:0">
-      <h1>Albert — Any iPhone <span style="color:var(--muted);font-weight:400">· iPhone11,8 · 18090</span></h1>
-      <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> <span aria-hidden="true">›</span> <span aria-current="page">Dashboard</span> <span aria-hidden="true">·</span> <a href="/firmware">Firmware</a> <span aria-hidden="true">·</span> <a href="/admin">Admin</a></nav>
-    </div>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
-    <span id="healthPill" class="pill" role="status" aria-live="polite">checking…</span>
-    <span id="clock" class="pill" aria-label="Local time">--:--:--</span>
-  </div>
-</header>
-<main id="main" role="main" aria-labelledby="main-title">
-<h2 id="main-title" class="sr-only" style="position:absolute;left:-9999px">Dashboard</h2>
-<div class="grid">
-  <section class="card" aria-labelledby="server-title">
-    <div class="k" id="server-title">Server</div>
-    <div class="v" id="serverV" aria-live="polite"><span class="skeleton" style="width:60px;display:inline-block"></span></div>
-    <div class="mono" id="serverD" style="color:var(--muted);margin-top:8px;font-size:11.5px">loading…</div>
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><a href="/health">/health</a> · <a href="/ready">/ready</a> · <a href="/metrics">/metrics</a> · <a href="/api/status">/api/status</a></div>
-  </section>
-  <section class="card" aria-labelledby="fp-title">
-    <div class="k" id="fp-title">FairPlay</div>
-    <div class="v" id="fpV"><span class="skeleton" style="width:90px;display:inline-block"></span></div>
-    <div class="mono" id="fpD" style="margin-top:6px">loading…</div>
-  </section>
-  <section class="card" aria-labelledby="metrics-title">
-    <div class="k" id="metrics-title">Metrics</div>
-    <div id="metrics" class="mono" style="font-size:12.5px;line-height:1.7;margin-top:8px"><span class="skeleton" style="width:100%;height:40px;display:block"></span></div>
-  </section>
-  <section class="card" aria-labelledby="device-title">
-    <div class="k" id="device-title">iPhone — This Device (any)</div>
-    <div id="device" class="mono" style="margin-top:8px;font-size:12.5px"><span class="skeleton" style="width:100%;height:18px;display:block"></span></div>
-    <div class="k" style="margin-top:14px" id="usb-title">USB / Restore</div>
-    <div id="usb" class="mono" style="font-size:12.5px"><span class="skeleton" style="width:80%;height:18px;display:block"></span></div>
-  </section>
-  <section class="card wide" aria-labelledby="ipsw-title">
-    <div class="k" id="ipsw-title">IPSW</div>
-    <div id="ipsw" class="mono" style="font-size:12.5px;margin-top:8px"><span class="skeleton" style="width:100%;height:18px;display:block"></span></div>
-    <div id="ipswBar" class="bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"><div id="ipswFill" style="width:0%"></div></div>
-  </section>
-  <section class="card full" aria-labelledby="acts-title">
-    <div class="k" id="acts-title">Recent Activations (SQLite WAL)</div>
-    <div style="overflow:auto;max-height:320px;margin-top:8px">
-    <table role="table" aria-label="Recent activations"><thead><tr><th>#</th><th>UDID (redacted)</th><th>Serial</th><th>At (UTC)</th><th>Record</th></tr></thead><tbody id="acts"><tr><td colspan=5><span class="skeleton" style="width:100%"></span></td></tr></tbody></table>
-    </div>
-  </section>
-  <section class="card full" aria-labelledby="rl-title">
-    <div class="k" id="rl-title">Rate limit · Logs tail</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px">
-      <div><div class="mono" style="color:var(--muted)">IPs tracked · window 60s · max 100/min · capped 1000</div><div id="rl" class="mono" style="margin-top:8px;background:rgba(255,255,255,.02);padding:10px;border-radius:var(--radius-sm);border:1px solid var(--border)"><span class="skeleton" style="width:60px;display:inline-block"></span></div><div style="margin-top:12px;display:flex;gap:8px"><a href="/admin" class="badge ok" style="text-decoration:none">→ Admin panel</a> <a href="/firmware" class="badge" style="text-decoration:none">→ Firmware</a></div></div>
-      <div><div id="logs" class="log" aria-live="polite">loading…</div></div>
-    </div>
-  </section>
+<body class="layout-fixed-complete">
+<div class="app-wrapper">
+<nav class="app-header navbar navbar-expand bg-body">
+<div class="container-fluid">
+<ul class="navbar-nav">
+<li class="nav-item"><a class="nav-link" data-lte-toggle="sidebar" href="#" role="button"><i class="bi bi-list"></i></a></li>
+<li class="nav-item d-none d-md-block"><a href="/dashboard" class="nav-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:22px"></a></li>
+</ul>
+<ul class="navbar-nav ms-auto">
+<li class="nav-item"><span id="healthPill" class="pill bg-dark">checking…</span></li>
+<li class="nav-item"><span id="clock" class="pill bg-dark ms-1">--:--:--</span></li>
+<li class="nav-item"><a class="nav-link" href="/firmware">Firmware</a></li>
+<li class="nav-item"><a class="nav-link" href="/admin">Admin</a></li>
+</ul>
 </div>
+</nav>
+<aside class="app-sidebar sidebar-dark">
+<div class="sidebar-brand"><a href="/dashboard" class="brand-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px"><span class="brand-text fw-light ms-2">zAlive Albert</span></a></div>
+<div class="sidebar-wrapper"><nav class="mt-2">
+<ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview" role="menu">
+<li class="nav-item"><a href="/dashboard" class="nav-link active"><i class="nav-icon bi bi-speedometer2"></i><p>Dashboard</p></a></li>
+<li class="nav-item"><a href="/firmware" class="nav-link"><i class="nav-icon bi bi-hdd-stack"></i><p>Firmware <span class="badge bg-info ms-1">13</span></p></a></li>
+<li class="nav-item"><a href="/admin" class="nav-link"><i class="nav-icon bi bi-shield-lock"></i><p>Admin</p></a></li>
+<li class="nav-item"><a href="/api/status" class="nav-link"><i class="nav-icon bi bi-heart-pulse"></i><p>API Status</p></a></li>
+<li class="nav-item"><a href="/health" class="nav-link"><i class="nav-icon bi bi-activity"></i><p>Health</p></a></li>
+<li class="nav-header">LOGS</li>
+<li class="nav-item"><a href="/api/logs?lines=60" class="nav-link"><i class="nav-icon bi bi-journal-text"></i><p>Logs tail</p></a></li>
+</ul>
+</nav></div>
+</aside>
+<main class="app-main">
+<div class="app-content-header"><div class="container-fluid">
+<div class="row"><div class="col-sm-6"><h3 class="mb-0">Albert — Any iPhone <small class="text-secondary">· iPhone11,8 · 18090</small></h3><small class="text-secondary">Template: AdminLTE 4 (https://github.com/topics/dashboard-template #1) · Premium dark</small></div>
+<div class="col-sm-6"><ol class="breadcrumb float-sm-end"><li class="breadcrumb-item"><a href="/">Home</a></li><li class="breadcrumb-item active">Dashboard</li></ol></div></div>
+</div></div>
+<div class="app-content"><div class="container-fluid">
+<div class="row g-3">
+<div class="col-lg-4"><div class="card"><div class="card-header"><h3 class="card-title k">Server</h3></div><div class="card-body"><div id="serverV" class="v">—</div><div id="serverD" class="mono small text-secondary">loading…</div><div class="mt-2"><a href="/health" class="btn btn-sm btn-outline-primary">/health</a> <a href="/ready" class="btn btn-sm btn-outline-primary">/ready</a> <a href="/metrics" class="btn btn-sm btn-outline-primary">/metrics</a></div></div></div></div>
+<div class="col-lg-4"><div class="card"><div class="card-header"><h3 class="card-title k">FairPlay</h3></div><div class="card-body"><div id="fpV" class="v">—</div><div id="fpD" class="mono small text-secondary">loading…</div></div></div></div>
+<div class="col-lg-4"><div class="card"><div class="card-header"><h3 class="card-title k">Metrics</h3></div><div class="card-body"><div id="metrics" class="mono">loading…</div></div></div></div>
+<div class="col-lg-6"><div class="card"><div class="card-header"><h3 class="card-title k">iPhone — This Device</h3></div><div class="card-body"><div id="device" class="mono">loading…</div><hr><div class="k">USB / Restore</div><div id="usb" class="mono">loading…</div></div></div></div>
+<div class="col-lg-6"><div class="card"><div class="card-header"><h3 class="card-title k">IPSW</h3></div><div class="card-body"><div id="ipsw" class="mono">loading…</div><div class="progress mt-2" style="height:8px"><div id="ipswFill" class="progress-bar" style="width:0%"></div></div></div></div></div>
+<div class="col-12"><div class="card"><div class="card-header"><h3 class="card-title k">Recent Activations (SQLite WAL)</h3></div><div class="card-body table-responsive p-0"><table class="table table-hover table-striped"><thead><tr><th>#</th><th>UDID (redacted)</th><th>Serial</th><th>At (UTC)</th><th>Record</th></tr></thead><tbody id="acts"><tr><td colspan=5 class="text-center">loading…</td></tr></tbody></table></div></div></div>
+<div class="col-12"><div class="card"><div class="card-header"><h3 class="card-title k">Rate limit · Logs tail</h3></div><div class="card-body row g-3"><div class="col-md-6"><div class="mono text-secondary small">IPs tracked · window 60s · max 100/min · capped 1000</div><div id="rl" class="mono border rounded p-2 mt-1">loading…</div><div class="mt-2"><a href="/admin" class="btn btn-sm btn-success">→ Admin panel</a> <a href="/firmware" class="btn btn-sm btn-outline-secondary">→ Firmware</a></div></div><div class="col-md-6"><pre id="logs" class="border rounded p-2 bg-dark" style="max-height:240px;overflow:auto;font-size:11px">loading…</pre></div></div></div></div>
+</div>
+</div></div>
 </main>
-<div class="footer" role="contentinfo"> <span style="display:inline-flex;align-items:center;gap:6px"><img src="/static/zalive-icon.svg" alt="" style="height:14px;width:14px;vertical-align:middle" loading="lazy"> zAlive</span> · Local Albert — owned devices only · <span id="ver">1.1-fixed</span> · <a href="/dashboard">dashboard</a> auto-refresh 2s · gunicorn 2×4 · 127.0.0.1:18090 · See <a href="/docs/RUNBOOK.md" target="_blank">RUNBOOK</a> · <a href="http://127.0.0.1:8081" target="_blank">mitmproxy 8081</a> · <a href="/admin">admin</a></div>
+<footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> <span id="ver">1.1-fixed</span> · gunicorn 2×4 · See RUNBOOK · <a href="/admin">admin</a> · Template <a href="https://github.com/topics/dashboard-template" target="_blank">dashboard-template</a> (AdminLTE 4)</footer>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
 
 <script>
 const $ = id => document.getElementById(id);
