@@ -17,6 +17,7 @@ import uuid
 import re
 import time
 import threading
+import requests
 from datetime import datetime, timezone, timedelta
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
@@ -30,6 +31,21 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('ALBERT_MAX_CONTENT_LENGTH', str(512*1024)))
 FAIRPLAY_KEY_PATH = os.environ.get('FAIRPLAY_KEY_PATH', 'certs/fairplay.key')
 FAIRPLAY_CERT_PATH = os.environ.get('FAIRPLAY_CERT_PATH', 'certs/fairplay.crt')
+
+# --- Curated any-iPhone firmware (spec: XR + 12/13/14/15) ---
+CURATED_DEVICES = [
+    {"identifier": "iPhone11,8", "name": "iPhone XR", "chip": "A12", "internal": "n841ap", "explain": "XR · session activation"},
+    {"identifier": "iPhone12,1", "name": "iPhone 11", "chip": "A13", "internal": "n104ap", "explain": "11 · session activation"},
+    {"identifier": "iPhone13,2", "name": "iPhone 12", "chip": "A14", "internal": "d52g", "explain": "12 · session activation"},
+    {"identifier": "iPhone14,5", "name": "iPhone 13", "chip": "A15", "internal": "d291ap", "explain": "13 · session activation"},
+    {"identifier": "iPhone15,2", "name": "iPhone 14 Pro", "chip": "A16", "internal": "d74ap", "explain": "14 Pro · session activation"},
+]
+CURATED_SET = {d["identifier"] for d in CURATED_DEVICES}
+FIRMWARE_CACHE = pathlib.Path(os.environ.get("FIRMWARE_CACHE_PATH", str(pathlib.Path(__file__).resolve().parent / "logs" / "firmware_cache.json")))
+FIRMWARE_TTL = 3600
+IPSW_API = "https://api.ipsw.me/v4/device/{productType}"
+PRODUCT_RE = re.compile(r"^iPhone\d+,\d+$")
+
 
 # --- Structured JSON logging (P1-3) via python-json-logger if available else fallback ---
 class RequestIdFilter(logging.Filter):
@@ -107,8 +123,17 @@ def _init_db():
                 udid TEXT,
                 serial TEXT,
                 created_at TEXT,
-                record TEXT
+                record TEXT,
+                producttype TEXT
             )""")
+            # migrate old DBs without producttype
+            try:
+                cur = conn.execute("PRAGMA table_info(activations)")
+                cols = [r[1] for r in cur.fetchall()]
+                if "producttype" not in cols:
+                    conn.execute("ALTER TABLE activations ADD COLUMN producttype TEXT")
+            except Exception:
+                pass
             conn.commit()
             try:
                 conn.execute("PRAGMA journal_mode=WAL;")
@@ -120,7 +145,7 @@ def _init_db():
 _init_db()
 
 _log_counter = 0
-def log_activation(udid: str, serial: str, record):
+def log_activation(udid: str, serial: str, record, producttype: str = ""):
     """Persist activation record to SQLite. Accepts dict or str record."""
     try:
         _init_db()
@@ -131,8 +156,8 @@ def log_activation(udid: str, serial: str, record):
             record_text = str(record)
         with sqlite3.connect(str(DB_PATH), timeout=30) as conn:
             conn.execute(
-                "INSERT INTO activations (udid, serial, created_at, record) VALUES (?, ?, ?, ?)",
-                (udid or "", serial or "", created_at, record_text),
+                "INSERT INTO activations (udid, serial, created_at, record, producttype) VALUES (?, ?, ?, ?, ?)",
+                (udid or "", serial or "", created_at, record_text, producttype or ""),
             )
             conn.commit()
         try:
@@ -158,6 +183,78 @@ def log_activation(udid: str, serial: str, record):
             albert_activation_failures_total.inc()
         except Exception:
             pass
+
+
+def _scan_local_ipsw() -> list:
+    try:
+        root = pathlib.Path(__file__).resolve().parent
+        files = list(root.glob("*.ipsw")) + list((root / "..").glob("*.ipsw"))
+        # also check cwd
+        return [p for p in files if p.exists()]
+    except Exception:
+        return []
+
+def _local_overlay(productType: str) -> list:
+    try:
+        return [p.name for p in _scan_local_ipsw() if productType in p.name]
+    except Exception:
+        return []
+
+def _fetch_ipsw(productType: str) -> dict:
+    now = time.time()
+    cached = None
+    fetchedAt = None
+    try:
+        if FIRMWARE_CACHE.exists():
+            data = json.loads(FIRMWARE_CACHE.read_text())
+            entry = data.get(productType)
+            if entry and isinstance(entry, dict) and "fetchedAt" in entry and "data" in entry:
+                fetchedAt = entry["fetchedAt"]
+                age = now - fetchedAt
+                if age < FIRMWARE_TTL:
+                    return {"firmwares": entry["data"].get("firmwares", []), "cached": True, "fetchedAt": fetchedAt, "stale": False, "data": entry["data"]}
+                else:
+                    cached = entry["data"]
+    except Exception:
+        pass
+    # live fetch
+    try:
+        url = IPSW_API.format(productType=productType)
+        r = requests.get(url, timeout=8, headers={"User-Agent": "Albert-firmware/1.0"})
+        r.raise_for_status()
+        j = r.json()
+        firmwares = j.get("firmwares", [])
+        # cache write
+        try:
+            FIRMWARE_CACHE.parent.mkdir(parents=True, exist_ok=True)
+            cache = {}
+            if FIRMWARE_CACHE.exists():
+                try:
+                    cache = json.loads(FIRMWARE_CACHE.read_text())
+                except Exception:
+                    cache = {}
+            cache[productType] = {"fetchedAt": now, "data": j}
+            FIRMWARE_CACHE.write_text(json.dumps(cache))
+            try:
+                FIRMWARE_CACHE.chmod(0o600)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return {"firmwares": firmwares, "cached": False, "fetchedAt": now, "stale": False, "data": j}
+    except Exception as e:
+        # fallback to cached if exists
+        if cached is not None or (fetchedAt is not None and cached is None):
+            # try return stale cached
+            try:
+                if FIRMWARE_CACHE.exists():
+                    data = json.loads(FIRMWARE_CACHE.read_text())
+                    entry = data.get(productType)
+                    if entry:
+                        return {"firmwares": entry["data"].get("firmwares", []), "cached": True, "fetchedAt": entry["fetchedAt"], "stale": True, "warning": str(e), "data": entry["data"]}
+            except Exception:
+                pass
+        raise
 
 # ---------------------------------------------------------------------------
 # Prometheus metrics (P1-3) — use prometheus_client if available else stub
@@ -559,7 +656,9 @@ class AlbertServer:
         try:
             udid = activation_info.get("UniqueDeviceID", "") or activation_info.get("UDID", "")
             serial = activation_info.get("SerialNumber", "") or activation_info.get("Serial", "") or activation_info.get("MLBSerialNumber", "")
-            log_activation(str(udid), str(serial), activation_record)
+            producttype = activation_info.get("ProductType", "")
+            # Do not fallback to DeviceClass (which is "iPhone") — only true ProductType like iPhone11,8
+            log_activation(str(udid), str(serial), activation_record, producttype=str(producttype))
             try:
                 self.activation_records[str(udid) or str(uuid.uuid4())] = activation_record
             except Exception:
@@ -830,7 +929,7 @@ DASHBOARD_HTML = r'''<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Albert — iPhone XR Restore Dashboard</title>
+<title>Albert — Any iPhone Restore Dashboard</title>
 <style>
 :root { --bg:#0b0f14; --card:#151a21; --border:#232b36; --accent:#3b82f6; --ok:#16a34a; --warn:#eab308; --bad:#dc2626; --text:#e5e7eb; --muted:#94a3b8; }
 *{box-sizing:border-box} body{margin:0;font-family: -apple-system,Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text)}
@@ -861,7 +960,7 @@ a{color:var(--accent);text-decoration:none}
 </head>
 <body>
 <header>
-  <h1>Albert — iPhone XR <span style="color:var(--muted);font-weight:400">· iPhone11,8 · 18090</span></h1>
+  <h1>Albert — Any iPhone <span style="color:var(--muted);font-weight:400">· iPhone11,8 · 18090</span></h1>
   <div style="display:flex;gap:8px;align-items:center">
     <span id="healthPill" class="pill">checking…</span>
     <span id="clock" class="pill">--:--:--</span>
@@ -884,7 +983,7 @@ a{color:var(--accent);text-decoration:none}
     <div id="metrics" class="mono" style="font-size:12px">-</div>
   </div>
   <div class="card">
-    <div class="k">iPhone XR — This Device</div>
+    <div class="k">iPhone — This Device (any)</div>
     <div id="device" class="mono">-</div>
     <div class="k" style="margin-top:10px">USB / Restore</div>
     <div id="usb" class="mono">-</div>
@@ -976,6 +1075,142 @@ def api_logs():
                 pass
     return jsonify({"tail": tail, "lines": lines})
 
+
+FIRMWARE_HTML = r'''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Albert — Firmware</title>
+<style>
+:root{--bg:#0b0f14;--card:#151a21;--border:#232b36;--accent:#3b82f6;--ok:#16a34a;--warn:#eab308;--bad:#dc2626;--text:#e5e7eb;--muted:#94a3b8}
+*{box-sizing:border-box}body{margin:0;font-family: -apple-system,Inter,system-ui,sans-serif;background:var(--bg);color:var(--text)}
+header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:var(--bg);z-index:10}
+header h1{font-size:15px;margin:0;font-weight:600}
+select,input{font-size:13px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text)}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th{font-size:11px;color:var(--muted);text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)}
+td{font-size:13px;padding:8px 6px;border-bottom:1px solid rgba(255,255,255,.06)}
+.badge{font-size:11px;padding:3px 7px;border-radius:999px;border:1px solid var(--border)}
+.badge.ok{background:rgba(22,163,74,.15);color:var(--ok);border-color:rgba(22,163,74,.3)}
+.badge.bad{background:rgba(220,38,38,.15);color:var(--bad);border-color:rgba(220,38,38,.3)}
+.badge.warn{background:rgba(234,179,8,.15);color:var(--warn);border-color:rgba(234,179,8,.3)}
+.mono{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin:14px}
+a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Albert — Firmware <span style="color:var(--muted);font-weight:400">· curated XR+12/13/14/15 · ipsw.me live cache 1h</span></h1>
+  <select id="product"></select>
+  <input id="q" placeholder="Search version / build">
+  <span id="status" style="color:var(--muted);font-size:12px"></span>
+  <a href="/dashboard" style="margin-left:auto">← Dashboard</a>
+</header>
+<div class="card">
+  <div id="banner" style="display:none;padding:8px;border-radius:8px;margin-bottom:10px"></div>
+  <table>
+    <thead><tr><th>Version</th><th>Build</th><th>Released</th><th>Size</th><th>Signed</th><th>Local</th><th>Download</th></tr></thead>
+    <tbody id="tbody"><tr><td colspan=7 style="color:var(--muted)">loading…</td></tr></tbody>
+  </table>
+  <div class="mono" style="color:var(--muted);margin-top:8px;font-size:11px">Source: <a href="https://api.ipsw.me/v4/device/iPhone11,8" target="_blank">api.ipsw.me</a> + local scan <code>*.ipsw</code> · <code>/api/firmwares?productType=iPhone11,8</code></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+async function loadDevices(){
+  const r=await fetch('/api/devices'); const j=await r.json();
+  const sel=$('product');
+  sel.innerHTML='';
+  j.devices.forEach(d=>{
+    const o=document.createElement('option');
+    o.value=d.identifier; o.textContent=d.name+' ('+d.identifier+') '+d.chip;
+    sel.appendChild(o);
+  });
+  sel.value='iPhone11,8';
+}
+function formatSize(b){
+  if(!b) return '-';
+  const gb=(b/1e9).toFixed(1);
+  return gb+' GB';
+}
+async function loadFw(){
+  const pt=$('product').value;
+  const q=$('q').value.toLowerCase();
+  $('status').textContent='loading…';
+  try{
+    const r=await fetch('/api/firmwares?productType='+encodeURIComponent(pt));
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.error||'error');
+    const banner=$('banner');
+    if(j.stale) { banner.style.display='block'; banner.style.background='rgba(234,179,8,.15)'; banner.style.border='1px solid rgba(234,179,8,.3)'; banner.textContent='Stale cache — upstream unavailable (showing last cached).'; }
+    else if(j.cached) { banner.style.display='block'; banner.style.background='rgba(59,130,246,.15)'; banner.style.border='1px solid rgba(59,130,246,.3)'; banner.textContent='Cached 1h — live fetch skipped.'; }
+    else banner.style.display='none';
+    const list=(j.firmwares||[]).filter(f=> !q || (f.version||'').toLowerCase().includes(q) || (f.buildid||'').toLowerCase().includes(q));
+    const tbody=$('tbody');
+    tbody.innerHTML='';
+    if(!list.length) tbody.innerHTML='<tr><td colspan=7 style="color:var(--muted)">no matches</td></tr>';
+    list.forEach(f=>{
+      const signed = f.signed ? '<span class="badge ok">✓ signed</span>' : '<span class="badge bad">✗ unsigned</span>';
+      const local = (j.local||[]).some(n=> n.includes(f.buildid)|| n.includes(f.version)) ? '✅' : '';
+      const tr=document.createElement('tr');
+      tr.innerHTML='<td>'+f.version+'</td><td class="mono">'+f.buildid+'</td><td>'+(f.releasedate||'').slice(0,10)+'</td><td>'+formatSize(f.filesize)+'</td><td>'+signed+'</td><td>'+local+'</td><td>'+(f.url?'<a href="'+f.url+'" target="_blank">⬇</a>':'-')+'</td>';
+      tbody.appendChild(tr);
+    });
+    $('status').textContent = list.length+' firmwares · '+ (j.stale?'stale':'live') + (j.cached?' cached':'');
+  } catch(e){
+    $('status').textContent='error: '+e.message;
+    $('tbody').innerHTML='<tr><td colspan=7 style="color:var(--bad)">'+e.message+'</td></tr>';
+  }
+}
+(async()=>{
+  await loadDevices();
+  await loadFw();
+  $('product').addEventListener('change', loadFw);
+  $('q').addEventListener('input', loadFw);
+})();
+</script>
+</body>
+</html>
+'''
+
+@app.route('/firmware', methods=['GET'])
+def firmware_page():
+    return Response(FIRMWARE_HTML, mimetype='text/html')
+
+@app.route('/api/devices', methods=['GET'])
+def api_devices():
+    return jsonify({"devices": CURATED_DEVICES})
+
+@app.route('/api/firmwares', methods=['GET'])
+def api_firmwares():
+    productType = request.args.get('productType','').strip()
+    if not productType:
+        return jsonify({"error": "missing productType, e.g. ?productType=iPhone11,8"}), 400
+    if not PRODUCT_RE.fullmatch(productType):
+        return jsonify({"error": "invalid ProductType, must match ^iPhone\d+,\d+$"}), 400
+    if productType not in CURATED_SET:
+        # allow any valid but warn if not curated
+        pass
+    try:
+        res = _fetch_ipsw(productType)
+        firmwares = res.get("firmwares", [])
+        local = _local_overlay(productType)
+        return jsonify({
+            "productType": productType,
+            "firmwares": firmwares,
+            "local": local,
+            "cached": res.get("cached", False),
+            "fetchedAt": res.get("fetchedAt"),
+            "stale": res.get("stale", False),
+            "warning": res.get("warning")
+        })
+    except Exception as e:
+        # try stale fallback already inside _fetch, but handle 502
+        logger.warning(f"firmware fetch failed for {productType}: {e}")
+        return jsonify({"error": "upstream unavailable", "details": str(e), "retryAfter": 60}), 502
+
+
 @app.route('/api/status', methods=['GET'])
 def api_status():
     # Gather realtime status without blocking
@@ -1024,8 +1259,28 @@ def api_status():
                 acts.append({"id": id_, "udid": udid, "serial": serial, "created_at": at, "record": rec})
     except Exception:
         pass
-    # device (your XR)
+    # device (dynamic: last activation producttype, fallback XR for “any iPhone”)
     device = {"ProductType":"iPhone11,8","ModelNumber":"MT1A2TH/A","SerialNumber":"REDACTEDSERIAL","UDID":"00008020-AAAAAAAAAAAAAAAA","EID":"89049000000000000000000000000000","IMEI":"350000000000006","IMEI2":"350000000000014","Storage":"127.93 GB (110.92 Avail)"}
+    # Try to override with last activation producttype (any-iPhone support)
+    try:
+        with sqlite3.connect(str(DB_PATH), timeout=5) as _c:
+            # also check producttype column exists
+            cur=_c.execute("SELECT producttype,udid,serial FROM activations ORDER BY id DESC LIMIT 1")
+            row=cur.fetchone()
+            if row and row[0] and row[0].startswith("iPhone") and "," in row[0]:
+                # row[0] is true ProductType like iPhone11,8, not generic DeviceClass "iPhone"
+                device["ProductType"] = row[0]
+                # try to map to curated name
+                for d in CURATED_DEVICES:
+                    if d["identifier"] == row[0]:
+                        device["ModelNumber"] = d["name"]
+                        break
+                if row[1]:
+                    device["UDID"] = row[1]
+                if row[2]:
+                    device["SerialNumber"] = row[2]
+    except Exception:
+        pass
     # usb
     usb = {"connected": False, "idevice": "255", "restore": "Unable to discover device mode"}
     try:
@@ -1043,8 +1298,21 @@ def api_status():
         usb["restore"] = "ready" if "ready" in out.lower() else "Unable to discover device mode"
     except Exception:
         pass
-    # ipsw
+    # ipsw (dynamic per device ProductType)
     ipsw_info = {"name":"iPhone11,8_18.7.10_22H374_Restore.ipsw","exists": False, "sizeGB":"8.1","sha256":"b30474b679d9ec04","productVersion":"18.7.10","build":"22H374","variants":["Customer Erase Install (IPSW)","Customer Upgrade Install (IPSW)"]}
+    # Prefer local IPSW matching device ProductType
+    try:
+        for cand in _scan_local_ipsw():
+            if device["ProductType"] in cand.name:
+                ipsw_info["name"] = cand.name
+                ipsw_info["sizeGB"] = f"{cand.stat().st_size/1e9:.1f}"
+                try:
+                    ipsw_info["sha256"] = pathlib.Path(str(cand)+".sha256").read_text().split()[0]
+                except Exception:
+                    pass
+                break
+    except Exception:
+        pass
     try:
         p = pathlib.Path("iPhone11,8_18.7.10_22H374_Restore.ipsw")
         ipsw_info["exists"] = p.exists()
@@ -1086,7 +1354,7 @@ def api_activations():
 
 @app.route('/', methods=['GET'])
 def index():
-    return jsonify({"service":"albert-local","endpoints":["/dashboard","/api/status","/api/activations","/api/logs","/health","/ready","/metrics","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]})
+    return jsonify({"service":"albert-local","endpoints":["/dashboard","/firmware","/api/devices","/api/firmwares","/api/status","/api/activations","/api/logs","/health","/ready","/metrics","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]})
 
 if __name__ == '__main__':
     import argparse
