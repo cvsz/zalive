@@ -1,0 +1,23 @@
+<svg width="140" height="36" viewBox="0 0 160 36" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="zAlive">
+  <defs>
+    <linearGradient id="zg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="zg2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#22c55e"/>
+    </linearGradient>
+  </defs>
+  <!-- icon mark -->
+  <g>
+    <rect x="0" y="4" width="28" height="28" rx="8" fill="url(#zg)" opacity="0.95"/>
+    <path d="M7 12 L11 12 L15.5 20 L18 10 L21 16 L21 12" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.95"/>
+    <circle cx="14" cy="14" r="1.6" fill="white"/>
+  </g>
+  <!-- wordmark -->
+  <text x="36" y="22" font-family="Inter, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="19" font-weight="800" letter-spacing="-0.5">
+    <tspan fill="#e5e7eb">z</tspan><tspan fill="url(#zg2)">Alive</tspan>
+  </text>
+  <text x="36" y="31" font-family="Inter, -apple-system, sans-serif" font-size="6.5" font-weight="600" letter-spacing="1.6" fill="#94a3b8">ALBERT • FIRMWARE • RESTORE</text>
+</svg>
