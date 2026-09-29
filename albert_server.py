@@ -216,7 +216,7 @@ def log_activation(udid: str, serial: str, record, producttype: str = ""):
         except Exception:
             pass
     except Exception as e:
-        logger.warning(f"Failed to log activation udid={udid}: {e}")
+        logger.warning("Failed to persist activation record (%s)", type(e).__name__)
         try:
             albert_activation_failures_total.inc()
         except Exception:
