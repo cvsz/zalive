@@ -85,8 +85,13 @@ jobs:
           # authenticated with token from .env
           TOKEN=$(grep ALBERT_ADMIN_TOKEN .env | cut -d= -f2)
           curl -f -H "X-Admin-Token: $TOKEN" http://127.0.0.1:18090/api/device_info
-          # mitmproxy web requires password
-          curl -f http://127.0.0.1:28080/
+          # mitmproxy web: verify port open and unauthenticated is NOT 200
+          nc -z 127.0.0.1 28080
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:28080/ || true)
+          if [ "$CODE" = "200" ]; then
+            echo "mitmproxy web must not be open (got 200 without auth)" && exit 1
+          fi
+          echo "mitmproxy web auth enforced (HTTP $CODE)"
       - name: Restart and verify persistence
         run: |
           docker compose restart albert-server
