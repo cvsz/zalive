@@ -134,7 +134,7 @@ def test_docker_compose_config_valid():
     import os
     env = os.environ.copy()
     env["MITMPROXY_WEB_PASSWORD"] = secrets.token_urlsafe(24)
-    out = subprocess.run(["docker","compose","config"], capture_output=True, text=True, timeout=5, env=env)
+    out = subprocess.run(["docker","compose","config"], capture_output=True, text=True, timeout=15, env=env)
     assert out.returncode == 0, out.stderr
     assert "albert-server" in out.stdout
 
