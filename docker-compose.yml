@@ -3,9 +3,9 @@ services:
     build: .
     container_name: albert-activation-server
     ports:
-      # Secure-by-default: localhost-only. For LAN, override via .env with ALBERT_LAN_HOST or set HOST_PORT mapping to 0.0.0.0
-      - "127.0.0.1:${ALBERT_HTTP_PORT:-18090}:${ALBERT_HTTP_PORT:-18090}"
-      - "127.0.0.1:${ALBERT_HTTPS_PORT:-18443}:${ALBERT_HTTPS_PORT:-18443}"
+      # Secure-by-default: localhost-only host publish. For LAN, override via .env with ALBERT_HOST=0.0.0.0
+      - "${ALBERT_HOST:-127.0.0.1}:${ALBERT_HTTP_PORT:-18090}:${ALBERT_HTTP_PORT:-18090}"
+      - "${ALBERT_HOST:-127.0.0.1}:${ALBERT_HTTPS_PORT:-18443}:${ALBERT_HTTPS_PORT:-18443}"
     volumes:
       - ./certs:/app/certs:ro
       - ./logs:/app/logs
@@ -45,10 +45,10 @@ services:
   mitmproxy:
     image: mitmproxy/mitmproxy:12.2.3
     container_name: albert-mitmproxy
-    command: mitmweb -s /app/firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port 8081 --set web_password=$${MITMPROXY_WEB_PASSWORD:?MITMPROXY_WEB_PASSWORD must be set} --listen-port 8082
+    command: sh -c "mitmweb -s /app/firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port 28080 --set web_password='${MITMPROXY_WEB_PASSWORD:?MITMPROXY_WEB_PASSWORD must be set}' --listen-port 28081"
     ports:
-      - "127.0.0.1:${MITMPROXY_WEB_PORT:-8081}:8081"
-      - "127.0.0.1:${MITMPROXY_PORT:-8082}:8082"
+      - "${ALBERT_HOST:-127.0.0.1}:${MITMPROXY_WEB_PORT:-28080}:28080"
+      - "${ALBERT_HOST:-127.0.0.1}:${MITMPROXY_PORT:-28081}:28081"
     volumes:
       - ./firmware_restore_proxy.py:/app/firmware_restore_proxy.py:ro
     env_file:
@@ -58,6 +58,8 @@ services:
       - LOCAL_ALBERT_HOST=albert-server
       - LOCAL_ALBERT_PORT=${ALBERT_HTTP_PORT:-18090}
       - LOCAL_ALBERT_SCHEME=http
+      - MITMPROXY_WEB_PORT=28080
+      - MITMPROXY_PORT=28081
     depends_on:
       albert-server:
         condition: service_healthy
