@@ -156,7 +156,8 @@ def _init_db():
                 serial TEXT,
                 created_at TEXT,
                 record TEXT,
-                producttype TEXT
+                producttype TEXT,
+                UNIQUE(udid) ON CONFLICT REPLACE
             )""")
             # migrate old DBs without producttype
             try:
@@ -166,7 +167,7 @@ def _init_db():
                     conn.execute("ALTER TABLE activations ADD COLUMN producttype TEXT")
             except Exception:
                 pass
-            # drop no-op UNIQUE index from prior deployment (UNIQUE(udid,created_at) never dedupes; see scrutinize)
+            # drop no-op UNIQUE index from prior deployment
             try:
                 conn.execute("DROP INDEX IF EXISTS idx_activations_udid_created")
             except Exception:
@@ -215,7 +216,7 @@ def log_activation(udid: str, serial: str, record, producttype: str = ""):
         except Exception:
             pass
     except Exception as e:
-        logger.warning(f"Failed to log activation udid={udid}: {e}")
+        logger.warning("Failed to persist activation record (%s)", type(e).__name__)
         try:
             albert_activation_failures_total.inc()
         except Exception:
@@ -225,8 +226,11 @@ def log_activation(udid: str, serial: str, record, producttype: str = ""):
 def _scan_local_ipsw() -> list:
     try:
         root = pathlib.Path(__file__).resolve().parent
-        files = list(root.glob("*.ipsw")) + list((root / "..").glob("*.ipsw"))
+        files = list(root.glob("*.ipsw"))
         # also check cwd
+        cwd = pathlib.Path.cwd()
+        if cwd != root:
+            files.extend(cwd.glob("*.ipsw"))
         return [p for p in files if p.exists()]
     except Exception:
         return []
@@ -401,7 +405,7 @@ try:
         except Exception:
             pass
         tracer = _otel_trace.get_tracer("albert_server")
-        logger.info(f"OpenTelemetry tracing enabled endpoint={OTEL_EXPORTER_ENDPOINT}")
+        logger.info("OpenTelemetry tracing enabled")
 except Exception as _otel_e:
     logger.warning(f"OpenTelemetry init failed (optional): {_otel_e}")
     tracer = None
@@ -608,9 +612,9 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
                 res_udid = _redis_incr_with_expire(udid_key, per_udid, _RATE_LIMIT_WINDOW)
                 if res_udid is None:
                     if redis_configured and _redis_fail_closed():
-                        logger.warning(f"Redis UDID unavailable fail-closed for {udid_norm} — returning 429", extra={"request_id": getattr(g, 'request_id', '-')})
+                        logger.warning("Redis UDID limiter unavailable — fail-closed 429", extra={"request_id": getattr(g, 'request_id', '-')})
                         return True
-                    logger.warning(f"Redis UDID rate limit degraded to in-memory for udid={udid_norm[:8] if udid_norm else 'none'}...", extra={"request_id": getattr(g, 'request_id', '-')})
+                    logger.warning("Redis UDID limiter degraded to in-memory", extra={"request_id": getattr(g, 'request_id', '-')})
                     now = time.time()
                     with _rate_limit_lock:
                         ul = _rate_limit_udid_store.get(udid_norm, [])
@@ -692,7 +696,7 @@ def _check_udid_rate_limit(udid: str) -> bool:
             rid = getattr(g, 'request_id', '-')  # type: ignore
         except Exception:
             rid = '-'
-        logger.warning(f"Redis unavailable fail-closed for UDID {udid_norm[:8]} — returning 429 (no Redis client)", extra={"request_id": rid})
+        logger.warning("Redis unavailable — fail-closed 429 for UDID limiter", extra={"request_id": rid})
         return True
     if client is not None:
         udid_key = f"albert:ratelimit:udid:{udid_norm}"
@@ -860,7 +864,7 @@ def before_request_hardening():
                     trusted = (request.remote_addr in ("127.0.0.1", "::1", "localhost") or request.remote_addr == os.environ.get("LOCAL_ALBERT_HOST", "127.0.0.1"))
                     if cert_hdr.lower() in ("mtls", "present"):
                         if not allow_fallback or not trusted:
-                            logger.warning(f"mTLS bare header {cert_hdr!r} denied for {request.path} from {request.remote_addr} — set ALBERT_MTLS_TOKEN or PEM or ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1 for localhost dev (request_id={g.request_id})")
+                            logger.warning(f"mTLS bare header denied for {request.path} from {request.remote_addr} — set ALBERT_MTLS_TOKEN or PEM or ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1 for localhost dev (request_id={g.request_id})")
                             has_cert = False
                         else:
                             logger.warning(f"mTLS header-only mode used for {request.path} from {request.remote_addr} — spoofable; set ALBERT_MTLS_TOKEN or LOCAL_ALBERT_SCHEME=https + gunicorn cert_reqs=2 for real mTLS (request_id={g.request_id})")
@@ -1322,12 +1326,12 @@ def device_activation():
             if serial_val is not None and not _validate_serial(serial_val):
                 errors.append("Invalid SerialNumber: must be alphanumeric")
             if errors:
-                logger.warning(f"Validation failed: {errors} for UDID={_redact_udid(udid_val)}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
+                logger.warning(f"Activation validation failed: {errors}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
                 _inc_failure()
                 return jsonify({"error": "validation failed", "details": errors, "request_id": getattr(g, 'request_id', '-')}), 400
             # Per-UDID rate limit 10/min (distributed via Redis INCR+EXPIRE when ALBERT_REDIS_URL set else in-memory)
             if udid_val and _check_udid_rate_limit(str(udid_val)):
-                logger.warning(f"UDID rate limit exceeded for {_redact_udid(udid_val)}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
+                logger.warning("Per-device rate limit exceeded", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
                 resp = jsonify({"error": "rate limit exceeded", "details": "per UDID limit 10/min", "request_id": getattr(g, 'request_id', '-')})
                 try:
                     rem = getattr(g, 'rate_limit_remaining', 0)
@@ -1721,7 +1725,7 @@ DASHBOARD_HTML = r'''<!doctype html>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <style>
 /* zAlive premium overrides — keep dark tokens + AdminLTE structure */
-:root{--zalive-accent:#3b82f6;--zalive-card:#151a21;--zalive-border:#232b36}
+:root{--zalive-accent:#3b82f6;--zalive-card:#151a21;--zalive-border:#232b36;--ok:#16a34a;--bad:#dc2626;--warn:#eab308;--muted:#94a3b8}
 .app-wrapper{min-height:100vh;background:#0b0f14}
 .app-header{border-bottom:1px solid var(--zalive-border)}
 .app-sidebar{background:#0f141b;border-right:1px solid var(--zalive-border)}
@@ -1731,6 +1735,13 @@ DASHBOARD_HTML = r'''<!doctype html>
 .v{font-size:22px;font-weight:750;color:#f1f5f9}
 .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
 .pill{font-size:11px;padding:6px 10px;border-radius:999px;border:1px solid var(--zalive-border)}
+.badge.ok{background:rgba(22,163,74,.15);color:#16a34a;border:1px solid rgba(22,163,74,.25)}
+.badge.bad{background:rgba(220,38,38,.15);color:#dc2626;border:1px solid rgba(220,38,38,.25)}
+.badge.warn{background:rgba(234,179,8,.15);color:#eab308;border:1px solid rgba(234,179,8,.25)}
+.progress{height:8px;background:#232b36;border-radius:999px;overflow:hidden}
+.progress-bar{background:linear-gradient(90deg,#3b82f6,#06b6d4);transition:width .6s ease}
+.progress-bar.striped{background:linear-gradient(90deg,#06b6d4,#3b82f6);background-size:1rem 1rem;animation:progress-bar-stripes 1s linear infinite}
+@keyframes progress-bar-stripes{0%{background-position:1rem 0}100%{background-position:0 0}}
 </style>
 </head>
 <body class="layout-fixed-complete">
@@ -1774,7 +1785,8 @@ DASHBOARD_HTML = r'''<!doctype html>
 <div class="col-lg-4"><div class="card"><div class="card-header"><h3 class="card-title k">FairPlay</h3></div><div class="card-body"><div id="fpV" class="v">—</div><div id="fpD" class="mono small text-secondary">loading…</div></div></div></div>
 <div class="col-lg-4"><div class="card"><div class="card-header"><h3 class="card-title k">Metrics</h3></div><div class="card-body"><div id="metrics" class="mono">loading…</div></div></div></div>
 <div class="col-lg-6"><div class="card"><div class="card-header"><h3 class="card-title k">iPhone — This Device</h3></div><div class="card-body"><div id="device" class="mono">loading…</div><hr><div class="k">USB / Restore</div><div id="usb" class="mono">loading…</div></div></div></div>
-<div class="col-lg-6"><div class="card"><div class="card-header"><h3 class="card-title k">IPSW</h3></div><div class="card-body"><div id="ipsw" class="mono">loading…</div><div class="progress mt-2" style="height:8px"><div id="ipswFill" class="progress-bar" style="width:0%"></div></div></div></div></div>
+<div class="col-lg-6"><div class="card"><div class="card-header"><h3 class="card-title k">IPSW</h3></div><div class="card-body"><div id="ipsw" class="mono">loading…</div><div class="progress mt-2"><div id="ipswFill" class="progress-bar" style="width:0%"></div></div><div id="ipswPct" class="mono small text-secondary mt-1">—</div></div></div></div>
+<div class="col-12"><div class="card"><div class="card-header d-flex align-items-center"><h3 class="card-title k">Restore Progress (live idevicerestore)</h3><span id="restoreBadge" class="badge bg-secondary ms-auto">idle</span></div><div class="card-body"><div id="restoreStage" class="mono small">— idle — no restore log yet</div><div class="progress mt-2" style="height:12px"><div id="restoreFill" class="progress-bar striped" style="width:0%"></div></div><div class="d-flex justify-content-between mt-1"><span id="restorePct" class="mono small text-secondary">0%</span><span id="restoreFile" class="mono small text-secondary" style="max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div><div id="restoreLine" class="mono small text-secondary mt-1" style="font-size:10px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div></div></div></div>
 <div class="col-12"><div class="card"><div class="card-header"><h3 class="card-title k">Recent Activations (SQLite WAL)</h3></div><div class="card-body table-responsive p-0"><table class="table table-hover table-striped"><thead><tr><th>#</th><th>UDID (redacted)</th><th>Serial</th><th>At (UTC)</th><th>Record</th></tr></thead><tbody id="acts"><tr><td colspan=5 class="text-center">loading…</td></tr></tbody></table></div></div></div>
 <div class="col-12"><div class="card"><div class="card-header"><h3 class="card-title k">Rate limit · Logs tail</h3></div><div class="card-body row g-3"><div class="col-md-6"><div class="mono text-secondary small">IPs tracked · window 60s · max 100/min · capped 1000</div><div id="rl" class="mono border rounded p-2 mt-1">loading…</div><div class="mt-2"><a href="/admin" class="btn btn-sm btn-success">→ Admin panel</a> <a href="/firmware" class="btn btn-sm btn-outline-secondary">→ Firmware</a></div></div><div class="col-md-6"><pre id="logs" class="border rounded p-2 bg-dark" style="max-height:240px;overflow:auto;font-size:11px">loading…</pre></div></div></div></div>
 </div>
@@ -1788,49 +1800,111 @@ DASHBOARD_HTML = r'''<!doctype html>
 <script>
 const $ = id => document.getElementById(id);
 const redact = s => s ? s.slice(0,4)+"..."+s.slice(-4) : "-";
+function safeSlice(s, a,b){ try{ return (s||'').slice(a,b); }catch(e){ return (s||'')+''; } }
 async function tick(){
+  // always update clock even if fetch fails
+  try{ $('clock').textContent = new Date().toLocaleTimeString(); }catch(e){}
+  let j=null;
   try{
     const r = await fetch('/api/status', {cache:'no-store'});
-    const j = await r.json();
+    j = await r.json();
+  }catch(e){
+    try{ $('healthPill').textContent='fetch error'; $('healthPill').style.color='var(--bad)'; }catch(_){}
+    return;
+  }
+  try{
     const ok = j.health && j.health.status==='ok';
     const ready = j.ready && j.ready.status==='ready';
-    $('healthPill').textContent = (ok?'live ':'down ') + (ready?'· ready':'· not-ready');
-    $('healthPill').style.color = ok&&ready ? 'var(--ok)' : 'var(--bad)';
-    $('healthPill').style.borderColor = ok&&ready ? 'rgba(22,163,74,.3)' : 'rgba(220,38,38,.3)';
-    $('serverV').innerHTML = (ok?'<span class="badge ok">live</span>':'<span class="badge bad">down</span>') + ' <small>:' + (j.env.ALBERT_HTTP_PORT||18090) + '</small>';
-    $('serverD').textContent = (j.health.server||'albert-local') + ' ' + (j.health.version||'') + ' · ' + (j.env.ALBERT_HOST||'127.0.0.1') + ' · ' + j.now;
-    $('fpV').innerHTML = (j.fairplay.loaded?'<span class="badge ok">loaded 0600</span>':'<span class="badge bad">missing</span>') + ' <small>'+ (j.fairplay.persisted?'persisted':'ephemeral') +'</small>';
-    $('fpD').textContent = 'NotAfter ' + j.fairplay.notAfter + ' · Serial ' + j.fairplay.serial.slice(0,12) +'… · ' + j.fairplay.subject.slice(0,40);
-    $('metrics').textContent = 'activations ' + j.metrics.activations + ' · failures ' + j.metrics.failures + ' · up ' + j.metrics.up + '\nrate IPs ' + (j.rate?.ips ?? 0) + ' · WAL ' + j.db.wal;
-    // device
-    const d=j.device;
-    $('device').innerHTML = '<b>'+d.ProductType+'</b> '+d.ModelNumber+' · SN '+d.SerialNumber+' · UDID '+redact(d.UDID)+' · EID '+d.EID.slice(0,8)+'…'+d.EID.slice(-4)+' · IMEI '+d.IMEI.slice(0,3)+'...'+d.IMEI.slice(-3)+' / '+d.IMEI2.slice(0,3)+'...'+d.IMEI2.slice(-3)+' · '+d.Storage;
-    $('usb').innerHTML = (j.usb.connected?'<span class="badge ok">USB Apple 05ac</span>':'<span class="badge warn">no Apple USB — VM passthrough needed</span>') + ' · idevice_id: ' + (j.usb.idevice||'255') + ' · restore: ' + j.usb.restore;
+    if($('healthPill')){ $('healthPill').textContent = (ok?'live ':'down ') + (ready?'· ready':'· not-ready'); $('healthPill').style.color = ok&&ready ? 'var(--ok)' : 'var(--bad)'; $('healthPill').style.borderColor = ok&&ready ? 'rgba(22,163,74,.3)' : 'rgba(220,38,38,.3)'; }
+  }catch(e){}
+  try{
+    const ok = j.health && j.health.status==='ok';
+    if($('serverV')) $('serverV').innerHTML = (ok?'<span class="badge ok">live</span>':'<span class="badge bad">down</span>') + ' <small>:' + (j.env?.ALBERT_HTTP_PORT||18090) + '</small>';
+    if($('serverD')) $('serverD').textContent = (j.health?.server||'albert-local') + ' ' + (j.health?.version||'') + ' · ' + (j.env?.ALBERT_HOST||'127.0.0.1') + ' · ' + (j.now||'');
+  }catch(e){}
+  try{
+    if($('fpV')) $('fpV').innerHTML = (j.fairplay?.loaded?'<span class="badge ok">loaded 0600</span>':'<span class="badge bad">missing</span>') + ' <small>'+ (j.fairplay?.persisted?'persisted':'ephemeral') +'</small>';
+    if($('fpD')) $('fpD').textContent = 'NotAfter ' + (j.fairplay?.notAfter||'-') + ' · Serial ' + safeSlice(j.fairplay?.serial,0,12) +'… · ' + safeSlice(j.fairplay?.subject,0,40);
+  }catch(e){}
+  try{
+    if($('metrics')) $('metrics').textContent = 'activations ' + (j.metrics?.activations??'-') + ' · failures ' + (j.metrics?.failures??'-') + ' · up ' + (j.metrics?.up??'-') + '\nrate IPs ' + (j.rate?.ips ?? 0) + ' · WAL ' + (j.db?.wal||'-');
+  }catch(e){}
+  try{
+    const d=j.device||{};
+    if($('device')) $('device').innerHTML = '<b>'+(d.ProductType||'-')+'</b> '+(d.ModelNumber||'-')+' · SN '+(d.SerialNumber||'-')+' · UDID '+redact(d.UDID||'')+' · EID '+safeSlice(d.EID,0,8)+'…'+safeSlice(d.EID,-4)+' · IMEI '+safeSlice(d.IMEI,0,3)+'...'+safeSlice(d.IMEI,-3)+' / '+safeSlice(d.IMEI2,0,3)+'...'+safeSlice(d.IMEI2,-3)+' · '+(d.Storage||'');
+  }catch(e){}
+  try{
+    if($('usb')) $('usb').innerHTML = (j.usb?.connected?'<span class="badge ok">USB Apple 05ac</span>':'<span class="badge warn">no Apple USB — VM passthrough needed</span>') + ' · idevice_id: ' + (j.usb?.idevice||'255') + ' · restore: ' + (j.usb?.restore||'-');
+  }catch(e){}
+  try{
     // ipsw
-    $('ipsw').textContent = j.ipsw.name + ' ' + j.ipsw.sizeGB + ' GB · SHA256 ' + j.ipsw.sha256.slice(0,16) +'… · ' + j.ipsw.productVersion + ' ' + j.ipsw.build + ' · ' + j.ipsw.variants.join(', ');
-    $('ipswFill').style.width = j.ipsw.exists ? '100%' : '0%';
+    if($('ipsw')) $('ipsw').textContent = (j.ipsw?.name||'-') + ' ' + (j.ipsw?.sizeGB||'-') + ' GB · SHA256 ' + safeSlice(j.ipsw?.sha256,0,16) +'… · ' + (j.ipsw?.productVersion||'') + ' ' + (j.ipsw?.build||'') + ' · ' + ((j.ipsw?.variants||[]).join(', '));
+    if($('ipswFill')){
+      const exists = !!j.ipsw?.exists;
+      $('ipswFill').style.width = exists ? '100%' : '8%';
+      $('ipswFill').setAttribute('aria-valuenow', exists?'100':'8');
+    }
+    if($('ipswPct')) $('ipswPct').textContent = j.ipsw?.exists ? '✓ IPSW ready · '+(j.ipsw?.sizeGB||'')+' GB verified' : '✗ IPSW missing — place IPSW in project root';
+  }catch(e){}
+  try{
+    // restore progress — live idevicerestore
+    const rs = j.restore || {active:false,percent:0,stage:'idle',file:'',lastLine:''};
+    if($('restoreFill')){
+      const pct = Math.max(0, Math.min(100, Number(rs.percent)||0));
+      $('restoreFill').style.width = pct + '%';
+      $('restoreFill').setAttribute('aria-valuenow', pct);
+      $('restoreFill').style.opacity = rs.active ? '1' : '0.7';
+    }
+    if($('restorePct')) $('restorePct').textContent = (Number(rs.percent)||0).toFixed(1)+'%';
+    if($('restoreStage')){
+      if(rs.stage==='failed'){ $('restoreStage').textContent = '✗ failed ('+ (rs.stage) + ') — ' + (rs.percent||0)+'% — ' + (rs.lastLine||'').slice(0,120); $('restoreStage').style.color='var(--bad)'; }
+      else if(rs.active){ $('restoreStage').textContent = '⟳ ' + (rs.stage||'uploading') + ' — ' + (rs.percent||0)+'%'; $('restoreStage').style.color=''; }
+      else if(rs.stage==='complete'){ $('restoreStage').textContent='✓ complete — 100%'; $('restoreStage').style.color='var(--ok)'; }
+      else { $('restoreStage').textContent='— '+(rs.stage||'idle')+' — '+(rs.percent||0)+'%'; $('restoreStage').style.color=''; }
+    }
+    if($('restoreBadge')){
+      if(rs.stage==='complete'){ $('restoreBadge').textContent='complete ✓'; $('restoreBadge').className='badge bg-success ms-auto'; }
+      else if(rs.stage==='failed'){ $('restoreBadge').textContent='failed ✗'; $('restoreBadge').className='badge bg-danger ms-auto'; }
+      else if(rs.active){ $('restoreBadge').textContent='active ⟳ '+ (Number(rs.percent)||0).toFixed(0)+'%'; $('restoreBadge').className='badge bg-info ms-auto'; }
+      else { $('restoreBadge').textContent = rs.percent>0 ? 'idle '+rs.percent+'%' : 'idle'; $('restoreBadge').className='badge bg-secondary ms-auto'; }
+    }
+    if($('restoreFill')){
+      // color by state
+      if(rs.stage==='failed') $('restoreFill').style.background='linear-gradient(90deg,#dc2626,#991b1b)';
+      else if(rs.stage==='complete') $('restoreFill').style.background='linear-gradient(90deg,#16a34a,#15803d)';
+      else if(rs.active) $('restoreFill').style.background='linear-gradient(90deg,#06b6d4,#3b82f6)';
+      else $('restoreFill').style.background='linear-gradient(90deg,#3b82f6,#06b6d4)';
+    }
+    if($('restoreFile')) $('restoreFile').textContent = rs.file || '—';
+    if($('restoreLine')) $('restoreLine').textContent = rs.lastLine || '';
+  }catch(e){}
+  try{
     // activations
-    const tbody=$('acts'); tbody.innerHTML='';
-    j.activations.forEach(row=>{
-      const tr=document.createElement('tr');
-      tr.innerHTML='<td>'+row.id+'</td><td class="mono">'+redact(row.udid)+'</td><td>'+(row.serial||'-')+'</td><td class="mono">'+row.created_at.slice(0,19)+'</td><td class="mono">'+row.record.slice(0,80)+'…</td>';
-      tbody.appendChild(tr);
-    });
-    if(!j.activations.length) tbody.innerHTML='<tr><td colspan=5 class="mono" style="color:var(--muted)">no activations yet — run activate_device.py --method direct</td></tr>';
-    $('rl').textContent = 'IPs ' + (j.rate?.ips ?? 0) + ' · sample ' + (j.rate?.sample||'-');
-    $('ver').textContent = j.health.version;
-  }catch(e){
-    $('healthPill').textContent='fetch error';
-    $('healthPill').style.color='var(--bad)';
-  }
-  $('clock').textContent = new Date().toLocaleTimeString();
+    const tbody=$('acts'); if(tbody){
+      tbody.innerHTML='';
+      (j.activations||[]).forEach(row=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML='<td>'+row.id+'</td><td class="mono">'+redact(row.udid||'')+'</td><td>'+(row.serial||'-')+'</td><td class="mono">'+safeSlice(row.created_at,0,19)+'</td><td class="mono">'+safeSlice(row.record,0,80)+'…</td>';
+        tbody.appendChild(tr);
+      });
+      if(!(j.activations||[]).length) tbody.innerHTML='<tr><td colspan=5 class="mono" style="color:var(--muted)">no activations yet — run activate_device.py --method direct</td></tr>';
+    }
+  }catch(e){}
+  try{
+    if($('rl')) $('rl').textContent = 'IPs ' + (j.rate?.ips ?? 0) + ' · sample ' + (j.rate?.sample||'-');
+    if($('ver')) $('ver').textContent = j.health?.version||'';
+  }catch(e){}
 }
 tick(); setInterval(tick, 2000);
-// logs poll
+// logs poll — admin gated, handle 401 gracefully
 async function logsTick(){
-  try{ const r=await fetch('/api/logs?lines=60',{cache:'no-store'}); const j=await r.json(); $('logs').textContent=j.tail||'no logs'; }catch(e){ $('logs').textContent='logs fetch error'; }
+  try{
+    const r=await fetch('/api/logs?lines=60',{cache:'no-store'});
+    if(r.status===401){ if($('logs')) $('logs').textContent='🔒 admin login required — open /admin and unlock (X-Admin-Token)'; return; }
+    const j=await r.json(); if($('logs')) $('logs').textContent=j.tail||'no logs';
+  }catch(e){ if($('logs')) $('logs').textContent='logs unavailable (admin gated)'; }
 }
-logsTick(); setInterval(logsTick, 3000);
+logsTick(); setInterval(logsTick, 5000);
 </script>
 </body>
 </html>
@@ -1848,7 +1922,7 @@ def api_logs():
     lines = int(request.args.get('lines', '60'))
     lines = max(1, min(lines, 200))
     tail = "no log"
-    for p in [pathlib.Path("/tmp/albert.log"), pathlib.Path("albert.log"), pathlib.Path("logs/albert.log")]:
+    for p in [pathlib.Path("logs/albert.log"), pathlib.Path("albert.log"), pathlib.Path("/tmp/albert.log")]:
         if p.exists():
             try:
                 tail = "\n".join(p.read_text(errors='ignore').splitlines()[-lines:])
@@ -2523,6 +2597,126 @@ def api_firmwares():
         return jsonify({"error": "upstream unavailable", "details": str(e), "retryAfter": 60}), 502
 
 
+def _get_restore_progress():
+    """Parse latest logs/restore/restore*.log for live idevicerestore progress.
+    Returns {active,bool, percent 0-100, stage, file, lastLine, updatedAt}.
+    Safe even if no logs or file unreadable."""
+    import re as _re
+    out = {"active": False, "percent": 0, "stage": "idle", "file": "", "lastLine": "", "updatedAt": ""}
+    try:
+        log_dir = pathlib.Path("logs/restore")
+        if not log_dir.exists():
+            return out
+        files = sorted(log_dir.glob("restore*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not files:
+            return out
+        latest = files[0]
+        out["file"] = latest.name
+        try:
+            out["updatedAt"] = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc).isoformat()
+        except Exception:
+            pass
+        # read tail 60KB for speed (last progress is at end)
+        try:
+            data = latest.read_bytes()[-60000:].decode(errors="ignore")
+        except Exception:
+            data = latest.read_text(errors="ignore")[-60000:]
+        if not data.strip():
+            return out
+        # last non-empty line — prefer failure line when failed to avoid contradictory exit:0
+        _failure_line = ""
+        try:
+            lines = [ln.strip() for ln in data.splitlines() if ln.strip()]
+            if lines:
+                out["lastLine"] = lines[-1][-300:]
+                # capture first failure line if any
+                low_lines = [ln.lower() for ln in lines]
+                for idx, ll in enumerate(low_lines):
+                    if "failed to enter restore mode" in ll or "image personalization failed" in ll or "possibly invalid ibec" in ll or "did not reconnect in recovery mode" in ll:
+                        _failure_line = lines[idx][-300:]
+                        break
+                    if "unable to discover device mode" in ll:
+                        _failure_line = lines[idx][-300:]
+        except Exception:
+            pass
+        # active/done/failed detection — fail takes precedence over exit:0
+        _is_failed_early = False
+        try:
+            age = time.time() - latest.stat().st_mtime
+            lower = data.lower()
+            # detect failure first (most specific) — must dominate exit:0
+            if "failed to enter restore mode" in lower or "image personalization failed" in lower or "possibly invalid ibec" in lower or "did not reconnect in recovery mode" in lower:
+                out["stage"] = "failed"
+                out["active"] = False
+                _is_failed_early = True
+                if _failure_line:
+                    out["lastLine"] = _failure_line
+            elif "unable to discover device mode" in lower and age > 10 and "sending" not in lower[-500:].lower():
+                out["stage"] = "failed"
+                out["active"] = False
+                _is_failed_early = True
+                if _failure_line:
+                    out["lastLine"] = _failure_line
+            elif "restore complete" in lower and "failed" not in lower:
+                out["stage"] = "complete"
+                out["percent"] = 100
+                out["active"] = False
+                return out
+            elif "exit:0" in lower and not _is_failed_early and "failed to enter restore mode" not in lower and "image personalization failed" not in lower and "possibly invalid ibec" not in lower and "did not reconnect in recovery mode" not in lower:
+                # only treat exit:0 as success if no failure marker anywhere
+                out["stage"] = "complete"
+                out["percent"] = 100
+                out["active"] = False
+                return out
+            else:
+                if age < 120:
+                    if "%" in data[-2000:]:
+                        out["active"] = True
+        except Exception:
+            pass
+        # stage from last Sending/Extracting (only if not already failed/complete)
+        _is_failed = "failed to enter restore mode" in data.lower() or "image personalization failed" in data.lower() or "possibly invalid ibec" in data.lower() or "did not reconnect in recovery mode" in data.lower()
+        try:
+            if out["stage"] not in ("failed", "complete"):
+                sends = _re.findall(r"Sending (\w+)", data)
+                if sends:
+                    out["stage"] = sends[-1]
+                else:
+                    ext = _re.findall(r"Extracting ([^\s]+)", data)
+                    if ext:
+                        out["stage"] = ext[-1].split("/")[-1][:24]
+                # fallback: keep idle if no match
+        except Exception:
+            pass
+        # percent: for failed case, percent is last before failure line to avoid contradictory 100%
+        try:
+            search_data = data
+            if _is_failed_early and _failure_line:
+                # slice up to failure to get meaningful progress at fail point
+                idx = data.lower().find(_failure_line.lower()[:30]) if _failure_line else -1
+                if idx > 0:
+                    search_data = data[:idx]
+            percents = _re.findall(r"(\d+(?:\.\d+)?)\s*%", search_data)
+            if percents:
+                val = float(percents[-1])
+                if 0 <= val <= 100:
+                    out["percent"] = round(val, 1)
+        except Exception:
+            pass
+        # if active and stage still idle but has percent, keep percent
+        if out["stage"] == "idle" and out["percent"] > 0:
+            out["stage"] = "uploading"
+        # enforce failed stage overrides any Sends parsing if failure present
+        if _is_failed_early:
+            out["stage"] = "failed"
+            out["active"] = False
+            if _failure_line:
+                out["lastLine"] = _failure_line
+    except Exception:
+        pass
+    return out
+
+
 def _build_status_payload():
     """Helper that gathers realtime status dict (no jsonify) — used by /api/status and /api/admin/status."""
     import sqlite3
@@ -2636,6 +2830,8 @@ def _build_status_payload():
                 pass
     except Exception:
         pass
+    # restore progress (live idevicerestore)
+    restore = _get_restore_progress()
     # rate
     rate = {"ips": len(_rate_limit_store) if '_rate_limit_store' in globals() else 0, "sample": ""}
     try:
@@ -2646,25 +2842,39 @@ def _build_status_payload():
                 rate["sample"] = f"{k[:6]}...:{len(v)}"
     except Exception:
         pass
-    return {"now": now, "health": health, "ready": ready, "fairplay": fair, "metrics": metrics, "activations": acts, "device": device, "usb": usb, "ipsw": ipsw_info, "env": env, "db": {"wal": metrics["wal"]}, "rate": rate}
+    return {"now": now, "health": health, "ready": ready, "fairplay": fair, "metrics": metrics, "activations": acts, "device": device, "usb": usb, "ipsw": ipsw_info, "env": env, "db": {"wal": metrics["wal"]}, "rate": rate, "restore": restore}
+
+def _build_public_status_payload():
+    """Build minimal public status payload — no device data, activations, env, rate, etc."""
+    health = {"status": "ok", "server": "albert-local", "version": "1.1-fixed"}
+    ready = {"status": "ready" if bool(FAIRPLAY_CERT_CHAIN and albert.fairplay_private_key) else "not-ready", "fairplay_loaded": bool(FAIRPLAY_CERT_CHAIN and albert.fairplay_private_key)}
+    try:
+        mtls_ca = _get_mtls_ca()
+        ready["mtls"] = {"enabled": bool(mtls_ca), "ca": mtls_ca if mtls_ca else None}
+    except Exception:
+        pass
+    return {
+        "health": health,
+        "ready": ready,
+        "version": "1.1-fixed",
+    }
+
 
 @app.route('/api/status', methods=['GET'])
 def api_status():
-    # Gate 02/04: require admin for full status; public gets limited health/ready only
     is_admin, _ = _check_admin_auth()
-    if not is_admin and request.args.get("full") is not None:
-        err = _admin_required()
-        if err:
-            return err
     wants_html = "text/html" in (request.headers.get("Accept") or "")
-    if wants_html and not request.args.get("format") == "json":
+    if not is_admin:
+        p = _build_public_status_payload()
+    else:
         p = _build_status_payload()
+    if wants_html and not request.args.get("format") == "json":
         # Render premium HTML like /health, /ready
         ok = p.get("health", {}).get("status") == "ok"
         badge = "bg-success" if ok else "bg-danger"
-        html = f"""<!doctype html><html lang="en" data-bs-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/static/favicon.svg"><title>zAlive — Status — {'✓ ok' if ok else '✗ fail'}</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/css/adminlte.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"><style>:root{{--zalive-card:#151a21;--zalive-border:#232b36}} .app-wrapper{{min-height:100vh;background:#0b0f14}} .app-header{{border-bottom:1px solid var(--zalive-border)}} .app-sidebar{{background:#0f141b;border-right:1px solid var(--zalive-border)}} .card{{border:1px solid var(--zalive-border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.45)}} .mono{{font-family:ui-monospace,monospace}}</style></head><body class="layout-fixed-complete"><div class="app-wrapper"><nav class="app-header navbar navbar-expand bg-body"><div class="container-fluid"><ul class="navbar-nav"><li class="nav-item"><a class="nav-link" data-lte-toggle="sidebar" href="#"><i class="bi bi-list"></i></a></li><li class="nav-item"><a href="/dashboard" class="nav-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:22px"></a></li></ul><ul class="navbar-nav ms-auto"><li class="nav-item"><span class="badge {badge}">{'✓ ok' if ok else '✗ fail'}</span></li><li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li><li class="nav-item"><a class="nav-link" href="/api/status?format=json">JSON</a></li></ul></div></nav><aside class="app-sidebar sidebar-dark"><div class="sidebar-brand"><a href="/dashboard" class="brand-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px"><span class="brand-text fw-light ms-2">zAlive Albert</span></a></div><div class="sidebar-wrapper"><nav class="mt-2"><ul class="nav sidebar-menu flex-column"><li class="nav-item"><a href="/dashboard" class="nav-link"><i class="nav-icon bi bi-speedometer2"></i><p>Dashboard</p></a></li><li class="nav-item"><a href="/firmware" class="nav-link"><i class="nav-icon bi bi-hdd-stack"></i><p>Firmware</p></a></li><li class="nav-item"><a href="/admin" class="nav-link"><i class="nav-icon bi bi-shield-lock"></i><p>Admin</p></a></li><li class="nav-item"><a href="/api/status" class="nav-link active"><i class="nav-icon bi bi-activity"></i><p>Status</p></a></li></ul></nav></div></aside><main class="app-main"><div class="app-content-header"><div class="container-fluid"><div class="row"><div class="col-sm-8"><h1 class="m-0">Status</h1><small class="text-secondary mono">{p.get('now','')}</small></div><div class="col-sm-4 text-end"><span class="badge {badge}">{'ready' if p.get('ready',{}).get('status')=='ready' else 'not ready'}</span></div></div></div></div><div class="app-content"><div class="container-fluid"><div class="row g-3"><div class="col-md-4"><div class="card"><div class="card-body"><h6>Health</h6><div class="mono small">{p.get('health',{})}</div></div></div></div><div class="col-md-4"><div class="card"><div class="card-body"><h6>FairPlay</h6><div class="mono small">loaded={p.get('fairplay',{}).get('loaded')} {p.get('fairplay',{}).get('notAfter','')}</div></div></div></div><div class="col-md-4"><div class="card"><div class="card-body"><h6>Metrics</h6><div class="mono small">up={p.get('metrics',{}).get('up')} acts={p.get('metrics',{}).get('activations')}</div></div></div></div></div><div class="card mt-3"><div class="card-header">IPSW</div><div class="card-body mono small">{p.get('ipsw',{})}</div></div><div class="card mt-3"><div class="card-header">Device</div><div class="card-body mono small">{p.get('device',{})}</div></div><div class="card mt-3"><div class="card-header">Rate</div><div class="card-body mono small">{p.get('rate',{})}</div></div></div></div></main><footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>zAlive Albert</strong></footer></div></body></html>"""
-        return html, 200, {"Content-Type": "text/html"}
-    return jsonify(_build_status_payload())
+        html = f"""<!doctype html><html lang="en" data-bs-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/static/favicon.svg"><title>zAlive — Status — {'✓ ok' if ok else '✗ fail'}</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/css/adminlte.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"><style>:root{{--zalive-card:#151a21;--zalive-border:#232b36}} .app-wrapper{{min-height:100vh;background:#0b0f14}} .app-header{{border-bottom:1px solid var(--zalive-border)}} .app-sidebar{{background:#0f141b;border-right:1px solid var(--zalive-border)}} .card{{border:1px solid var(--zalive-border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.45)}} .mono{{font-family:ui-monospace,monospace}}</style></head><body class="layout-fixed-complete"><div class="app-wrapper"><nav class="app-header navbar navbar-expand bg-body"><div class="container-fluid"><ul class="navbar-nav"><li class="nav-item"><a class="nav-link" data-lte-toggle="sidebar" href="#"><i class="bi bi-list"></i></a></li><li class="nav-item"><a href="/dashboard" class="nav-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:22px"></a></li></ul><ul class="navbar-nav ms-auto"><li class="nav-item"><span class="badge {badge}">{'✓ ok' if ok else '✗ fail'}</span></li><li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li><li class="nav-item"><a class="nav-link" href="/api/status?format=json">JSON</a></li></ul></div></nav><aside class="app-sidebar sidebar-dark"><div class="sidebar-brand"><a href="/dashboard" class="brand-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px"><span class="brand-text fw-light ms-2">zAlive Albert</span></a></div><div class="sidebar-wrapper"><nav class="mt-2"><ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview" role="menu"><li class="nav-item"><a href="/dashboard" class="nav-link"><i class="nav-icon bi bi-speedometer2"></i><p>Dashboard</p></a></li><li class="nav-item"><a href="/firmware" class="nav-link"><i class="nav-icon bi bi-hdd-stack"></i><p>Firmware</p></a></li><li class="nav-item"><a href="/admin" class="nav-link"><i class="nav-icon bi bi-shield-lock"></i><p>Admin</p></a></li><li class="nav-item"><a href="/health" class="nav-link"><i class="nav-icon bi bi-heart-pulse"></i><p>Health</p></a></li><li class="nav-item"><a href="/ready" class="nav-link"><i class="nav-icon bi bi-check-circle"></i><p>Ready</p></a></li><li class="nav-item"><a href="/metrics" class="nav-link"><i class="nav-icon bi bi-graph-up"></i><p>Metrics</p></a></li><li class="nav-item"><a href="/api/status" class="nav-link active"><i class="nav-icon bi bi-heart-pulse"></i><p>Status</p></a></li></ul></nav></div></aside><main class="app-main"><div class="app-content-header"><div class="container-fluid"><div class="row"><div class="col-sm-6"><h3 class="mb-0">Status <small class="text-secondary">· {'✓ ok' if ok else '✗ fail'}</small></h3><small class="text-secondary">Template: AdminLTE 4 (dashboard-template #1) · Public status</small></div><div class="col-sm-6"><ol class="breadcrumb float-sm-end"><li class="breadcrumb-item"><a href="/">Home</a></li><li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li><li class="breadcrumb-item active">Status</li></ol></div></div></div><div class="app-content"><div class="container-fluid"><div class="row g-3"><div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Health</h3><span class="badge {badge} float-end">{'✓ ok' if ok else '✗ fail'}</span></div><div class="card-body"><div class="mono small">{p.get('health', {}).get('server', 'albert-local')} · {p.get('health', {}).get('version', '1.1-fixed')}</div></div></div></div><div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Ready</h3><span class="badge {badge} float-end">{'✓ ready' if p.get('ready', {}).get('fairplay_loaded') else '✗ not-ready'}</span></div><div class="card-body"><div class="mono small">FairPlay loaded: {str(p.get('ready', {}).get('fairplay_loaded', False)).lower()}</div><div class="mono small text-secondary">mTLS: {'enabled' if p.get('ready', {}).get('mtls', {}).get('enabled') else 'disabled'}</div></div></div></div><div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Version</h3></div><div class="card-body"><div class="mono small">{p.get('version', '1.1-fixed')}</div></div></div></div></div><div class="card mt-3"><div class="card-header"><h3 class="card-title small" style="color:#94a3b8">Raw JSON</h3><a href="/api/status?format=json" class="btn btn-sm btn-outline-primary float-end">View JSON</a></div><div class="card-body"><pre class="mono small bg-dark p-3 rounded" style="white-space:pre-wrap">{json.dumps(p, indent=2)}</pre></div></div></div></div></main><footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer></div><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script><script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script></body></html>"""
+        return Response(html, mimetype='text/html')
+    return jsonify(p)
 
 @app.route('/api/rate_status', methods=['GET'])
 def api_rate_status():

@@ -208,9 +208,9 @@ def _validate_udid(v) -> bool:
 def _validate_inputs(udid: Optional[str] = None, imei: Optional[str] = None) -> None:
     errors = []
     if udid is not None and udid != "" and not _validate_udid(udid):
-        errors.append(f"Invalid UDID: {udid!r} must be 40 hex or 00008020-<16 hex>")
+        errors.append("Invalid UDID: must be 40 hex or 00008020-<16 hex>")
     if imei is not None and imei != "" and not _validate_imei(imei):
-        errors.append(f"Invalid IMEI: {imei!r} must be 15 digits")
+        errors.append("Invalid IMEI: must be 15 digits")
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -229,6 +229,13 @@ class LocalAlbertClient:
             "User-Agent": "iOS Device Activator (MobileActivation-592.103.2)",
             "Accept": "application/xml",
         })
+        # mTLS header fallback for direct activation when ALBERT_MTLS_CA is enabled
+        try:
+            _mtls_token = (os.environ.get("ALBERT_MTLS_TOKEN") or "").strip()
+            if _mtls_token:
+                self.session.headers.update({"X-MTLS-Token": _mtls_token})
+        except Exception:
+            pass
 
     def _generate_request_id(self) -> str:
         return str(uuid.uuid4())
@@ -255,7 +262,7 @@ class LocalAlbertClient:
                 response = self.session.post(url, data=data, headers=headers, timeout=self.timeout)
                 # Handle 413/429 specifically before raise_for_status
                 if response.status_code == 413:
-                    logger.error(f"Payload too large (413) for {url} request_id={request_id} response: {response.text[:500]}", extra={"request_id": request_id})
+                    logger.error(f"Payload too large (413) for request_id={request_id}", extra={"request_id": request_id})
                     _record_failure(self.base_url)
                     return None
                 if response.status_code == 429:
@@ -339,7 +346,7 @@ class LocalAlbertClient:
                 logger.error(f"HTTP error for {url} request_id={request_id}: {e} status={getattr(e.response, 'status_code', '?')}", extra={"request_id": request_id})
                 if hasattr(e, 'response') and getattr(e, 'response', None) is not None:
                     try:
-                        logger.error(f"Response: {e.response.text[:500]}", extra={"request_id": request_id})
+                        logger.error("HTTP response body suppressed for security", extra={"request_id": request_id})
                     except Exception:
                         pass
                 _record_failure(self.base_url)
@@ -364,7 +371,7 @@ class LocalAlbertClient:
         try:
             _validate_inputs(udid=udid)
         except ValueError as e:
-            logger.error(f"Input validation failed for drm_handshake udid={udid!r} request_id={request_id}: {e}", extra={"request_id": request_id})
+            logger.error(f"Input validation failed for drm_handshake request_id={request_id}: {e}", extra={"request_id": request_id})
             raise
         request_data = {
             "CollectionBlob": collection_blob,
@@ -461,7 +468,7 @@ async def activate_with_pymobiledevice3(udid: Optional[str], albert_url: str,
         try:
             _validate_inputs(udid=udid)
         except ValueError as e:
-            logger.error(f"Input validation failed for UDID {udid!r}: {e}", extra={"request_id": "-"})
+            logger.error(f"Input validation failed for UDID: {e}", extra={"request_id": "-"})
             print(json.dumps({"success": False, "error": str(e), "request_id": "-"}))
             return False
     try:
@@ -469,17 +476,68 @@ async def activate_with_pymobiledevice3(udid: Optional[str], albert_url: str,
         if not devices:
             logger.error("No devices found - connect via USB and ensure usbmuxd is running", extra={"request_id": "-"})
             return False
+        # pymobiledevice3 MuxDevice uses .serial (UDID) on newer versions, .udid/.identifier on older
+        def _get_dev_id(d):
+            # try serial first (MuxDevice(devid, serial, connection_type)), then udid/identifier
+            return getattr(d, "serial", None) or getattr(d, "udid", None) or getattr(d, "identifier", None) or getattr(d, "udid_", None) or str(d)
         if udid:
-            device = next((d for d in devices if d.udid == udid), None)
+            device = next((d for d in devices if _get_dev_id(d) == udid or (hasattr(d, "matches_udid") and d.matches_udid(udid))), None)
             if not device:
-                logger.error(f"Device with UDID {udid} not found. Available: {[d.udid for d in devices]}", extra={"request_id": "-"})
+                logger.error("Requested device not found", extra={"request_id": "-"})
                 return False
         else:
             device = devices[0]
-        logger.info(f"Connecting to device: {device.udid}", extra={"request_id": "-"})
-        lockdown = LockdownClient(device.udid)
+        _dev_id = _get_dev_id(device)
+        logger.info("Connecting to selected device", extra={"request_id": "-"})
+        # pymobiledevice3 3.x: LockdownClient is abstract, use UsbmuxLockdownClient via create_using_usbmux
+        try:
+            from pymobiledevice3.lockdown import create_using_usbmux
+            lockdown = await create_using_usbmux(serial=_dev_id)
+        except Exception as e:
+            logger.warning(f"create_using_usbmux failed ({e}), trying LockdownClient.create fallback", extra={"request_id": "-"})
+            try:
+                service = await device.connect(62078)
+                lockdown = await LockdownClient.create(service, identifier=_dev_id)
+            except Exception as e2:
+                logger.warning(f"LockdownClient.create failed ({e2}), falling back to legacy", extra={"request_id": "-"})
+                try:
+                    lockdown = LockdownClient(_dev_id)  # type: ignore
+                except Exception as e3:
+                    logger.error(f"LockdownClient init failed: {e3}", extra={"request_id": "-"})
+                    return False
         activation_service = MobileActivationService(lockdown)
-        state = await activation_service.state()
+        # Patch activation URLs to use local Albert when albert_url is local (overrides Apple)
+        try:
+            import pymobiledevice3.services.mobile_activation as _ma
+            if albert_url and ("127.0.0.1" in albert_url or "192.168." in albert_url or "localhost" in albert_url):
+                _orig_default = _ma.ACTIVATION_DEFAULT_URL
+                _orig_handshake = _ma.ACTIVATION_DRM_HANDSHAKE_DEFAULT_URL
+                _ma.ACTIVATION_DEFAULT_URL = albert_url.rstrip("/") + "/deviceservices/deviceActivation"
+                _ma.ACTIVATION_DRM_HANDSHAKE_DEFAULT_URL = albert_url.rstrip("/") + "/deviceservices/drmHandshake"
+                logger.info(f"Patched MobileActivationService URLs to local Albert {albert_url}", extra={"request_id": "-"})
+                # Inject X-MTLS-Token into the service's post headers via monkey-patch
+                _orig_post = _ma.MobileActivationService.post
+                def _patched_post(self, url, data, headers=None, **kw):
+                    headers = dict(headers or {})
+                    _tok = (os.environ.get("ALBERT_MTLS_TOKEN") or "").strip()
+                    if _tok:
+                        headers["X-MTLS-Token"] = _tok
+                    # also ensure X-Request-ID
+                    if "X-Request-ID" not in headers:
+                        headers["X-Request-ID"] = str(uuid.uuid4())
+                    return _orig_post(self, url, data, headers, **kw)
+                _ma.MobileActivationService.post = _patched_post
+        except Exception as _patch_e:
+            logger.warning(f"Failed to patch MobileActivationService URLs: {_patch_e}", extra={"request_id": "-"})
+        try:
+            state = await activation_service.state()
+        except Exception as e:
+            logger.warning(f"state() failed, trying is_activated fallback: {e}", extra={"request_id": "-"})
+            try:
+                # fallback via lockdown get_value
+                state = lockdown.get_value("", "ActivationState") or "Unknown"
+            except Exception:
+                state = "Unknown"
         logger.info(f"Device activation state: {state}", extra={"request_id": "-"})
         if state == "Activated":
             logger.info("Device is already activated", extra={"request_id": "-"})
@@ -491,8 +549,49 @@ async def activate_with_pymobiledevice3(udid: Optional[str], albert_url: str,
             logger.info("Activation completed successfully!", extra={"request_id": "-"})
             return True
         except Exception as e:
-            logger.error(f"Activation failed: {e}", extra={"request_id": "-"})
-            return False
+            logger.warning(f"Session activation failed ({e}), trying direct legacy with real ActivationInfo via local Albert", extra={"request_id": "-"})
+            # Fallback: use real ActivationInfo from lockdown via LocalAlbertClient (bypasses DRM session)
+            try:
+                # Try to get real ActivationInfo from lockdown
+                real_info = None
+                try:
+                    real_info = await lockdown.get_value("ActivationInfo")
+                except Exception:
+                    pass
+                if not real_info:
+                    try:
+                        real_info = lockdown.all_values.get("ActivationInfo")
+                    except Exception:
+                        pass
+                if not real_info:
+                    # Try MobileActivationService to create legacy info
+                    try:
+                        # lockdown.get_value with empty domain
+                        real_info = await lockdown.get_value("", "ActivationInfo")
+                    except Exception:
+                        pass
+                if not real_info or not isinstance(real_info, dict):
+                    logger.error(f"Could not retrieve real ActivationInfo from device (got {type(real_info)})", extra={"request_id": "-"})
+                    return False
+                logger.info(f"Retrieved real ActivationInfo keys: {list(real_info.keys())[:5]}", extra={"request_id": "-"})
+                # Use LocalAlbertClient with real info (legacy mode, no session)
+                _client = LocalAlbertClient(albert_url)
+                # Ensure token header is set (already in session, but also ensure env)
+                data, headers = _client.activate_device(real_info, session_mode=False)
+                if data:
+                    try:
+                        await MobileActivationService(lockdown).activate_with_lockdown(data)
+                        logger.info("Direct legacy activation applied successfully!", extra={"request_id": "-"})
+                        return True
+                    except Exception as e2:
+                        logger.error(f"activate_with_lockdown failed: {e2}", extra={"request_id": "-"})
+                        return False
+                else:
+                    logger.error("LocalAlbert direct activation returned no data", extra={"request_id": "-"})
+                    return False
+            except Exception as e2:
+                logger.error(f"Direct legacy fallback failed: {e2}", exc_info=True, extra={"request_id": "-"})
+                return False
     except Exception as e:
         logger.error(f"Error during activation: {e}", exc_info=True, extra={"request_id": "-"})
         return False
@@ -510,22 +609,22 @@ def activate_with_ideviceactivation(udid: Optional[str], albert_url: str) -> boo
         try:
             _validate_inputs(udid=udid)
         except ValueError as e:
-            logger.error(f"Input validation failed for UDID {udid!r}: {e}", extra={"request_id": "-"})
+            logger.error(f"Input validation failed for UDID: {e}", extra={"request_id": "-"})
             return False
     cmd = ["ideviceactivation"]
     if udid:
         cmd.extend(["-u", udid])
     env = {**os.environ, "ALBERT_URL": albert_url, "ALBERT_HOST": albert_url}
     try:
-        logger.info(f"Running: {' '.join(cmd)} with ALBERT_URL={albert_url}", extra={"request_id": "-"})
+        logger.info("Running ideviceactivation against configured Albert endpoint", extra={"request_id": "-"})
         result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
         if result.returncode == 0:
             logger.info("Activation successful!", extra={"request_id": "-"})
-            logger.info(result.stdout, extra={"request_id": "-"})
+            logger.debug("ideviceactivation stdout suppressed for security", extra={"request_id": "-"})
             return True
         else:
-            logger.error(f"Activation failed: {result.stderr}", extra={"request_id": "-"})
-            logger.error(result.stdout, extra={"request_id": "-"})
+            logger.error(f"Activation failed with returncode={result.returncode}", extra={"request_id": "-"})
+            logger.debug("ideviceactivation output suppressed for security", extra={"request_id": "-"})
             return False
     except subprocess.TimeoutExpired:
         logger.error("Activation timed out", extra={"request_id": "-"})

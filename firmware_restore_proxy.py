@@ -38,6 +38,11 @@ ALBERT_MTLS_CA = os.environ.get("ALBERT_MTLS_CA", "").strip()
 ALBERT_MTLS_CERT = os.environ.get("ALBERT_MTLS_CERT", "").strip()
 ALBERT_MTLS_KEY = os.environ.get("ALBERT_MTLS_KEY", "").strip()
 
+
+def _safe_request_path(path: str) -> str:
+    """Return a bounded request path without query-string secrets."""
+    return str(path or "/").split("?", 1)[0][:512]
+
 def _log_mtls_status():
     ca = ALBERT_MTLS_CA or os.environ.get("ALBERT_MTLS_CA", "").strip()
     if ca:
@@ -136,7 +141,7 @@ class FirmwareRestoreProxy:
 
         # Redirect ONLY Albert activation traffic to local server
         if host in ALBERT_HOSTS:
-            ctx.log.info(f"Intercepted Albert request to {host}: {flow.request.path}")
+            ctx.log.info(f"Intercepted Albert request to {host}: {_safe_request_path(flow.request.path)}")
             # Preserve original host for logging on server side
             flow.request.headers["X-Forwarded-Host"] = host
             flow.request.headers["X-Forwarded-Proto"] = flow.request.scheme
@@ -170,14 +175,14 @@ class FirmwareRestoreProxy:
             flow.request.host = LOCAL_ALBERT_HOST
             flow.request.port = LOCAL_ALBERT_PORT
             flow.request.scheme = LOCAL_ALBERT_SCHEME
-            ctx.log.info(f"Redirected to local Albert: {flow.request.scheme}://{flow.request.host}:{flow.request.port}{flow.request.path}")
+            ctx.log.info(f"Redirected to local Albert host={flow.request.host} port={flow.request.port} path={_safe_request_path(flow.request.path)}")
         elif host in TSS_HOSTS:
             ctx.log.warn(f"TSS request to {host} intercepted but TSS local handling not implemented - forwarding to Apple")
             # Do NOT redirect; let it pass through to Apple
 
         # Log all firmware restore related requests for debugging
         if any(keyword in flow.request.path.lower() for keyword in ["restore", "firmware", "ipsw", "tss", "fdr", "activation", "albert", "drmhandshake"]):
-            ctx.log.info(f"Firmware trace: {flow.request.method} {flow.request.url}")
+            ctx.log.info(f"Firmware trace: {flow.request.method} host={host} path={_safe_request_path(flow.request.path)}")
             for key, value in flow.request.headers.items():
                 if key.lower() in ["user-agent", "content-type", "host", "x-forwarded-host"]:
                     ctx.log.debug(f"  {key}: {value}")
@@ -195,10 +200,6 @@ class FirmwareRestoreProxy:
                 if key.lower() in ["content-type", "ars", "cache-control"]:
                     ctx.log.debug(f"  {key}: {value}")
             if "activation" in flow.request.path.lower() or "drmhandshake" in flow.request.path.lower():
-                try:
-                    body_preview = flow.response.text[:500] if flow.response.text else "empty"
-                    ctx.log.debug(f"  Body preview: {body_preview}")
-                except:
-                    ctx.log.debug("  Body: [binary/unreadable]")
+                ctx.log.debug("  Activation response body suppressed for security")
 
 addons = [FirmwareRestoreProxy()]

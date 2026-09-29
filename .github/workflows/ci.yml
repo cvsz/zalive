@@ -39,6 +39,67 @@ jobs:
           ALBERT_ACCEPT_RISK: "1"
         run: python3 scripts/validate.py
       - name: Docker compose config
+        env:
+          MITMPROXY_WEB_PASSWORD: ci-test-pass
         run: docker compose config
       - name: Docker build (smoke)
+        env:
+          MITMPROXY_WEB_PASSWORD: ci-test-pass
         run: docker build -t albert-server:ci .
+
+  compose-e2e:
+    runs-on: ubuntu-latest
+    needs: ci
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create .env for E2E
+        run: |
+          cat > .env <<EOF
+          ALBERT_ACCEPT_RISK=1
+          ALBERT_BIND_ADDRESS=127.0.0.1
+          ALBERT_ADMIN_TOKEN=ci-e2e-token-$(openssl rand -hex 16)
+          MITMPROXY_WEB_PASSWORD=ci-e2e-pass-$(openssl rand -hex 16)
+          EOF
+      - name: Docker compose up
+        run: docker compose up -d --build --wait
+      - name: Wait for Albert healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -f http://127.0.0.1:18090/health && curl -f http://127.0.0.1:18090/ready; then
+              echo "healthy ready"
+              break
+            fi
+            sleep 2
+          done
+          curl -f http://127.0.0.1:18090/health
+          curl -f http://127.0.0.1:18090/ready
+      - name: Verify auth gates
+        run: |
+          # unauthenticated must be 401
+          if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18090/api/device_info | grep -q "200"; then
+            echo "expected 401 for unauthenticated /api/device_info" && exit 1
+          fi
+          curl -f http://127.0.0.1:18090/health
+          # authenticated with token from .env
+          TOKEN=$(grep ALBERT_ADMIN_TOKEN .env | cut -d= -f2)
+          curl -f -H "X-Admin-Token: $TOKEN" http://127.0.0.1:18090/api/device_info
+          # mitmproxy web: verify port open and unauthenticated is NOT 200
+          nc -z 127.0.0.1 28080
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:28080/ || true)
+          if [ "$CODE" = "200" ]; then
+            echo "mitmproxy web must not be open (got 200 without auth)" && exit 1
+          fi
+          echo "mitmproxy web auth enforced (HTTP $CODE)"
+      - name: Restart and verify persistence
+        run: |
+          docker compose restart albert-server
+          sleep 10
+          curl -f http://127.0.0.1:18090/health
+          curl -f http://127.0.0.1:18090/ready
+      - name: Compose down and clean volume
+        if: always()
+        run: |
+          docker compose down -v
+          docker compose config | grep -q "cap_drop" && echo "compose config ok"

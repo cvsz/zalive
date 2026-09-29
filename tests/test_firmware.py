@@ -58,18 +58,32 @@ def test_firmware_invalid():
 
 def test_any_iphone_dynamic_device():
     c = albert_server.app.test_client()
+    # Public status should not expose device data (privacy fix)
     j = c.get('/api/status').get_json()
-    # Should be XR initially, but after logging an activation for iPhone15,2 it flips
-    assert j['device']['ProductType'] in ['iPhone11,8','iPhone15,2','iPhone14,5']
+    assert 'device' not in j
+    assert 'health' in j
+    assert 'ready' in j
+    assert 'version' in j
+
+    # Admin can see device data
+    import os
+    import pathlib
+    import secrets
+    admin_token = (os.environ.get("ALBERT_ADMIN_TOKEN") or "").strip()
+    if not admin_token:
+        try:
+            admin_token = pathlib.Path(".env").read_text().split("ALBERT_ADMIN_TOKEN=")[1].split()[0].strip().strip('"').strip("'")
+        except Exception:
+            admin_token = secrets.token_urlsafe(32)
+    j_admin = c.get('/api/status', headers={'X-Admin-Token': admin_token}).get_json()
+    assert 'device' in j_admin
+    assert j_admin['device']['ProductType'] in ['iPhone11,8','iPhone15,2','iPhone14,5']
+
     # log a new activation for iPhone15,2
     import plistlib
     import base64
     info={"DeviceClass":"iPhone","ProductType":"iPhone15,2","UniqueDeviceID":"00008020-1111111111111111","SerialNumber":"TEST123","DeviceCertRequest": b""}
-    # Use direct DB log to simulate
-    import pathlib
-    import sqlite3
-    # Simulate via activation
     b64 = base64.b64encode(plistlib.dumps(info)).decode()
     c.post('/deviceservices/deviceActivation', data={'activation-info': b64})
-    j2 = c.get('/api/status').get_json()
-    assert j2['device']['ProductType'] == 'iPhone15,2'
+    j2_admin = c.get('/api/status', headers={'X-Admin-Token': admin_token}).get_json()
+    assert j2_admin['device']['ProductType'] == 'iPhone15,2'

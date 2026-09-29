@@ -130,8 +130,12 @@ def test_rate_limit_all_api():
 def test_docker_compose_config_valid():
     # validates docker-compose YAML parses (not a full clean-volume E2E)
     import subprocess
-    out = subprocess.run(["docker","compose","config"], capture_output=True, text=True, timeout=5)
-    assert out.returncode == 0
+    import secrets
+    import os
+    env = os.environ.copy()
+    env["MITMPROXY_WEB_PASSWORD"] = secrets.token_urlsafe(24)
+    out = subprocess.run(["docker","compose","config"], capture_output=True, text=True, timeout=15, env=env)
+    assert out.returncode == 0, out.stderr
     assert "albert-server" in out.stdout
 
 def test_restart_key_persistence_tmpdir():
