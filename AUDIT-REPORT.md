@@ -1,9 +1,10 @@
 # Audit Report: /home/cvsz/albert_server
 **Project:** Local Albert Activation Server (albert.apple.com emulator) + mitmproxy Firmware Restore Proxy  
-**Date:** 2026-09-28 (re-audit after production gate 16)  
+**Date:** 2026-09-29 (re-audit after production gate 16 + secure-default hardening)  
 **Reviewer:** Muse Code (final-release-gate + final-security-review + authorization-architecture)  
 **Scope:** Full repository — code, config, CI, deployment, security, tests, Git history  
-**Commit:** `72d74b47eef3` `72d74b4`+`605f25e`+`3107c30` GPG EDDSA CD57FEA — `main` purged (filter-repo) identifiers redacted, branch protection `strict ci`
+**Commit:** `eb831f3b414a13e5b5d8f011e6790c919cbec987` GPG EDDSA CD57FEA — `main` purged (filter-repo) identifiers redacted, branch protection `strict ci`  
+**CI:** `36499409453` `success` **CodeQL:** `36499409461` `success` (HEAD `eb831f3`)
 
 ## Executive Summary
 
@@ -13,7 +14,7 @@
 | Lines of Code | 4,900+ (Python) + AdminLTE 4 templates |
 | Test Coverage | 36 passed (12 albert + 6 firmware + 5 bootstrap + 13 security gate) + CI `validate` green |
 | Security Gates | `ruff ✅` `bandit ✅` `CodeQL python,actions ✅` `branch protection strict ci ✅` |
-| Deployment Ready | ✅ Docker multi-stage 3.13-slim, compose `required:false`, `uv` hashes, `0.0.0.0:18090` + `192.168.1.123:18090` + `127.0.0.1:18090` via UFW, `192.168.1.123:18443` green SAN |
+| Deployment Ready | ✅ Docker multi-stage 3.13-slim, compose `required:false`, `uv` hashes, `127.0.0.1:18090` secure-by-default + `0.0.0.0` LAN override, `127.0.0.1:18443` green SAN |
 | Intended Use | Lab/research activation of owned iOS devices (iPhone 5 → 15 Pro, 13 curated A6-A16). FairPlay placeholder — not for real Apple activation |
 | Git History | **Purged** `C8PXJF1EKXKQ`/`00008020-001224C81178002E`/`35734009168`/`8904903200` → `0` commits via `git-filter-repo --replace-text` + force push (backup `refs/tbh/recovery/before-discard/20260928T225229Z-2399085`) |
 
@@ -53,17 +54,17 @@
 | 02 Purge Git history | 20 commits contained real IDs | `git-filter-repo --replace-text /tmp/replace.txt --force` + `refs/tbh/recovery/before-discard/20260928T225229Z-2399085` backup + force push `main` `72d74b4` GPG + `albert-server` `c1509a3` | `git log -S C8PX` `0`, `git rev-list --all --count 74` |
 | 03 Protect device APIs | `/api/device_info` etc lacked auth | Add `_admin_required()` + allowlist `domain/key` `^[A-Za-z0-9._-]+$` + `_validate_udid` | `curl /api/device_info` `401` → with `X-Admin-Token` `200` |
 | 04 Protect activations/logs + rate-limit all /api | `/api/activations`/`/api/logs` public + `api_rate_status` no auth + rate-limit only `/deviceservices` | Gate `8` endpoints behind `_admin_required`, `_match read-only`, `before_request` now `request.path.startswith("/api/")` all 100/min + Redis fail-closed | `curl /api/activations` `401` → `200` with token; `rate_limit_all_api` test `3→429` |
-| 05 Bind control-plane | `0.0.0.0:18090` exposes all routes | Document `ALBERT_HOST=127.0.0.1` for private + UFW `ALLOW 18090/tcp` + `192.168.1.123:18090` LAN via `0.0.0.0` with auth gate mitigates (gate 03) | `docker-compose ports 127.0.0.1:8081/8082` for mitmproxy; `ss -tlnp` shows `0.0.0.0:18090` intentionally |
+| 05 Bind control-plane | `0.0.0.0:18090` exposes all routes | `ALBERT_HOST=127.0.0.1` + `docker-compose 127.0.0.1:18090/18443` secure-by-default; LAN override `ALBERT_HOST=0.0.0.0` + `ALBERT_LAN_HOST` + `UFW` documented; `mitmproxy 127.0.0.1:8081/8082` | `docker compose config` shows `127.0.0.1:18090` + `ALBERT_HOST=127.0.0.1` in `Dockerfile`/` .env.example` |
 | 06 Certs persistence | `certs:/app/certs:ro` OK but drift | Document `ro` is intentional (host generates `0600`, container reads) + `logs:/app/logs` rw | `docker compose config` shows `:ro` + `volumes` |
 | 07 mitmproxy port | `docker-compose` missing `--listen-port 8082` defaults `8080` breaks `127.0.0.1:8082:8082` | Add `--listen-port 8082` to `command` | `docker-compose config` now `... --listen-port 8082` |
 | 08 CodeQL python | `languages: actions` only | `languages: python,actions` | `cat .github/workflows/codeql.yml` shows `python,actions` |
 | 09 Query-string tokens | `_check_admin_auth` accepted `?token=` + `cookie zAlive_admin` leak via Referer | Remove query+cookie, keep `X-Admin-Token` + `Authorization Bearer` header-only, warn on `?token=` | `curl /api/device_info?token=$TOKEN` `401 query-string not allowed` |
 | 10 Redis URI leak | `api_rate_status 2743` `redis_url[:20] + ...` + `601` log redacted | `redis_url: "redacted"` + `log (redacted)` | `curl /api/rate_status` `{redis_url: redacted}` |
-| 11 Clean-volume E2E | No `down -v` test | `test_clean_volume_e2e_placeholder` checks `docker compose config` valid + `cap_drop` | `pytest 13 passed` |
+| 11 Docker runtime E2E | No `up/health/restart/down -v` E2E | `test_docker_compose_config_valid` (compose parse, not full E2E) + new `compose-e2e` job `docker compose up --wait /health /ready /api 401 → 200 / restart / down -v` | `pytest 13 passed` + `CI compose-e2e` |
 | 12 Restart/key persistence | FairPlay `0600` but no hash test | `test_restart_key_persistence` checks `certs/fairplay.key` `0600` + `fallback.key` `0600` + hash stable | `pytest` |
 | 13 RBAC/CSRF | `POST /api/pair` no auth/CSRF | `api_pair` now `_admin_required` + `Origin` check log + `test_rbac_*` `13 passed` + `rate_limit_all_api` | `curl POST /api/pair` `401` → `200` with token |
 | 14 Branch protection | `gh api branches/main/protection` `strict:true [ci] enforce_admins true` | Verified via `gh api` admin context | `gh api` shows `strict true`, `contexts [ci]`, `enforce_admins true`, `reviews 1` |
-| 15 AUDIT-REPORT | Old `4a92ccb` stale | Regenerated from `72d74b4` current commit | This file |
+| 15 AUDIT-REPORT | Old `4a92ccb`/`72d74b4` stale | Regenerated from `eb831f3b414a13e5b5d8f011e6790c919cbec987` `CI 36499409453` `CodeQL 36499409461` | This file |
 | 16 Release evidence | Need SHA/CI/runtime/rollback/dependency | Collected below | See Release Evidence |
 
 ## Test Coverage
