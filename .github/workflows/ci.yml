@@ -58,11 +58,10 @@ jobs:
         run: |
           cat > .env <<EOF
           ALBERT_ACCEPT_RISK=1
-          ALBERT_HOST=127.0.0.1
+          ALBERT_BIND_ADDRESS=127.0.0.1
           ALBERT_ADMIN_TOKEN=ci-e2e-token-$(openssl rand -hex 16)
           MITMPROXY_WEB_PASSWORD=ci-e2e-pass-$(openssl rand -hex 16)
           EOF
-          cat .env
       - name: Docker compose up
         run: docker compose up -d --build --wait
       - name: Wait for Albert healthy
@@ -85,9 +84,9 @@ jobs:
           curl -f http://127.0.0.1:18090/health
           # authenticated with token from .env
           TOKEN=$(grep ALBERT_ADMIN_TOKEN .env | cut -d= -f2)
-          curl -f -H "X-Admin-Token: $TOKEN" http://127.0.0.1:18090/api/device_info || echo "device_info with token check"
+          curl -f -H "X-Admin-Token: $TOKEN" http://127.0.0.1:18090/api/device_info
           # mitmproxy web requires password
-          curl -f http://127.0.0.1:8081/ || echo "mitmproxy web check"
+          curl -f http://127.0.0.1:28080/
       - name: Restart and verify persistence
         run: |
           docker compose restart albert-server
@@ -95,6 +94,7 @@ jobs:
           curl -f http://127.0.0.1:18090/health
           curl -f http://127.0.0.1:18090/ready
       - name: Compose down and clean volume
+        if: always()
         run: |
           docker compose down -v
           docker compose config | grep -q "cap_drop" && echo "compose config ok"
