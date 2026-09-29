@@ -405,7 +405,7 @@ try:
         except Exception:
             pass
         tracer = _otel_trace.get_tracer("albert_server")
-        logger.info(f"OpenTelemetry tracing enabled endpoint={OTEL_EXPORTER_ENDPOINT}")
+        logger.info("OpenTelemetry tracing enabled")
 except Exception as _otel_e:
     logger.warning(f"OpenTelemetry init failed (optional): {_otel_e}")
     tracer = None
@@ -612,9 +612,9 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
                 res_udid = _redis_incr_with_expire(udid_key, per_udid, _RATE_LIMIT_WINDOW)
                 if res_udid is None:
                     if redis_configured and _redis_fail_closed():
-                        logger.warning(f"Redis UDID unavailable fail-closed for {udid_norm} — returning 429", extra={"request_id": getattr(g, 'request_id', '-')})
+                        logger.warning("Redis UDID limiter unavailable — fail-closed 429", extra={"request_id": getattr(g, 'request_id', '-')})
                         return True
-                    logger.warning(f"Redis UDID rate limit degraded to in-memory for udid={udid_norm[:8] if udid_norm else 'none'}...", extra={"request_id": getattr(g, 'request_id', '-')})
+                    logger.warning("Redis UDID limiter degraded to in-memory", extra={"request_id": getattr(g, 'request_id', '-')})
                     now = time.time()
                     with _rate_limit_lock:
                         ul = _rate_limit_udid_store.get(udid_norm, [])
@@ -696,7 +696,7 @@ def _check_udid_rate_limit(udid: str) -> bool:
             rid = getattr(g, 'request_id', '-')  # type: ignore
         except Exception:
             rid = '-'
-        logger.warning(f"Redis unavailable fail-closed for UDID {udid_norm[:8]} — returning 429 (no Redis client)", extra={"request_id": rid})
+        logger.warning("Redis unavailable — fail-closed 429 for UDID limiter", extra={"request_id": rid})
         return True
     if client is not None:
         udid_key = f"albert:ratelimit:udid:{udid_norm}"
@@ -864,7 +864,7 @@ def before_request_hardening():
                     trusted = (request.remote_addr in ("127.0.0.1", "::1", "localhost") or request.remote_addr == os.environ.get("LOCAL_ALBERT_HOST", "127.0.0.1"))
                     if cert_hdr.lower() in ("mtls", "present"):
                         if not allow_fallback or not trusted:
-                            logger.warning(f"mTLS bare header {cert_hdr!r} denied for {request.path} from {request.remote_addr} — set ALBERT_MTLS_TOKEN or PEM or ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1 for localhost dev (request_id={g.request_id})")
+                            logger.warning(f"mTLS bare header denied for {request.path} from {request.remote_addr} — set ALBERT_MTLS_TOKEN or PEM or ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1 for localhost dev (request_id={g.request_id})")
                             has_cert = False
                         else:
                             logger.warning(f"mTLS header-only mode used for {request.path} from {request.remote_addr} — spoofable; set ALBERT_MTLS_TOKEN or LOCAL_ALBERT_SCHEME=https + gunicorn cert_reqs=2 for real mTLS (request_id={g.request_id})")
@@ -1326,12 +1326,12 @@ def device_activation():
             if serial_val is not None and not _validate_serial(serial_val):
                 errors.append("Invalid SerialNumber: must be alphanumeric")
             if errors:
-                logger.warning(f"Validation failed: {errors} for UDID={_redact_udid(udid_val)}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
+                logger.warning(f"Activation validation failed: {errors}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
                 _inc_failure()
                 return jsonify({"error": "validation failed", "details": errors, "request_id": getattr(g, 'request_id', '-')}), 400
             # Per-UDID rate limit 10/min (distributed via Redis INCR+EXPIRE when ALBERT_REDIS_URL set else in-memory)
             if udid_val and _check_udid_rate_limit(str(udid_val)):
-                logger.warning(f"UDID rate limit exceeded for {_redact_udid(udid_val)}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
+                logger.warning("Per-device rate limit exceeded", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
                 resp = jsonify({"error": "rate limit exceeded", "details": "per UDID limit 10/min", "request_id": getattr(g, 'request_id', '-')})
                 try:
                     rem = getattr(g, 'rate_limit_remaining', 0)
