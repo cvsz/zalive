@@ -68,12 +68,13 @@ def test_any_iphone_dynamic_device():
     # Admin can see device data
     import os
     import pathlib
+    import secrets
     admin_token = (os.environ.get("ALBERT_ADMIN_TOKEN") or "").strip()
     if not admin_token:
         try:
             admin_token = pathlib.Path(".env").read_text().split("ALBERT_ADMIN_TOKEN=")[1].split()[0].strip().strip('"').strip("'")
         except Exception:
-            admin_token = "ci-test-token"
+            admin_token = secrets.token_urlsafe(32)
     j_admin = c.get('/api/status', headers={'X-Admin-Token': admin_token}).get_json()
     assert 'device' in j_admin
     assert j_admin['device']['ProductType'] in ['iPhone11,8','iPhone15,2','iPhone14,5']
