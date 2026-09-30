@@ -5,6 +5,17 @@ All notable changes to `albert_server` (Local Albert for iPhone 5→15 Pro) docu
 ## [Unreleased] - 2026-09-30
 
 ### Fixed
+- **`activate_device.py`: `get_device_info` raised `NameError` on the `--udid` path.** It called
+  `_get_dev_id`, a helper defined *inside* `activate_with_pymobiledevice3` and therefore out of
+  scope. The broad `except Exception` turned it into "no device connected or usbmuxd not
+  running", which misdirected debugging at USB. Introduced by the pymobiledevice3 v11 migration in
+  `4f66b1f`; caught by audit `eea50fe`. Both per-function copies are now one module-level
+  `_device_identifier()` / `_device_matches_udid()`, and the CLI no longer asserts a USB cause for
+  a generic lookup failure.
+- `tests/test_activate_device.py` (12 tests) pins the identifier resolution and asserts that
+  neither call path redefines the helper locally — the exact shape of the defect.
+- `scripts/analyze_kernel.py`, `scripts/sweep_kernel.py`: removed extraneous `f` prefixes so
+  `make lint` reports `All checks passed` again.
 - `activate_device.py` broken against pymobiledevice3 v11: `get_device_info` read `MuxDevice.udid` but v11 exposes `.serial`, and `LockdownClient` became an abstract class. Now resolves the UDID across all attribute names and uses `await create_using_usbmux()`. `--info` works again.
 
 ### Security

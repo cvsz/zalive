@@ -93,7 +93,7 @@ def main() -> int:
     buf = Path(args.kernel).read_bytes()
     info = load_commands(buf)
     sub = info["cpusub"] & 0x00FFFFFF
-    print(f"=== HEADER ===")
+    print("=== HEADER ===")
     print(f"  cpu      0x{info['cpu']:08X} (ARM64)")
     print(f"  cpusub   0x{info['cpusub']:08X} subtype={sub} "
           f"({'ARM64E / PAC' if sub == 2 else 'plain ARM64'})")
@@ -116,7 +116,7 @@ def main() -> int:
     total, counter, pac_samples = disasm_region(region, target["vmaddr"], len(sample), None)
     print(f"  instructions decoded: {total:,}")
     if total:
-        print(f"  top 15 mnemonics: " +
+        print("  top 15 mnemonics: " +
               ", ".join(f"{m}:{c}" for m, c in counter.most_common(15)))
         for label, rx in (("PAC/auth", PAC_HINTS), ("BTI", BTI_HINTS),
                           ("barriers", BARRIER_HINTS), ("atomics", SYNC_HINTS),

@@ -214,6 +214,33 @@ def _validate_inputs(udid: Optional[str] = None, imei: Optional[str] = None) -> 
     if errors:
         raise ValueError("; ".join(errors))
 
+
+def _device_identifier(device) -> str:
+    """Resolve a device's UDID across pymobiledevice3 API generations.
+
+    MuxDevice exposes ``.serial`` from 3.x onward; older builds used
+    ``.udid``/``.identifier``. ``.udid_`` appears in intermediate releases.
+    Kept as one module-level helper so callers cannot drift apart — an
+    earlier version had a per-function copy that was referenced by the wrong
+    name from ``get_device_info`` and raised ``NameError``.
+    """
+    return (
+        getattr(device, "serial", None)
+        or getattr(device, "udid", None)
+        or getattr(device, "identifier", None)
+        or getattr(device, "udid_", None)
+        or str(device)
+    )
+
+
+def _device_matches_udid(device, udid: Optional[str]) -> bool:
+    """True when ``device`` is the one the caller asked for."""
+    if not udid:
+        return True
+    if _device_identifier(device) == udid:
+        return True
+    return bool(hasattr(device, "matches_udid") and device.matches_udid(udid))
+
 # --- Retry / timeout constants ---
 DEFAULT_TIMEOUT = 10  # seconds per request
 MAX_RETRIES = 3  # retries = 3 attempts with exponential backoff (1s,2s,4s)
@@ -477,17 +504,14 @@ async def activate_with_pymobiledevice3(udid: Optional[str], albert_url: str,
             logger.error("No devices found - connect via USB and ensure usbmuxd is running", extra={"request_id": "-"})
             return False
         # pymobiledevice3 MuxDevice uses .serial (UDID) on newer versions, .udid/.identifier on older
-        def _get_dev_id(d):
-            # try serial first (MuxDevice(devid, serial, connection_type)), then udid/identifier
-            return getattr(d, "serial", None) or getattr(d, "udid", None) or getattr(d, "identifier", None) or getattr(d, "udid_", None) or str(d)
         if udid:
-            device = next((d for d in devices if _get_dev_id(d) == udid or (hasattr(d, "matches_udid") and d.matches_udid(udid))), None)
+            device = next((d for d in devices if _device_matches_udid(d, udid)), None)
             if not device:
                 logger.error("Requested device not found", extra={"request_id": "-"})
                 return False
         else:
             device = devices[0]
-        _dev_id = _get_dev_id(device)
+        _dev_id = _device_identifier(device)
         logger.info("Connecting to selected device", extra={"request_id": "-"})
         # pymobiledevice3 3.x: LockdownClient is abstract, use UsbmuxLockdownClient via create_using_usbmux
         try:
@@ -643,11 +667,8 @@ async def get_device_info(udid: Optional[str]) -> Optional[Dict[str, Any]]:
         devices = await list_devices()
         if not devices:
             return None
-        # pymobiledevice3 >= 3.x ใช้ MuxDevice.serial; เวอร์ชันเก่ากว่าใช้ .udid/.identifier
-        def _dev_id(d):
-            return getattr(d, "serial", None) or getattr(d, "udid", None) or getattr(d, "identifier", None) or str(d)
-        device = next((d for d in devices if _get_dev_id(d) == udid), devices[0]) if udid else devices[0]
-        dev_id = _dev_id(device)
+        device = next((d for d in devices if _device_matches_udid(d, udid)), devices[0]) if udid else devices[0]
+        dev_id = _device_identifier(device)
         # pymobiledevice3 3.x: LockdownClient เป็น abstract class ต้องใช้ create_using_usbmux (async)
         try:
             from pymobiledevice3.lockdown import create_using_usbmux
@@ -722,11 +743,18 @@ async def main():
                 for key, value in info.items():
                     print(f"{key}: {value}")
         else:
+            # get_device_info logs the real exception; do not assert a USB
+            # cause here — a code fault surfaced the same way and sent
+            # debugging toward the connection instead of the traceback.
+            hint = ("see the JSON log line above for the underlying error; "
+                    "also check idevice_id -l and lsusb | grep -i apple")
             if args.json_output:
-                print(json.dumps({"success": False, "error": "Failed to get device info - no device connected or usbmuxd not running"}))
+                print(json.dumps({"success": False,
+                                  "error": "Failed to get device info",
+                                  "hint": hint}))
             else:
-                print("Failed to get device info - no device connected or usbmuxd not running")
-                print("Check: idevice_id -l  and  lsusb | grep -i apple")
+                print("Failed to get device info")
+                print(f"Check: {hint}")
         return
     logger.info(f"Using Albert server: {args.albert_url}", extra={"request_id": "-"})
     if args.method == "direct":

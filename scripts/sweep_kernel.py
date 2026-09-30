@@ -125,13 +125,13 @@ def main() -> int:
             print(f"  {name:16} {total:>12,} instructions decoded")
 
     plain = [(k, v) for k, v in total_all.most_common() if not k.startswith("@")]
-    print(f"\n=== TOTAL ===")
+    print("\n=== TOTAL ===")
     print(f"  instructions decoded : {grand:,}")
     print(f"  distinct mnemonics   : {len(plain)}")
-    print(f"  top 20 mnemonics     : " +
+    print("  top 20 mnemonics     : " +
           ", ".join(f"{m}:{n}" for m, n in plain[:20]))
 
-    print(f"\n=== architecturally significant ===")
+    print("\n=== architecturally significant ===")
     for label in GROUPS:
         key = "@" + label
         n = total_all.get(key, 0)
@@ -139,7 +139,7 @@ def main() -> int:
             print(f"  {label:16} {n:>10,}")
 
     if all_samples:
-        print(f"\n=== samples ===")
+        print("\n=== samples ===")
         for name, s in all_samples[:25]:
             print(f"  {name:16} {s}")
 
