@@ -1,7 +1,7 @@
 # Runbook — Local Albert Production
 
 ## Dashboard
-- Open `http://192.168.1.123:18090/dashboard (LAN via ens33)` (also `http://0.0.0.0:18090/dashboard` in docker) — 2s poll shows health/ready/fairplay, iPhone XR identity (redacted), USB, IPSW, recent activations (SQLite), rate, logs tail. APIs: `/api/status`, `/api/activations?limit=5`, `/api/logs?lines=60`, `/` lists endpoints.
+- Open `http://192.168.1.123:18090/dashboard` (LAN) or `http://127.0.0.1:18090/dashboard` — 2s poll shows health/ready/fairplay, iPhone identity (redacted), USB, IPSW, recent activations (SQLite), rate, logs tail. APIs: `/api/status`, `/api/activations?limit=5`, `/api/logs?lines=60`, `/` lists endpoints.
 
 ## Health
 - `curl http://127.0.0.1:18090/health` → 200 liveness
@@ -10,7 +10,7 @@
 
 ## Start (host)
 ```bash
-cp .env.example .env  # set MITMPROXY_WEB_PASSWORD
+cp .env.example .env  # set MITMPROXY_WEB_PASSWORD, ALBERT_ADMIN_TOKEN, ALBERT_ACCEPT_RISK=1
 ./start.sh start     # uses gunicorn in prod: ALBERT_HTTP_PORT=18090
 ./start.sh status
 ./start.sh logs
@@ -23,13 +23,27 @@ docker compose logs -f
 curl http://127.0.0.1:18090/health
 ```
 
-## Restore iPhone XR (iPhone11,8)
+## Restore iPhone (iPhone11,8 through iPhone15,2)
 1. Put device in Recovery: `ideviceenterrecovery $UDID` or Home+Power (`idevice_id -l` to discover UDID, e.g. `00008020-AAAAAAAAAAAAAAAA`).
 2. Verify: `irecovery -a` or `idevice_id -l` (Recovery) / `lsusb` shows 05ac:12a8.
 3. Restore: `idevicerestore -e -y iPhone11,8_18.7.10_22H374_Restore.ipsw` (Erase). Use `-u $UDID` if multiple devices.
-4. On Hello screen, activation via local Albert:
-   - Option A (proxy): `LOCAL_ALBERT_PORT=18090 mitmproxy -s firmware_restore_proxy.py --set block_global=false` then device Wi-Fi proxy → host:18090, trust CA via `http://mitm.it`.
+   - Run from the **physical host**, not from inside a VM guest with USB passthrough. Passthrough
+     re-enumerates the device between Recovery and Restore (`usb 1-1` ⇄ `usb 1-2`) and the handoff
+     fails with `Device reconnected in Recovery mode, most likely image personalization failed`.
+     `05ac:1280` (Restore Mode) is the mode to watch for; if it never enumerates, suspect transport
+     rather than the IPSW. See `docs/re/WORK-REPORT.md` §2.
+4. On Hello screen, activation:
+   - Against **real Apple** (works when the device's Apple ID is healthy):
+     `./venv/bin/python scripts/try_activate.py` — prompts for the Apple ID and password via
+     `getpass`, so credentials never reach argv, the process list, or shell history. Requires
+     `albert.apple.com` **not** redirected to `127.0.0.1` in `/etc/hosts`.
+   - Option A (proxy): Configure device Wi-Fi proxy → `127.0.0.1:28081`, trust CA via `http://mitm.it`.
    - Option B (direct): `python activate_device.py --albert-url http://127.0.0.1:18090 --udid $UDID`
+
+   **The local server cannot activate a device.** The device verifies the FairPlay
+   `HandshakeResponseMessage` against Apple's public key; the signing key never appears on the
+   wire, so no local response can satisfy the check. The endpoint is kept for protocol research and
+   request-handling tests only. See `docs/re/ACTIVATION-PROTOCOL.md`.
 
 ## Logs
 - `albert.log` (host), `docker compose logs albert-server`, `mitmproxy.log`, `logs/`
@@ -42,9 +56,9 @@ Keys are `0600` persisted; backup `certs/` before rotation.
 
 ## Troubleshooting
 - `Unable to discover device mode` → USB not passed: VM → Removable Devices → Apple Mobile Device → Connect.
-- `8080` conflict → `ALBERT_HTTP_PORT=18090` already default; check `ss -tln`.
+- Port conflict → `ALBERT_HTTP_PORT=18090` already default; check `ss -tln`.
 - `413 payload too large` → plist >512KB; device should not send.
-- Legal: for owned devices only; `ALBERT_ACCEPT_RISK=1` required to start prod (future gate).
+- Legal: for owned devices only; `ALBERT_ACCEPT_RISK=1` required to start prod.
 
 ## mTLS (proxy → Albert)
 - Toggle via `.env` `ALBERT_MTLS_CA=/path/to/ca.pem` (CA bundle that signed `ALBERT_MTLS_CERT`).
@@ -67,6 +81,8 @@ Keys are `0600` persisted; backup `certs/` before rotation.
 
 ## Logs
 - All logs under `logs/` (host: `logs/albert.log`, `logs/mitmproxy.log`, `logs/restore/restore_*.log`, `logs/validate.log`; docker volume `logs:/app/logs`). Old root `*.log` ignored via `.gitignore`.
-- `logs/` is gitignored; `logs/.gitkeep` + `logs/restore/README.md` kept.
+- `logs/` is gitignored; `logs/.gitkeep` + `logs/restore/README.md` kept. The restore folder is
+  re-opened and immediately re-closed (`!logs/restore/` + `logs/restore/*` +
+  `!logs/restore/README.md`), so any new file type dropped there stays ignored by default. Restore
+  probe logs carry device identifiers (ECID/UDID/serial/IMEI) and must never be committed.
 - Retention: SQLite `activations` pruned to `10k` rows + `30d` via `DELETE ... NOT IN (SELECT id ... LIMIT 10000)` in `api_admin/checkpoint` and `albert_server.py` every 100 writes.
-

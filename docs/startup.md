@@ -1,28 +1,105 @@
-# Startup — albert_server
+# Project Startup — Template Bootstrap
 
-Generated from `zTemplate` but as existing product (not `Use this template` → `bootstrap.py`). History `5e04f52` GPG `EDDSA` merged `zTemplate` `d9a4e76` via `allow-unrelated-histories`.
+This document describes how to initialize a new repository from the `albert_server` template (or `zTemplate` upstream).
 
-## Quick start (Albert)
+## Prerequisites
+
+- GitHub account with repo creation permissions
+- Python 3.13+ (for `scripts/bootstrap.py`)
+- Write access to target GitHub org/user (for `--codeowner`)
+
+## Quick Start
+
 ```bash
-git clone https://github.com/cvsz/zalive -b albert-server
-cd albert_server
-python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
-cp .env.example .env  # edit: ALBERT_HTTP_PORT=18090, ALBERT_ACCEPT_RISK=1, MITMPROXY_WEB_PASSWORD=$(openssl rand -base64 24)
-chmod 600 .env
-./start.sh prod        # or gunicorn -c gunicorn_conf.py albert_server:app
-curl -s http://127.0.0.1:18090/health|grep ok; curl -s http://127.0.0.1:18090/firmware|head
+# 1. Create repo from template (GitHub UI: "Use this template")
+# 2. Clone your new repo
+git clone https://github.com/<owner>/<new-repo>
+cd <new-repo>
+
+# 3. Run bootstrap (dry-run first)
+python3 scripts/bootstrap.py \
+  --name <project-name> \
+  --owner <github-owner> \
+  --codeowner <github-owner>/<team> \
+  --description "One-line project description"
+
+# 4. Apply changes
+python3 scripts/bootstrap.py \
+  --name <project-name> \
+  --owner <github-owner> \
+  --codeowner <github-owner>/<team> \
+  --description "One-line project description" \
+  --apply
+
+# 5. Verify
+git diff --stat
+git commit -am "chore: bootstrap <project-name>"
+git push
 ```
 
-## Identity
-Already applied: `README.md` Local Albert, `ABOUT.md` builder, `CODEOWNERS @cvsz`. `scripts/bootstrap.py` was **not re-run** (would overwrite `README`). Re-running is no-op if same args.
+## Bootstrap Parameters
 
-## Manual decisions done
-- Language `python:3.14-slim` `3.14.4` venv, `gunicorn 2×4`, `mitmproxy 12.2.3`, port `18090` (was `8080` conflict).
-- `LICENSE` MIT retained, add year/holder before public.
-- `SECURITY.md` keep `0600`/`429`/`redacted UDID`.
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--name` | Yes | Repository name (alphanumeric, dash, underscore, dot) |
+| `--owner` | Yes | GitHub user or organization |
+| `--codeowner` | Yes | GitHub user/team with **write access** (e.g., `owner/team`) |
+| `--description` | Yes | One-line, max 500 chars, no newlines |
+| `--apply` | No | Write changes (omit for dry-run) |
+| `--root` | No | Repository root (default: parent of script) |
 
-## Next (if re-bootstrapping)
+## What Bootstrap Changes
+
+| File | Change |
+|------|--------|
+| `README.md` | `{{PROJECT_NAME}}`, `{{DESCRIPTION}}`, `{{OWNER}}` |
+| `ABOUT.md` | `{{PROJECT_NAME}}`, `{{DESCRIPTION}}` |
+| `.github/CODEOWNERS` | `@cvsz` → `@<codeowner>` |
+| `.github/ISSUE_TEMPLATE/config.yml` | Security URL → `https://github.com/<owner>/<name>/security` |
+| `.ztemplate-initialized.json` | Marker with bootstrap args (prevents re-init with different args) |
+
+## Post-Bootstrap Checklist
+
+- [ ] Verify CODEOWNERS team has write access to repo
+- [ ] Review `LICENSE` (preserve original attribution)
+- [ ] Review `SECURITY.md` — update contacts if needed
+- [ ] Configure GitHub branch protection (`main` branch)
+- [ ] Enable Dependabot, CodeQL, Dependency Review (already in workflows)
+- [ ] Set repository secrets for CI/CD if deploying
+- [ ] Update `docker-compose.yml` placeholders for your deployment
+- [ ] Run `make check` — all tests, lint, security must pass
+
+## Re-initialization
+
+To re-run with same settings (idempotent):
 ```bash
-python3 scripts/bootstrap.py --name albert-server --owner cvsz --codeowner cvsz --description 'Local Albert for iPhone XR restore' --apply
+python3 scripts/bootstrap.py --apply --name <same> --owner <same> --codeowner <same> --description <same>
 ```
-Review `git diff` (`README.md`/`ABOUT.md`/`.github/CODEOWNERS` only).
+
+To change settings: **edit files manually** — bootstrap refuses conflicting re-init.
+
+## Template Upstream
+
+This template derives from `cvsz/zTemplate`. To sync upstream changes:
+```bash
+git remote add upstream https://github.com/cvsz/zTemplate
+git fetch upstream
+git merge upstream/main --allow-unrelated-histories
+# Resolve conflicts, then test
+make check
+```
+
+## Common Issues
+
+| Error | Resolution |
+|-------|------------|
+| `Invalid CODEOWNERS` | Team must exist and have write access; use `owner/team` format |
+| `Already initialized` | Delete `.ztemplate-initialized.json` or use same args |
+| `Unsafe template file` | Symlinks not allowed; ensure template files are regular files |
+| `Security URL mismatch` | Check `.github/ISSUE_TEMPLATE/config.yml` has expected URL |
+
+## Support
+
+- Template issues: https://github.com/cvsz/zTemplate/issues
+- Project issues: `https://github.com/<owner>/<name>/issues`
+- Security: See `SECURITY.md` (private reporting)

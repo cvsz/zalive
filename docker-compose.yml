@@ -68,6 +68,67 @@ services:
     networks:
       - albert-network
 
+  firmware-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.firmware
+    container_name: albert-firmware-server
+    ports:
+      - "${ALBERT_BIND_ADDRESS:-127.0.0.1}:${FIRMWARE_SERVER_PORT:-18091}:${FIRMWARE_SERVER_PORT:-18091}"
+    # Run as the host user that owns ./certs so the 0600 FairPlay key is
+    # readable. The image sets USER app, whose uid does not match the host
+    # owner, which made the container die with PermissionError. Override in
+    # .env when the host uid differs.
+    user: "${ALBERT_UID:-1000}:${ALBERT_GID:-1000}"
+
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./firmware:/app/firmware:ro
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ALBERT_IN_DOCKER=1
+      - FIRMWARE_SERVER_PORT=${FIRMWARE_SERVER_PORT:-18091}
+      - IPSW_DIR=/app/firmware
+      - FAIRPLAY_KEY_PATH=/app/certs/fairplay.key
+      - FAIRPLAY_CERT_PATH=/app/certs/fairplay.crt
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+    healthcheck:
+        # This image ships tini and ca-certificates only, so the curl-based
+        # probe the albert-server service uses always failed with "curl: not
+        # found" and left the container permanently unhealthy. Python is
+        # already present, so probe with it instead of adding a package.
+        test:
+          - CMD
+          - python3
+          - -c
+          - "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('FIRMWARE_SERVER_PORT','18091'), timeout=5)"
+        interval: 30s
+        timeout: 10s
+        retries: 3
+        start_period: 10s
+    networks:
+      - albert-network
+
 networks:
   albert-network:
     driver: bridge

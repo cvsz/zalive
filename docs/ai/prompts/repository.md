@@ -1,0 +1,3 @@
+# Reusable Repository Execution Prompt
+
+Read repository instructions and inspect exact Git state. Identify objective, current implementation, root cause, dependencies, security/deployment impact and missing validation. Prioritize P0/P1/P2/P3. Implement the smallest safe change, preserve unrelated work, add regression coverage, validate, and report baseline, files, evidence, failures, unresolved risks and next safest action. Classify any unexecuted or incomplete validation using the canonical evidence-state decision rule in `../../../ZEAZ-INTRODUCTION.md`; use `BLOCKED` when a concrete prerequisite prevents verification, `PARTIALLY VERIFIED` when direct evidence covers only part of the exact claim, and `UNVERIFIED` when sufficient evidence has simply not been obtained.

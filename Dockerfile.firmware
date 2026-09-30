@@ -1,0 +1,65 @@
+# Multi-stage build for firmware server (production)
+# Stage 1: Build dependencies
+FROM python:3.13-slim AS builder
+
+WORKDIR /app
+
+# Install build deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libssl-dev \
+    libffi-dev \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install with hash verification
+COPY requirements.txt .
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
+
+# Stage 2: Runtime
+FROM python:3.13-slim
+
+# Install runtime deps (openssl for crypto, tini for init)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r app && useradd -r -g app -m -d /app -s /sbin/nologin app
+
+WORKDIR /app
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy application code
+COPY firmware_server.py .
+
+# useradd -m created /app with mode 700, so only uid 999 (the app user baked
+# into this image) could enter it. Compose overrides the runtime user with the
+# host uid that owns ./certs, which then could not even read this file. The
+# code itself is not secret -- the FairPlay key arrives on the /app/certs
+# mount -- so open up the directory and the file for reading.
+RUN chmod 755 /app && chmod 644 /app/firmware_server.py
+
+# The firmware tree is deliberately NOT baked into the image: it is several GiB
+# of Apple content, it is gitignored, and compose already mounts it read-only
+# at /app/firmware. Copying it here broke `docker compose build` in CI, where
+# the directory does not exist.
+
+# OCI labels
+LABEL org.opencontainers.image.title="albert-firmware-server"
+LABEL org.opencontainers.image.description="Local iOS Firmware/Update Server for iOS device restore"
+LABEL org.opencontainers.image.vendor="cvsz"
+LABEL org.opencontainers.image.licenses="MIT"
+
+# Run as non-root
+USER app
+
+# Entrypoint
+ENTRYPOINT ["tini", "--"]
+CMD ["python3", "firmware_server.py"]
+
+EXPOSE 18091

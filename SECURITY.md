@@ -12,7 +12,7 @@ This private-reporting policy is inherited from the template and retained for `a
 
 ## Supported versions
 
-`albert_server` tracks `main`. Security fixes are applied to `main` and the latest tagged release. Older tags and forks are not supported unless noted in `CHANGELOG.md` or a GitHub release. Python `3.14` (`python:3.14-slim` in `Dockerfile`) is the tested runtime; `3.9+` is the minimum per `README.md`.
+`albert_server` tracks `main`. Security fixes are applied to `main` and the latest tagged release. Older tags and forks are not supported unless noted in `CHANGELOG.md` or a GitHub release. Python `3.13` (`python:3.13-slim` in `Dockerfile`, `python-version: "3.13"` in CI) is the tested runtime; `3.9+` is the minimum per `README.md`.
 
 ## Threat model and scope
 
@@ -24,7 +24,7 @@ Out of scope for this policy: Apple infrastructure, Apple-copyrighted IPSW files
 
 - **FairPlay key material** is persisted at `certs/fairplay.key` and `certs/fairplay.crt` with `0600` (`0o600`). On first start `albert_server.py` generates RSA 2048 + self-signed CA; on subsequent starts it loads the persisted files. Both files are `chmod 0o600` after write (`albert_server.py:952-956`, `FIRMWARE_CACHE` also `0o600`, `certs/server.key` is `0600` on current host; `certs/server.crt` is public `0644`).
 - **Rotation:** `python albert_server.py --rotate-fairplay` removes `certs/fairplay.key` / `.crt` (also `rm certs/fairplay.* && ./start.sh restart` per `docs/RUNBOOK.md`) and regenerates on next start with `0600`.
-- **Git hygiene:** `.gitignore` excludes `*.key`, `*.pem`, `.env`, `*.log`, `logs/`, `*.ipsw`; `certs/*.key` and device identifiers are never committed. `IMPLEMENTATION-CHECKLIST.md` records no secrets committed.
+- **Git hygiene:** `.gitignore` excludes `*.key`, `*.pem`, `*.crt`, `*.csr`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, `*.srl`, `.env`, `*.log`, `logs/*`, `*.ipsw`, `*.im4p`, `*.trustcache`, `*.mtree`, `*.aea`, `*.shsh`, `firmware/`, `shsh/`, `*.db`, `*.sqlite*`, `.mitmproxy/`; `certs/*.key` and device identifiers are never committed. `logs/restore/` keeps only its `README.md` — re-opening the folder is paired with a blanket `logs/restore/*` so a newly added file type stays ignored by default. `IMPLEMENTATION-CHECKLIST.md` records no secrets committed.
 - Operators are responsible for securing key material and complying with cryptography export controls (see `NOTICE`).
 
 Do not commit or paste key material, `.env` values, or device identifiers.
@@ -47,7 +47,7 @@ Operation requires explicit acknowledgement of legal risk (see `NOTICE` Apple To
 
 - Startup refuses with `exit 2` and `ERROR: ALBERT_ACCEPT_RISK must be 1 …` unless `ALBERT_ACCEPT_RISK=1` is set in the environment / `.env`, or `--allow-no-risk` is passed (lab-only, bypass is still logged), or `--rotate-fairplay` is used.
 - When `ALBERT_ACCEPT_RISK=1`, the server logs `ALBERT_ACCEPT_RISK=1 acknowledged — activation bypass enabled (owned devices only, see NOTICE)`.
-- Configure via `.env.example` / `docs/RUNBOOK.md` / `docs/ARCHITECTURE.md` (`ALBERT_HTTP_PORT=18090`, `FAIRPLAY_KEY_PATH`, `ALBERT_MODE`).
+- Configure via `.env.example` / `docs/RUNBOOK.md` / `docs/architecture.md` (`ALBERT_HTTP_PORT=18090`, `FAIRPLAY_KEY_PATH`, `ALBERT_MODE`).
 
 No bypass or activation record is issued without that gate.
 
@@ -58,7 +58,7 @@ Do not add duplicates — the following are already committed:
 - **Dependabot** (`.github/dependabot.yml`): weekly updates for `github-actions` and `docker` (`open-pull-requests-limit: 10`).
 - **CodeQL** (`.github/workflows/codeql.yml` + `.github/codeql-config.yml`): `security-extended` queries; workflow `Analyze GitHub Actions` (`actions` language) on `push`/`pull_request` to `main` and weekly schedule `23 3 * * 1` with `security-events: write`.
 - **Dependency Review** (`.github/workflows/dependency-review.yml`): on `pull_request` to `main`.
-- **CI** (`.github/workflows/ci.yml`): `ruff check`, `bandit -r . --exclude ./venv`, `pytest -q`, `docker compose config` on `push`/`pull_request` (`**`, Python `3.14`).
+- **CI** (`.github/workflows/ci.yml`): `ruff check`, `bandit -r . --exclude ./venv`, `pytest -q`, `docker compose config` on `push`/`pull_request` (`**`, Python `3.13`).
 
 Keep these workflows enabled and review Dependabot alerts.
 

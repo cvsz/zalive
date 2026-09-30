@@ -1,0 +1,65 @@
+{
+  "title": "Albert",
+  "uid": "albert",
+  "description": "Albert Activation Server — up, activations and latency",
+  "tags": ["albert", "activation"],
+  "timezone": "browser",
+  "schemaVersion": 30,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Albert — Up, Activations, Latency",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "albert_up",
+          "legendFormat": "albert_up",
+          "refId": "A",
+          "datasource": "Prometheus"
+        },
+        {
+          "expr": "albert_activation_total",
+          "legendFormat": "activations",
+          "refId": "B",
+          "datasource": "Prometheus"
+        },
+        {
+          "expr": "rate(albert_activation_total[5m])",
+          "legendFormat": "activation rate",
+          "refId": "C",
+          "datasource": "Prometheus"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(albert_request_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "latency p95",
+          "refId": "D",
+          "datasource": "Prometheus"
+        },
+        {
+          "expr": "rate(albert_request_latency_seconds_sum[5m]) / rate(albert_request_latency_seconds_count[5m])",
+          "legendFormat": "latency avg",
+          "refId": "E",
+          "datasource": "Prometheus"
+        },
+        {
+          "expr": "albert_request_latency_seconds_bucket",
+          "legendFormat": "latency histogram",
+          "refId": "F",
+          "datasource": "Prometheus"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"}
+      }
+    }
+  ],
+  "templating": {"list": []},
+  "links": []
+}

@@ -12,10 +12,19 @@ import pathlib
 ALBERT_HOSTS = [
     "albert.apple.com",
 ]
+
+# Firmware/Update server hosts - redirect to local firmware server for IPSW components
+FIRMWARE_HOSTS = [
+    "appldnld.apple.com",   # Firmware file downloads
+    "mesu.apple.com",       # Update manifests & downloads
+    "gs.apple.com",         # TSS (SHSH signing) - only if local TSS enabled
+]
+
 # Optional: hosts that can be redirected if you have a local TSS implementation
 TSS_HOSTS = [
     # "gs.apple.com",  # Uncomment only if you implement local TSS (not included)
 ]
+
 # Keep original lists for logging but don't redirect by default
 LOGGING_KEYWORDS_HOSTS = [
     "albert.apple.com",
@@ -176,6 +185,20 @@ class FirmwareRestoreProxy:
             flow.request.port = LOCAL_ALBERT_PORT
             flow.request.scheme = LOCAL_ALBERT_SCHEME
             ctx.log.info(f"Redirected to local Albert host={flow.request.host} port={flow.request.port} path={_safe_request_path(flow.request.path)}")
+        elif host in FIRMWARE_HOSTS:
+            # Redirect firmware/update requests to local firmware server
+            ctx.log.info(f"Intercepted Firmware request to {host}: {_safe_request_path(flow.request.path)}")
+            flow.request.headers["X-Forwarded-Host"] = host
+            flow.request.headers["X-Forwarded-Proto"] = flow.request.scheme
+            flow.request.headers["X-Forwarded-By"] = "firmware_restore_proxy"
+            # Local firmware server runs on same host but different port
+            FIRMWARE_SERVER_HOST = os.environ.get("FIRMWARE_SERVER_HOST", LOCAL_ALBERT_HOST)
+            FIRMWARE_SERVER_PORT = int(os.environ.get("FIRMWARE_SERVER_PORT", "18091"))
+            FIRMWARE_SERVER_SCHEME = os.environ.get("FIRMWARE_SERVER_SCHEME", "http")
+            flow.request.host = FIRMWARE_SERVER_HOST
+            flow.request.port = FIRMWARE_SERVER_PORT
+            flow.request.scheme = FIRMWARE_SERVER_SCHEME
+            ctx.log.info(f"Redirected to local Firmware host={flow.request.host} port={flow.request.port} path={_safe_request_path(flow.request.path)}")
         elif host in TSS_HOSTS:
             ctx.log.warn(f"TSS request to {host} intercepted but TSS local handling not implemented - forwarding to Apple")
             # Do NOT redirect; let it pass through to Apple

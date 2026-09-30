@@ -41,6 +41,23 @@ This repository provides a secure, reusable baseline for new GitHub projects.
 - docs/startup.md and docs/profiles.md
 - Makefile app targets fail until customized rather than reporting false success
 
+## Agent and AI guidance (from `zTemplate` `main` `4f40f89`)
+- `docs/ai/` — 19 files. `playbooks/` (8): autonomous-repo-upgrade, ci-failure-modes,
+  github-pr-ci-recovery, incident-response, kubernetes, repository-production-readiness,
+  saas-release, security-audit. `prompts/` (5): architecture, code-review, devops, repository,
+  testing. `guides/` (5): cost-token-budget, ecc-integration, github-repository-admin,
+  harness-compatibility, skill-catalog-architecture
+- `CLAUDE.md`, `OPENCODE.md` — harness entry points
+- `skills/` — `README.md` + `skills/zeaz-skill-finder/SKILL.md`
+- `plugins.d/` — `README.md`, `_defaults.yml`, `zeaz-skills.yml`
+- `components.d/` — `README.md`, `zeaz-engineering.yml`
+- `ecc-install.json`, `docs/repository-rollout.md`, `scripts/github_admin.py`,
+  `scripts/validate_repo.py`
+
+Imported as new files only. Existing Local Albert files (`README.md`, `Dockerfile`, `ci.yml`,
+`Makefile`, `.env.example`, `AGENTS.md`, `SECURITY.md`, `CONTRIBUTING.md`) were left untouched so
+the product identity is preserved; see `ROADMAP.md`.
+
 ## Adoption checklist
 After creating a repository from this template, replace project placeholders, review CODEOWNERS and security contacts, select the actual language/runtime CI matrix, configure required branch/ruleset checks, configure only required secrets/environments, and remove optional files that the project intentionally does not use.
 

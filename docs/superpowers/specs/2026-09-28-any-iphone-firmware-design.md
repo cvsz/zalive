@@ -4,7 +4,7 @@
 Current stack is hard-coded to XR `iPhone11,8 MT1A2TH/A REDACTED` in `Dashboard HTML` and `api/status` `device/ipsw_info`. Production hardening already done (persisted `0600` FairPlay, gunicorn `2×4`, `413/429/400`, SQLite WAL `activations.db`, `12 tests`). User wants “full feature all we can do for any iPhone” but scoped to curated list XR + 12/13/14/15 and a firmware list pages dashboard fed live from ipsw.me with local cache.
 
 ## Scope
-- Supported ProductTypes (curated 13): `iPhone11,8` (XR, n841ap, A12, session), `iPhone12,1` (11), `iPhone13,2` (12), `iPhone14,5` (13), `iPhone15,2` (14 Pro). Maps to `docs/ARCHITECTURE.md` chip table. No exhaustive 30-model matrix.
+- Supported ProductTypes (curated 13): `iPhone11,8` (XR, n841ap, A12, session), `iPhone12,1` (11), `iPhone13,2` (12), `iPhone14,5` (13), `iPhone15,2` (14 Pro). Maps to `docs/architecture.md` chip table. No exhaustive 30-model matrix.
 - Firmware pages: single `GET /firmware` with dropdown `ProductType` + search, backed by live `https://api.ipsw.me/v4/device/{ProductType}` cached 1h in `logs/firmware_cache.json`.
 - Any-iPhone activation: `albert_server.py` no hard-coded XR in JS `device` card — reads last activation row’s `ProductType/Model/Serial/UDID` from SQLite, fallback XR if empty.
 - Out of scope: per-device tabs, Postgres, download proxying (direct Apple `url`), TSS local (still pass-through), distributed rate limit.
