@@ -75,6 +75,12 @@ services:
     container_name: albert-firmware-server
     ports:
       - "${ALBERT_BIND_ADDRESS:-127.0.0.1}:${FIRMWARE_SERVER_PORT:-18091}:${FIRMWARE_SERVER_PORT:-18091}"
+    # Run as the host user that owns ./certs so the 0600 FairPlay key is
+    # readable. The image sets USER app, whose uid does not match the host
+    # owner, which made the container die with PermissionError. Override in
+    # .env when the host uid differs.
+    user: "${ALBERT_UID:-1000}:${ALBERT_GID:-1000}"
+
     volumes:
       - ./certs:/app/certs:ro
       - ./firmware:/app/firmware:ro

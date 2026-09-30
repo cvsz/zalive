@@ -37,6 +37,13 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY firmware_server.py .
 
+# useradd -m created /app with mode 700, so only uid 999 (the app user baked
+# into this image) could enter it. Compose overrides the runtime user with the
+# host uid that owns ./certs, which then could not even read this file. The
+# code itself is not secret -- the FairPlay key arrives on the /app/certs
+# mount -- so open up the directory and the file for reading.
+RUN chmod 755 /app && chmod 644 /app/firmware_server.py
+
 # The firmware tree is deliberately NOT baked into the image: it is several GiB
 # of Apple content, it is gitignored, and compose already mounts it read-only
 # at /app/firmware. Copying it here broke `docker compose build` in CI, where
