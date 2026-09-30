@@ -319,8 +319,13 @@ def _get_sync_state(udid: str) -> dict:
     return {}
 
 
-def _register_push_token(udid: str, push_token: str, imei: str = "") -> bool:
-    """Register APNs push token for a device."""
+def _record_push_token(udid: str, push_token: str, imei: str = "") -> bool:
+    """Store an APNs push token for a device in local sync state.
+
+    This only persists the token and its derived topic to SQLite; it does not
+    contact APNs or Apple. The name says "record" deliberately so callers are
+    not led to believe a remote registration happened.
+    """
     try:
         apns_topic = f"com.apple.activation.{imei}" if imei else f"com.apple.activation.{udid}"
         return _update_sync_state(
@@ -330,7 +335,7 @@ def _register_push_token(udid: str, push_token: str, imei: str = "") -> bool:
             last_sync=datetime.now(timezone.utc).isoformat()
         )
     except Exception as e:
-        logger.warning("Failed to register push token: %s", type(e).__name__)
+        logger.warning("Failed to record push token: %s", type(e).__name__)
         return False
 
 
@@ -1318,7 +1323,7 @@ class AlbertServer:
             # Initialize sync state
             _init_sync_state(str(udid), str(imei), str(serial))
             if push_token:
-                _register_push_token(str(udid), push_token, str(imei))
+                _record_push_token(str(udid), push_token, str(imei))
             try:
                 self.activation_records[str(udid) or str(uuid.uuid4())] = activation_record
             except Exception:
@@ -1566,7 +1571,7 @@ def activity():
     if udid and imei:
         _init_sync_state(udid, imei)
         if push_token:
-            _register_push_token(udid, push_token, imei)
+            _record_push_token(udid, push_token, imei)
         else:
             _update_sync_state(udid, last_sync=datetime.now(timezone.utc).isoformat())
     
@@ -2814,10 +2819,10 @@ def api_admin_register_push(udid: str):
             return jsonify({"ok": False, "error": "push_token required"}), 400
         state = _get_sync_state(udid)
         imei = state.get("imei", "")
-        ok = _register_push_token(udid, push_token, imei)
+        ok = _record_push_token(udid, push_token, imei)
         if ok:
             state = _get_sync_state(udid)
-            return jsonify({"ok": True, "sync_state": state, "message": "Push token registered"})
+            return jsonify({"ok": True, "sync_state": state, "message": "Push token recorded locally (no APNs call)"})
         else:
             return jsonify({"ok": False, "error": "Push token registration failed"}), 500
     except Exception as e:
