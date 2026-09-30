@@ -105,12 +105,21 @@ services:
         limits:
           cpus: '1.0'
           memory: 512M
+
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://127.0.0.1:$${FIRMWARE_SERVER_PORT:-18091}/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+        # This image ships tini and ca-certificates only, so the curl-based
+        # probe the albert-server service uses always failed with "curl: not
+        # found" and left the container permanently unhealthy. Python is
+        # already present, so probe with it instead of adding a package.
+        test:
+          - CMD
+          - python3
+          - -c
+          - "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('FIRMWARE_SERVER_PORT','18091'), timeout=5)"
+        interval: 30s
+        timeout: 10s
+        retries: 3
+        start_period: 10s
     networks:
       - albert-network
 
