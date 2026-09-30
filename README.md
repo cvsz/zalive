@@ -183,6 +183,9 @@ See [LICENSE](LICENSE). Apple trademarks acknowledged in [NOTICE](NOTICE).
 
 ## Related
 
+- [docs/DEVICE_GUIDE.md](docs/DEVICE_GUIDE.md) — รุ่นที่รองรับ, ขั้นตอน restore/activate,
+  ตัวเลือก CLI, ตัวแปรสภาพแวดล้อม และการแก้ปัญหา
+- [docs/RUNBOOK.md](docs/RUNBOOK.md) — ขั้นตอนระดับ production
 - [CHANGELOG.md](CHANGELOG.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [docs/startup.md](docs/startup.md) — template bootstrap
