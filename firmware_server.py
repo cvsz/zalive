@@ -249,11 +249,12 @@ def serve_component(component_path: str):
     if not comp:
         return abort(404, f"Component not found: {component_path}")
 
-    # Manifest lookup already requires an exact match, but resolve before
-    # serving so a symlink inside the mounted firmware tree cannot escape
-    # IPSW_DIR (compose mounts it read-only but still follows links).
+    # Join from the manifest entry, not from the request. The manifest ships
+    # with the firmware and its paths are trusted, so no attacker-controlled
+    # string reaches the filesystem at all. resolve() plus the containment
+    # check then guards against a symlink inside the mounted tree.
     try:
-        file_path = (IPSW_DIR / component_path).resolve()
+        file_path = (IPSW_DIR / comp.path).resolve()
         root = IPSW_DIR.resolve()
     except OSError:
         return abort(404, f"File not found: {component_path}")
