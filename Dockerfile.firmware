@@ -36,7 +36,11 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY firmware_server.py .
-COPY firmware/ ./firmware/
+
+# The firmware tree is deliberately NOT baked into the image: it is several GiB
+# of Apple content, it is gitignored, and compose already mounts it read-only
+# at /app/firmware. Copying it here broke `docker compose build` in CI, where
+# the directory does not exist.
 
 # OCI labels
 LABEL org.opencontainers.image.title="albert-firmware-server"

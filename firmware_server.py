@@ -237,6 +237,14 @@ def serve_restore_plist():
 
 @app.route("/components/<path:component_path>")
 def serve_component(component_path: str):
+    # Reject anything that is not a plain relative manifest entry before the
+    # value is ever joined onto IPSW_DIR. The manifest lookup below is an
+    # exact match and would already reject it, but rejecting traversal syntax
+    # up front keeps a hostile path from reaching the filesystem at all.
+    relative = Path(component_path)
+    if relative.is_absolute() or ".." in relative.parts or component_path.startswith("/"):
+        return abort(400, "Invalid component path")
+
     comp = manifest_parser.get_component_by_path(component_path)
     if not comp:
         return abort(404, f"Component not found: {component_path}")

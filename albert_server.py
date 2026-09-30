@@ -2647,8 +2647,11 @@ def api_admin_clear_cache():
         if FIRMWARE_CACHE.exists():
             FIRMWARE_CACHE.unlink()
             cleared.append("firmware_cache.json")
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        # Log the detail server-side only; returning str(e) would hand
+        # internal paths and driver errors to any admin-token holder.
+        logger.exception("sync-state operation failed")
+        return jsonify({"ok": False, "error": "internal error"}), 500
     # also clear any other caches if present
     return jsonify({"ok": True, "cleared": ", ".join(cleared) if cleared else "no cache file"})
 
@@ -2677,8 +2680,11 @@ def api_admin_checkpoint():
             c.commit()
             wal = c.execute("PRAGMA journal_mode").fetchone()[0]
         return jsonify({"ok": True, "wal": wal, "status": "checkpoint ok"})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        # Log the detail server-side only; returning str(e) would hand
+        # internal paths and driver errors to any admin-token holder.
+        logger.exception("sync-state operation failed")
+        return jsonify({"ok": False, "error": "internal error"}), 500
 
 @app.route('/api/admin/purge', methods=['POST'])
 def api_admin_purge():
@@ -2692,8 +2698,11 @@ def api_admin_purge():
             purged = cur.rowcount
             c.commit()
         return jsonify({"ok": True, "purged": purged})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        # Log the detail server-side only; returning str(e) would hand
+        # internal paths and driver errors to any admin-token holder.
+        logger.exception("sync-state operation failed")
+        return jsonify({"ok": False, "error": "internal error"}), 500
 
 
 @app.route('/api/admin/sync-state', methods=['GET'])
@@ -2709,8 +2718,11 @@ def api_admin_sync_state():
             cur = c.execute("SELECT * FROM sync_state ORDER BY updated_at DESC LIMIT 100")
             rows = [dict(r) for r in cur.fetchall()]
         return jsonify({"ok": True, "sync_states": rows, "count": len(rows)})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        # Log the detail server-side only; returning str(e) would hand
+        # internal paths and driver errors to any admin-token holder.
+        logger.exception("sync-state operation failed")
+        return jsonify({"ok": False, "error": "internal error"}), 500
 
 
 @app.route('/api/admin/sync-state/<udid>', methods=['GET'])
@@ -2746,8 +2758,11 @@ def api_admin_sync_state_update(udid: str):
             return jsonify({"ok": True, "sync_state": state})
         else:
             return jsonify({"ok": False, "error": "Update failed"}), 500
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        # Log the detail server-side only; returning str(e) would hand
+        # internal paths and driver errors to any admin-token holder.
+        logger.exception("sync-state operation failed")
+        return jsonify({"ok": False, "error": "internal error"}), 500
 
 
 @app.route('/api/admin/sync-state/<udid>/activate', methods=['POST'])
@@ -2763,8 +2778,11 @@ def api_admin_sync_activate(udid: str):
             return jsonify({"ok": True, "sync_state": state, "message": "Sync activated"})
         else:
             return jsonify({"ok": False, "error": "Activation failed"}), 500
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        # Log the detail server-side only; returning str(e) would hand
+        # internal paths and driver errors to any admin-token holder.
+        logger.exception("sync-state operation failed")
+        return jsonify({"ok": False, "error": "internal error"}), 500
 
 
 @app.route('/api/admin/sync-state/<udid>/deactivate', methods=['POST'])
@@ -2780,8 +2798,11 @@ def api_admin_sync_deactivate(udid: str):
             return jsonify({"ok": True, "sync_state": state, "message": "Sync deactivated"})
         else:
             return jsonify({"ok": False, "error": "Deactivation failed"}), 500
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        # Log the detail server-side only; returning str(e) would hand
+        # internal paths and driver errors to any admin-token holder.
+        logger.exception("sync-state operation failed")
+        return jsonify({"ok": False, "error": "internal error"}), 500
 
 
 @app.route('/api/admin/sync-state/<udid>/carrier-activate', methods=['POST'])
@@ -2802,8 +2823,11 @@ def api_admin_carrier_activate(udid: str):
             return jsonify({"ok": True, "sync_state": state, "message": "Carrier activated"})
         else:
             return jsonify({"ok": False, "error": "Carrier activation failed"}), 500
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        # Log the detail server-side only; returning str(e) would hand
+        # internal paths and driver errors to any admin-token holder.
+        logger.exception("sync-state operation failed")
+        return jsonify({"ok": False, "error": "internal error"}), 500
 
 
 @app.route('/api/admin/sync-state/<udid>/register-push', methods=['POST'])
@@ -2825,8 +2849,11 @@ def api_admin_register_push(udid: str):
             return jsonify({"ok": True, "sync_state": state, "message": "Push token recorded locally (no APNs call)"})
         else:
             return jsonify({"ok": False, "error": "Push token registration failed"}), 500
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception:
+        # Log the detail server-side only; returning str(e) would hand
+        # internal paths and driver errors to any admin-token holder.
+        logger.exception("sync-state operation failed")
+        return jsonify({"ok": False, "error": "internal error"}), 500
 
 
 # Premium branded 404 — covers all unknown paths with zAlive UI
