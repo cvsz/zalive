@@ -7,7 +7,7 @@ Derived from `zTemplate` foundation, now `albert_server` product `v0.1.0 2026-09
 
 ## Reusable first-project startup — done (not re-bootstrapped)
 - [x] `zTemplate` `5e04f52` merged via `allow-unrelated-histories` (kept `README` Local Albert, not generic).
-- [x] `docs/profiles.md` curated any-iPhone, `docs/startup.md` `18090` quick start, `IMPLEMENTATION-CHECKLIST.md` updated (GPG 49 tests).
+- [x] `docs/profiles.md` curated any-iPhone, `docs/startup.md` `18090` quick start, `IMPLEMENTATION-CHECKLIST.md` updated (GPG 118 tests).
 - [x] `Makefile` replaced with real targets — `test`, `test-verbose`, `lint`, `security`, `check` (lint+security+tests), `validate`, `docker-build`, `docker-up`, `docker-down`, `logs`, `run`, `stop`, `rotate-fairplay`, `clean`; `make help` self-documents them.
 - [x] `.env.example` aligned with runtime — `ALBERT_HTTP_PORT=18090`, `ALBERT_BIND_ADDRESS`, `FAIRPLAY_KEY_PATH`, `FAIRPLAY_CERT_PATH`, `ALBERT_ACCEPT_RISK=0`, `MITMPROXY_WEB_PASSWORD`. Stale `APP_ENV 3000` removed.
 
