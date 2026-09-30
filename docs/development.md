@@ -26,7 +26,7 @@ curl -s http://127.0.0.1:18090/health|grep ok; curl -s http://127.0.0.1:18090/fi
 
 ## Quality expectations
 - Keep changes small, add tests for `albert_server.py`/`activate_device.py`/`firmware_restore_proxy.py`.
-- `make test` → `pytest -q` (49 passed: 12 albert + 14 security gate + 12 activate_device + 5 bootstrap + 5 firmware any-iPhone)
+- `make test` → `pytest -q` (118 passed: 12 albert + 14 security gate + 12 activate_device + 5 bootstrap + 5 firmware any-iPhone)
 - `make lint` → `ruff check .` (`All checks passed`), `bandit -r . --exclude venv` (`0` with `B303/B324 nosec` for SHA1 ARS)
 - `make validate-template` still runs template unittest but project CI uses `ruff+bandit+pytest+docker compose config`.
 - Never commit `.env` (`0600`), `certs/fairplay.key` (`0600`), `*.ipsw` (use `*.sha256` manifest via `scripts/sha256_manifest.sh`).

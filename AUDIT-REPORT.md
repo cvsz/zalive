@@ -1,22 +1,45 @@
 # Audit Report: /home/cvsz/albert_server
 
 **Project:** Local Albert Activation Server (albert.apple.com emulator) + mitmproxy Firmware Restore Proxy
-**Date:** 2026-09-29 (re-audit after production gate 16 + secure-default hardening)
+**Date:** 2026-09-30 (re-audit after PR #8 security remediation and PR #9 documentation recovery)
 **Reviewer:** Muse Code (final-release-gate + final-security-review + authorization-architecture)
 **Scope:** Full repository — code, config, CI, deployment, security, tests, Git history
-**Commit:** `eb831f3b414a13e5b5d8f011e6790c919cbec987` GPG EDDSA CD57FEA — `main` purged (filter-repo) identifiers redacted, branch protection `strict ci`
-**CI:** `36499409453` `success` **CodeQL:** `36499409461` `success` (HEAD `eb831f3`)
+**Commit:** `708c793` GPG EDDSA CD57FEA — follows `ee91c84` (PR #8) and `b156281` (PR #7)
+**CI:** all checks green on PR #8 and #9 — `ci` ×2, `compose-e2e` ×2, `CodeQL`, `dependency-review`, `Analyze GitHub Actions`
 
 ## Executive Summary
 
 | Metric | Value |
 |--------|-------|
 | Lines of Code | 4,900+ (Python) + AdminLTE 4 templates |
-| Test Coverage | 36 passed (12 albert + 6 firmware + 5 bootstrap + 13 security gate) + CI `validate` green |
+| Test Coverage | Local **118 passed**; CI **88 passed, 12 skipped** (CI ตัด `test_bootstrap.py` ผ่าน `--ignore` และ `test_parse_trustcache.py` skip เพราะไม่มี `firmware/`) + CI `validate` green |
 | Security Gates | `ruff ✅` `bandit ✅` `CodeQL python,actions ✅` `branch protection strict ci ✅` |
-| Deployment Ready | ✅ Docker multi-stage 3.13-slim, compose `required:false`, `uv` hashes, `127.0.0.1:18090` secure-by-default + `0.0.0.0` LAN override, `127.0.0.1:18443` green SAN |
+| Deployment Ready | ✅ Docker multi-stage **3.14-slim**, compose `required:false`, `uv` hashes, `127.0.0.1:18090` secure-by-default + `0.0.0.0` LAN override, `127.0.0.1:18443` green SAN, **systemd unit installed and enabled** |
 | Intended Use | Lab/research activation of owned iOS devices (iPhone 5 → 15 Pro, 13 curated A6-A16). FairPlay placeholder — not for real Apple activation |
 | Git History | **Purged** `C8PXJF1EKXKQ`/`00008020-001224C81178002E`/`35734009168`/`8904903200` → `0` commits via `git-filter-repo --replace-text` + force push (backup `refs/tbh/recovery/before-discard/20260928T225229Z-2399085`) |
+
+## Findings closed since 2026-09-29
+
+| # | Severity | Finding | Resolution |
+|---|----------|---------|------------|
+| 1 | **Blocker** | `get_device_info` raised `NameError: _get_dev_id`; the broad `except` reported it as a USB/usbmuxd fault, which sent debugging in the wrong direction. Present in production since `4f66b1f` | `59ec997` — helpers unified at module scope; the CLI no longer blames USB for a generic lookup failure |
+| 2 | Major | 500 instead of 4xx on every POST to `/api/admin/sync-state/*` without a JSON body — Flask 3.0 raises `UnsupportedMediaType`, the broad except turned it into a server error | `b0d6ba4` — `get_json(silent=True)`; now 200/400 as appropriate |
+| 3 | Major | Internal exception text returned to API callers (CodeQL `py/stack-trace-exposure`, 6 sites) | `b0d6ba4` — `logger.exception()` server-side, generic message to the client |
+| 4 | Major | User-controlled URL segment joined onto `IPSW_DIR` (CodeQL `py/path-injection`, 3 sites) | `33bca48` — join from the manifest entry, which is trusted data, plus resolve-and-contain as a second layer |
+| 5 | Major | `firmware-server` could escape `IPSW_DIR` through a symlink inside the mounted tree | `95b8270` → `33bca48` — verified with a canary across five traversal shapes |
+| 6 | Major | `bandit` B314 on untrusted XML from the device/Apple | `4552021` — `defusedxml` (already a declared dependency) |
+| 7 | Major | `Dockerfile.firmware` had `COPY firmware/` — CI has no `firmware/` and the build failed outright | `b0d6ba4` — removed; compose already bind-mounts it read-only |
+| 8 | Major | `firmware-server` healthcheck called `curl`, which the image never installs, so the container was permanently unhealthy | `126513c` — probe with the `python3` already present instead of adding a package |
+| 9 | Minor | `firmware-server` could not read the 0600 FairPlay key (image `USER app` uid 999 vs host uid 1000) | `9396f0b` — compose `user:` override plus a readable `/app`; still non-root, read-only, `CapDrop=ALL` |
+| 10 | Minor | `MemoryLimit=512M` in the systemd template — the property does not exist in systemd 259, so the cap was **never enforced** | this PR — `MemoryMax=512M`; verified `MemoryMax=536870912` after restart |
+| 11 | Minor | `phoneHome` wrote to `sync_state` with no test coverage | this PR — `tests/test_phonehome_mtls.py`, 13 tests over the handler and the mTLS gate |
+
+## Findings accepted (not defects)
+
+- **Activation cannot complete.** Apple returns `Apple Account disabled` for the test account, and a local server cannot reproduce Apple's FairPlay handshake. Upstream constraint, not a local bug.
+- **AEA sealed-system containers cannot be decrypted.** The key is delivered by WKMS against the device SEP. Apple's DRM by design.
+- **`.env` sets `ALBERT_HOST=0.0.0.0`**, exposing 18090 to the LAN deliberately. The mTLS gate is what protects `/deviceservices/*` and `/WebObjects/*`; bare spoofable headers require both `ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1` and a trusted peer.
+- **dependabot's pip PRs must stay closed.** They would strip `--generate-hashes` pins (2,179 → 83 lines), contradicting the hash verification added in `2327355`.
 
 ## Gate Status
 
@@ -42,13 +65,21 @@
 
 ## Test Coverage
 
-| Suite | Tests | Status |
-|-------|-------|--------|
-| `tests/test_albert.py` | 12 | ✅ |
-| `tests/test_firmware.py` | 6 | ✅ |
-| `tests/test_bootstrap.py` | 5 | ✅ |
-| `tests/test_security_gate.py` | 13 | ✅ |
-| **Total** | **36** | ✅ |
+ตัวเลขนี้เป็น **ผลบนเครื่องที่มี `firmware/`** ส่วน CI ได้ตัวเลขต่างออกไป เพราะ
+`.github/workflows/ci.yml` รัน `pytest -q --ignore=tests/test_bootstrap.py` และ
+`tests/test_parse_trustcache.py` ถูก skip เมื่อไม่มี `firmware/` (gitignored)
+
+| Suite | Tests | บนเครื่อง | ใน CI |
+|-------|-------|-----------|-------|
+| `tests/test_sync_state.py` | 44 | ✅ รัน | ✅ รัน |
+| `tests/test_security_gate.py` | 14 | ✅ รัน | ✅ รัน |
+| `tests/test_phonehome_mtls.py` | 13 | ✅ รัน | ✅ รัน |
+| `tests/test_albert.py` | 12 | ✅ รัน | ✅ รัน |
+| `tests/test_activate_device.py` | 12 | ✅ รัน | ✅ รัน |
+| `tests/test_parse_trustcache.py` | 12 | ✅ รัน | ⏭️ skip (ไม่มี `firmware/`) |
+| `tests/test_firmware.py` | 6 | ✅ รัน | ✅ รัน |
+| `tests/test_bootstrap.py` | 5 | ✅ รัน | 🚫 ถูก `--ignore` |
+| **Total** | **118** | **118 passed** | **88 passed, 12 skipped** |
 
 CI `validate` script: IPSW/FairPlay/DB/env/API/logs checks — all pass.
 
