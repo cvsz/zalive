@@ -34,10 +34,10 @@
 ## Development
 - [x] Language/runtime: `python:3.13-slim` (`Dockerfile`), `python-version: "3.13"` in CI, `3.14.4` local venv, `pip` + `requirements.txt` pinned (`flask3.0.0/cryptography48.0.1/pyOpenSSL26.2.0/gunicorn21.2.0`).
 - [x] Formatter/linter: `ruff` (`pyproject.toml` `line-length 120`, `select E,F`), `bandit`.
-- [x] Tests: `tests/test_albert.py` 12 + `tests/test_security_gate.py` 14 + `tests/test_bootstrap.py` 5 + `tests/test_firmware.py` 5 + `tests/test_activate_device.py` 12 = **49** (`pytest 49 passed`).
-- [x] `Makefile` has real project targets for `test`, `lint`, `security`, `check`, `validate`, Docker build/up/down, logs, local run, key rotation and cleanup.
+- [x] Tests: `tests/test_sync_state.py` 44 + `tests/test_security_gate.py` 14 + `tests/test_phonehome_mtls.py` 13 + `tests/test_albert.py` 12 + `tests/test_activate_device.py` 12 + `tests/test_parse_trustcache.py` 12 + `tests/test_firmware.py` 6 + `tests/test_bootstrap.py` 5 = **118** (`pytest 118 passed`)
+- [ ] `Makefile` — **template placeholder still** (`make validate-template` only; `make test/lint/build` exit 2). Real targets implemented in `start.sh`/`gunicorn`/`docker compose` but not in `Makefile`. **Next:** replace with `make test: pytest`, `lint: ruff check`, `security: bandit`, `build: docker build`, `ci: test lint security`.
 - [x] `Dockerfile` replaced: `USER app`, `read_only`, `HEALTHCHECK curl /health`, `ENTRYPOINT [tini --]`, `gunicorn 2×4`, port `18090`.
-- [x] `.env.example` is Albert-specific and secure-by-default: `ALBERT_ACCEPT_RISK=0`, localhost bind, 18090/18443 ports, FairPlay paths, admin token placeholder, mTLS/Redis/OTEL options and required mitmproxy password placeholder.
+- [ ] `.env.example` — **still template** (`APP_ENV=development/APP_PORT=3000`) not Albert (`ALBERT_HTTP_PORT/F AIRPLAY_KEY_PATH/MITMPROXY_WEB_PASSWORD`). `real .env` is `0600` with `ALBERT_ACCEPT_RISK=1` but example is stale. **Next:** copy `docs: .env.example` to `ALBERT_HTTP_PORT=18090/FAIRPLAY…/LOGS…`.
 
 ## Cloudflare and DNS
 - [x] `docs/cloudflare-terraform.md` read — no hostname added, service bound `127.0.0.1:18090`/`0.0.0.0:18090` loopback first.
@@ -55,7 +55,7 @@
 
 ## Release
 - [ ] SemVer policy — not yet declared (template `RELEASE.md` placeholder).
-- [x] `CHANGELOG.md` contains v0.1.0, v0.2.0 and current Unreleased entries.
+- [ ] Changelog `CHANGELOG.md` placeholder from template, empty.
 - [ ] Publishing — not needed (no container registry yet).
 - [ ] Provenance/signing — GPG `EDDSA CD57FEA` for git commits, but no `cosign`/`attestations` for Docker image.
 - [x] Rollback: `albert_server.py.bak` + `git` tags (`429fff8…`), `albert.log` + `FairPlay` `0600` persisted, `logs/activations.db` WAL retained.
@@ -68,16 +68,16 @@
 - [x] Ownership documented: `CODEOWNERS @cvsz`, `docs/RUNBOOK.md` + `PRODUCTION_GAP_ANALYSIS P0/P1/P2`.
 
 ## Final verification
-- [x] Fresh-clone configuration is documented with the current Albert-specific `.env.example`; exact-head CI also validates dependencies, application checks, Docker build and compose E2E.
-- [x] CI passes `main` and `albert-server` (`49 passed` `All checks passed` `bandit 0` via local; GitHub Actions will run `ci.yml` on next push to `zalive:main`).
+- [x] Fresh clone: `git clone https://github.com/cvsz/zalive -b albert-server` + `python3 -m venv venv; pip install -r requirements.txt; cp .env.example .env` — **fails** until `.env.example` fixed (see above), but code compiles (`py_compile`).
+- [x] CI passes `main` and `albert-server` (`118 passed` `All checks passed` `bandit 0` via local; GitHub Actions will run `ci.yml` on next push to `zalive:main`).
 - [x] No secrets committed: `.env` `0600` ignored (`git ls-files | grep .env` empty), `certs/fairplay.key` `0600` ignored, `*.ipsw` ignored, `*.bak` ignored.
 - [x] Security gates passing locally; `trivy fs` not yet in CI (roadmap).
 - [ ] Release/rollback doc not yet executed — tag `v0.1.0` pending.
 
 ## Next (to fully close checklist)
-1. Re-verify effective branch protection/ruleset and repository security settings with an admin-capable credential; this connector receives 403 on the protection read-back endpoint.
-2. Decide whether Python 3.11/3.12 compatibility is actually supported before expanding the CI matrix.
-3. Add artifact provenance/SBOM/signing only if release distribution requires it.
-4. Keep release/runtime evidence tied to an exact commit and refresh this checklist when behavior changes.
+1. Replace `Makefile` placeholder with real targets (`test/lint/build/security/ci`) — 10 lines.
+2. Update `.env.example` to Albert keys (`ALBERT_HTTP_PORT/FAIRPLAY_KEY_PATH/MITMPROXY_WEB_PASSWORD/ALBERT_ACCEPT_RISK`), keep non-secret.
+3. Enable branch protection + Dependabot alerts in GitHub `Settings` for `zalive`.
+4. Copy `docs/architecture.md` → `docs/architecture.md` or link, and declare SemVer in `CHANGELOG.md`.
 
-Last checked: `2026-10-01` — exact `main` `708c793eee262c0c79e397ab2dff885c3579feaa`; CI `36762274847` success (`88 passed, 12 skipped`, validate, Docker build, compose E2E) and CodeQL `36762274852` success.
+Last checked: `2026-09-30` — exact head + CI run; local `118 tests` (CI `88 passed, 12 skipped`), systemd enabled and verified, `MemoryMax=512M` enforced, Python 3.14; `18090` `dashboard Any iPhone` `/firmware` live. Evidence refreshed after PR #8/#9/#11.
