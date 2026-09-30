@@ -1,0 +1,9 @@
+name: zeaz-skills
+version: "0.1.0"
+description: Discover reusable ZEAZ engineering skills on demand.
+display_name: ZEAZ Skills
+short_description: Find the right ZEAZ engineering skill
+long_description: Discovery-first access to reusable ZEAZ engineering skills while preserving repository-local authorization and evidence rules.
+category: Developer Tools
+include_skills:
+  - skills/zeaz-skill-finder/

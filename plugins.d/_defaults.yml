@@ -1,0 +1,12 @@
+version: "0.1.0"
+
+author:
+  name: ZEAZDEV COMPANY LIMITED
+
+repository: https://github.com/cvsz/ztemplate
+license: MIT
+
+capabilities:
+  - Interactive
+
+skill_files: copy
