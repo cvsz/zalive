@@ -159,6 +159,29 @@ def _init_db():
                 producttype TEXT,
                 UNIQUE(udid) ON CONFLICT REPLACE
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS sync_state(
+                udid TEXT PRIMARY KEY,
+                imei TEXT NOT NULL,
+                serial TEXT,
+                push_token TEXT,
+                apns_topic TEXT,
+                sync_enabled INTEGER DEFAULT 1,
+                find_my_enabled INTEGER DEFAULT 1,
+                icloud_enabled INTEGER DEFAULT 1,
+                carrier_activated INTEGER DEFAULT 0,
+                last_sync TEXT,
+                phone_number TEXT DEFAULT \"\",
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )""")
+            # migrate old sync_state DBs without phone_number
+            try:
+                cur = conn.execute("PRAGMA table_info(sync_state)")
+                cols = [r[1] for r in cur.fetchall()]
+                if "phone_number" not in cols:
+                    conn.execute("ALTER TABLE sync_state ADD COLUMN phone_number TEXT DEFAULT ''")
+            except Exception:
+                pass
             # migrate old DBs without producttype
             try:
                 cur = conn.execute("PRAGMA table_info(activations)")
@@ -221,6 +244,99 @@ def log_activation(udid: str, serial: str, record, producttype: str = ""):
             albert_activation_failures_total.inc()
         except Exception:
             pass
+
+
+def _init_sync_state(udid: str, imei: str, serial: str = "") -> bool:
+    """Initialize or update sync state for a device."""
+    try:
+        _init_db()
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(str(DB_PATH), timeout=30) as conn:
+            conn.execute(
+                """INSERT INTO sync_state (udid, imei, serial, apns_topic, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(udid) DO UPDATE SET
+                   imei=excluded.imei,
+                   serial=excluded.serial,
+                   apns_topic=excluded.apns_topic,
+                   updated_at=excluded.updated_at""",
+                (udid or "", imei or "", serial or "", f"com.apple.activation.{imei}" if imei else "", now, now),
+            )
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.warning("Failed to init sync state: %s", type(e).__name__)
+        return False
+
+
+def _update_sync_state(udid: str, **kwargs) -> bool:
+    """Update sync state fields for a device."""
+    if not kwargs:
+        return True
+    # Whitelist of allowed columns to prevent SQL injection
+    allowed_columns = {
+        "imei", "serial", "push_token", "apns_topic", "sync_enabled",
+        "find_my_enabled", "icloud_enabled", "carrier_activated",
+        "last_sync", "phone_number"
+    }
+    try:
+        _init_db()
+        now = datetime.now(timezone.utc).isoformat()
+        fields = []
+        values = []
+        for key, value in kwargs.items():
+            if key not in allowed_columns:
+                continue
+            fields.append(f"{key}=?")
+            values.append(value)
+        if not fields:
+            return True
+        fields.append("updated_at=?")
+        values.append(now)
+        values.append(udid or "")
+        with sqlite3.connect(str(DB_PATH), timeout=30) as conn:
+            query = f"UPDATE sync_state SET {', '.join(fields)} WHERE udid=?"  # nosec B608
+            conn.execute(query, values)
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.warning("Failed to update sync state: %s", type(e).__name__)
+        return False
+
+
+def _get_sync_state(udid: str) -> dict:
+    """Get sync state for a device."""
+    try:
+        _init_db()
+        with sqlite3.connect(str(DB_PATH), timeout=30) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute("SELECT * FROM sync_state WHERE udid=?", (udid or "",))
+            row = cur.fetchone()
+            if row:
+                return dict(row)
+    except Exception as e:
+        logger.warning("Failed to get sync state: %s", type(e).__name__)
+    return {}
+
+
+def _register_push_token(udid: str, push_token: str, imei: str = "") -> bool:
+    """Register APNs push token for a device."""
+    try:
+        apns_topic = f"com.apple.activation.{imei}" if imei else f"com.apple.activation.{udid}"
+        return _update_sync_state(
+            udid,
+            push_token=push_token,
+            apns_topic=apns_topic,
+            last_sync=datetime.now(timezone.utc).isoformat()
+        )
+    except Exception as e:
+        logger.warning("Failed to register push token: %s", type(e).__name__)
+        return False
+
+
+def _set_carrier_activated(udid: str, activated: bool = True) -> bool:
+    """Mark device as carrier activated."""
+    return _update_sync_state(udid, carrier_activated=1 if activated else 0)
 
 
 def _scan_local_ipsw() -> list:
@@ -790,10 +906,32 @@ _UDID_40_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 _UDID_25_RE = re.compile(r"^00008020-[0-9a-fA-F]{16}$")
 _SERIAL_RE = re.compile(r"^[A-Za-z0-9]+$")
 
+def _luhn_check(imei: str) -> bool:
+    """Validate IMEI using Luhn algorithm (last digit is check digit)."""
+    if not _IMEI_RE.fullmatch(imei):
+        return False
+    digits = [int(d) for d in imei]
+    check_digit = digits[-1]
+    total = 0
+    for i, d in enumerate(digits[:-1]):
+        if i % 2 == 0:
+            total += d
+        else:
+            doubled = d * 2
+            total += doubled if doubled < 10 else doubled - 9
+    return (total * 9) % 10 == check_digit
+
 def _validate_imei(v) -> bool:
     if v is None or v == "":
         return True
-    return bool(_IMEI_RE.fullmatch(str(v).strip()))
+    s = str(v).strip()
+    if not _IMEI_RE.fullmatch(s):
+        return False
+    # Optional: enforce Luhn check (Apple does, but some test IMEIs may not pass)
+    # Set ALBERT_IMEI_LUHN=1 to enforce
+    if os.environ.get("ALBERT_IMEI_LUHN", "0") == "1":
+        return _luhn_check(s)
+    return True
 
 def _validate_udid(v) -> bool:
     if v is None or v == "":
@@ -1133,6 +1271,24 @@ class AlbertServer:
             device_cert_b64 = _fallback_cert(activation_info.get("UniqueDeviceID", "fallback-device"))
 
         fairplay_key_data = base64.b64encode(b"fairplay_key_data_placeholder").decode()
+        
+        # Add sync data to activation record
+        imei = activation_info.get("IMEI", activation_info.get("InternationalMobileEquipmentIdentity", ""))
+        udid = activation_info.get("UniqueDeviceID", activation_info.get("UDID", ""))
+        push_token = activation_info.get("PushToken", activation_info.get("aps-token", ""))
+        
+        sync_data = {
+            "PushToken": push_token,
+            "APNsTopic": f"com.apple.activation.{imei}" if imei else f"com.apple.activation.{udid}",
+            "SyncEnabled": 1,
+            "FindMyiPhoneEnabled": 1,
+            "iCloudSyncEnabled": 1,
+            "CarrierActivated": 0,  # Will be set to 1 via phoneHome
+            "ActivationTimestamp": datetime.now(timezone.utc).isoformat(),
+            "SyncInterval": 3600
+        }
+        sync_data_b64 = base64.b64encode(plistlib.dumps(sync_data)).decode()
+        
         activation_record = {
             activation_key: {
                 "activation-record": {
@@ -1145,7 +1301,8 @@ class AlbertServer:
                     "LDActivationVersion": 2,
                     "RegulatoryInfo": base64.b64encode(b'{"manufacturingDate":null,"label":{"bis":null,"miit":{"nal":null,"labelId":null}},"countryOfOrigin":null}').decode(),
                     "ack-received": True,
-                    "show-settings": True
+                    "show-settings": True,
+                    "SyncData": sync_data_b64
                 },
                 "show-settings": True
             }
@@ -1155,8 +1312,13 @@ class AlbertServer:
             udid = activation_info.get("UniqueDeviceID", "") or activation_info.get("UDID", "")
             serial = activation_info.get("SerialNumber", "") or activation_info.get("Serial", "") or activation_info.get("MLBSerialNumber", "")
             producttype = activation_info.get("ProductType", "")
+            imei = activation_info.get("IMEI", "") or activation_info.get("InternationalMobileEquipmentIdentity", "")
             # Do not fallback to DeviceClass (which is "iPhone") — only true ProductType like iPhone11,8
             log_activation(str(udid), str(serial), activation_record, producttype=str(producttype))
+            # Initialize sync state
+            _init_sync_state(str(udid), str(imei), str(serial))
+            if push_token:
+                _register_push_token(str(udid), push_token, str(imei))
             try:
                 self.activation_records[str(udid) or str(uuid.uuid4())] = activation_record
             except Exception:
@@ -1181,6 +1343,13 @@ except Exception:
 
 @app.route('/deviceservices/drmHandshake', methods=['POST'])
 def drm_handshake():
+    # เป็น research stub เท่านั้น ตัวเครื่องตรวจสอบ HandshakeResponseMessage เทียบกับ
+    # FairPlay public key ของ Apple ดังนั้นไม่มี response ที่สร้างจากที่นี่จะผ่านการตรวจได้
+    # เพราะ private key อยู่เฉพาะฝั่ง Apple และไม่เคยปรากฏบนสายส่งข้อมูล
+    # ยืนยันเชิงทดลองแล้ว: response 3 แบบ (สะท้อน challenge, ค่าว่าง, เต็มด้วยศูนย์)
+    # ล้มเหลวทั้งหมดด้วย "Invalid session response"
+    # สำหรับเครื่องที่เจ้าของเป็นผู้ถือ ต้อง activate ผ่าน albert.apple.com จริงเท่านั้น
+    # ดูรายละเอียดที่ docs/re/ACTIVATION-PROTOCOL.md
     logger.info("Received DRM handshake request")
     try:
         data = request.get_data()
@@ -1195,6 +1364,10 @@ def drm_handshake():
             return Response(f"Invalid plist: {e}", status=400)
         logger.debug(f"Handshake request keys: {list(handshake_request.keys()) if isinstance(handshake_request, dict) else type(handshake_request)}")
         response = {
+            # Apple คืน 4 key: serverKP(85B), FDRBlob(32B), SUInfo(366B),
+            # HandshakeResponseMessage(508B มีลายเซ็น)
+            # ส่วน "Server*" ทั้ง 3 key ไม่ได้อยู่ในโปรโตคอลของ Apple
+            # คงไว้เพื่อรักษา shape ของ response ให้ตรงกับ tooling เดิมเท่านั้น
             "HandshakeResponseMessage": base64.b64encode(b"handshake_response_placeholder").decode(),
             "ServerRandom": base64.b64encode(os.urandom(32)).decode(),
             "SessionID": str(uuid.uuid4()),
@@ -1376,22 +1549,103 @@ def device_activation():
 @app.route('/deviceservices/activity', methods=['POST','GET'])
 def activity():
     logger.info("Received activity request")
-    return Response(plistlib.dumps({"status": "success"}), mimetype='application/xml')
+    # Parse device info from request
+    imei = ""
+    udid = ""
+    push_token = ""  # nosec B105 - not a password, just empty string init
+    try:
+        if request.method == 'POST' and request.get_data():
+            data = plistlib.loads(request.get_data())
+            imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
+            udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+            push_token = data.get("PushToken") or data.get("aps-token") or ""
+    except Exception:
+        pass
+    
+    # Update sync state
+    if udid and imei:
+        _init_sync_state(udid, imei)
+        if push_token:
+            _register_push_token(udid, push_token, imei)
+        else:
+            _update_sync_state(udid, last_sync=datetime.now(timezone.utc).isoformat())
+    
+    # Return activity response with sync interval
+    response = {
+        "status": "success",
+        "syncInterval": 3600,  # 1 hour
+        "syncEnabled": 1,
+        "findMyEnabled": 1,
+        "icloudEnabled": 1
+    }
+    return Response(plistlib.dumps(response), mimetype='application/xml')
+
 
 @app.route('/deviceservices/certifyMe', methods=['POST','GET'])
 def certify_me():
     logger.info("Received certifyMe request")
-    return Response(plistlib.dumps({"status": "success", "certificate": base64.b64encode(FAIRPLAY_CERT_CHAIN).decode()}), mimetype='application/xml')
+    # Parse device info from request
+    imei = ""
+    udid = ""
+    try:
+        if request.method == 'POST' and request.get_data():
+            data = plistlib.loads(request.get_data())
+            imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
+            udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+    except Exception:
+        pass
+    
+    # Update sync state
+    if udid and imei:
+        _init_sync_state(udid, imei)
+    
+    # Return certificate for device
+    cert_b64 = base64.b64encode(FAIRPLAY_CERT_CHAIN).decode()
+    response = {
+        "status": "success",
+        "certificate": cert_b64,
+        "certType": "FairPlay",
+        "validityDays": 1825
+    }
+    return Response(plistlib.dumps(response), mimetype='application/xml')
+
 
 @app.route('/WebObjects/ALUnbrick.woa/wa/deviceActivation', methods=['POST','GET'])
 def legacy_device_activation():
     logger.info("Received legacy device activation request")
     return device_activation()
 
+
 @app.route('/WebObjects/ALUnbrick.woa/wa/phoneHome', methods=['POST','GET'])
 def phone_home():
     logger.info("Received phoneHome request")
-    return Response(plistlib.dumps({"status": "success"}), mimetype='application/xml')
+    # Parse device info from request
+    imei = ""
+    udid = ""
+    phone_number = ""
+    try:
+        if request.method == 'POST' and request.get_data():
+            data = plistlib.loads(request.get_data())
+            imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
+            udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+            phone_number = data.get("PhoneNumber") or data.get("MSISDN") or ""
+    except Exception:
+        pass
+    
+    # Update sync state - mark as carrier activated
+    if udid and imei:
+        _init_sync_state(udid, imei)
+        _set_carrier_activated(udid, True)
+        if phone_number:
+            _update_sync_state(udid, phone_number=phone_number)
+    
+    # Return phoneHome response
+    response = {
+        "status": "success",
+        "carrierActivated": 1,
+        "phoneNumber": phone_number
+    }
+    return Response(plistlib.dumps(response), mimetype='application/xml')
 
 @app.errorhandler(413)
 @app.errorhandler(RequestEntityTooLarge)
@@ -2435,6 +2689,140 @@ def api_admin_purge():
         return jsonify({"ok": True, "purged": purged})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/sync-state', methods=['GET'])
+def api_admin_sync_state():
+    """Get all sync states (admin only)."""
+    err = _admin_required()
+    if err:
+        return err
+    try:
+        import sqlite3 as _sql
+        with _sql.connect(str(DB_PATH), timeout=5) as c:
+            c.row_factory = _sql.Row
+            cur = c.execute("SELECT * FROM sync_state ORDER BY updated_at DESC LIMIT 100")
+            rows = [dict(r) for r in cur.fetchall()]
+        return jsonify({"ok": True, "sync_states": rows, "count": len(rows)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/sync-state/<udid>', methods=['GET'])
+def api_admin_sync_state_detail(udid: str):
+    """Get sync state for specific UDID (admin only)."""
+    err = _admin_required()
+    if err:
+        return err
+    state = _get_sync_state(udid)
+    if not state:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    return jsonify({"ok": True, "sync_state": state})
+
+
+@app.route('/api/admin/sync-state/<udid>', methods=['POST'])
+def api_admin_sync_state_update(udid: str):
+    """Update sync state for specific UDID (admin only)."""
+    err = _admin_required()
+    if err:
+        return err
+    try:
+        data = request.get_json() or {}
+        allowed_fields = [
+            "push_token", "apns_topic", "sync_enabled", "find_my_enabled",
+            "icloud_enabled", "carrier_activated", "phone_number"
+        ]
+        updates = {k: v for k, v in data.items() if k in allowed_fields}
+        if not updates:
+            return jsonify({"ok": False, "error": "No valid fields provided"}), 400
+        ok = _update_sync_state(udid, **updates)
+        if ok:
+            state = _get_sync_state(udid)
+            return jsonify({"ok": True, "sync_state": state})
+        else:
+            return jsonify({"ok": False, "error": "Update failed"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/sync-state/<udid>/activate', methods=['POST'])
+def api_admin_sync_activate(udid: str):
+    """Activate sync for a device (admin only)."""
+    err = _admin_required()
+    if err:
+        return err
+    try:
+        ok = _update_sync_state(udid, sync_enabled=1, find_my_enabled=1, icloud_enabled=1)
+        if ok:
+            state = _get_sync_state(udid)
+            return jsonify({"ok": True, "sync_state": state, "message": "Sync activated"})
+        else:
+            return jsonify({"ok": False, "error": "Activation failed"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/sync-state/<udid>/deactivate', methods=['POST'])
+def api_admin_sync_deactivate(udid: str):
+    """Deactivate sync for a device (admin only)."""
+    err = _admin_required()
+    if err:
+        return err
+    try:
+        ok = _update_sync_state(udid, sync_enabled=0, find_my_enabled=0, icloud_enabled=0, carrier_activated=0)
+        if ok:
+            state = _get_sync_state(udid)
+            return jsonify({"ok": True, "sync_state": state, "message": "Sync deactivated"})
+        else:
+            return jsonify({"ok": False, "error": "Deactivation failed"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/sync-state/<udid>/carrier-activate', methods=['POST'])
+def api_admin_carrier_activate(udid: str):
+    """Mark device as carrier activated (admin only)."""
+    err = _admin_required()
+    if err:
+        return err
+    try:
+        data = request.get_json() or {}
+        phone_number = data.get("phone_number", "")
+        updates = {"carrier_activated": 1}
+        if phone_number:
+            updates["phone_number"] = phone_number
+        ok = _update_sync_state(udid, **updates)
+        if ok:
+            state = _get_sync_state(udid)
+            return jsonify({"ok": True, "sync_state": state, "message": "Carrier activated"})
+        else:
+            return jsonify({"ok": False, "error": "Carrier activation failed"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route('/api/admin/sync-state/<udid>/register-push', methods=['POST'])
+def api_admin_register_push(udid: str):
+    """Register push token for a device (admin only)."""
+    err = _admin_required()
+    if err:
+        return err
+    try:
+        data = request.get_json() or {}
+        push_token = data.get("push_token", "")
+        if not push_token:
+            return jsonify({"ok": False, "error": "push_token required"}), 400
+        state = _get_sync_state(udid)
+        imei = state.get("imei", "")
+        ok = _register_push_token(udid, push_token, imei)
+        if ok:
+            state = _get_sync_state(udid)
+            return jsonify({"ok": True, "sync_state": state, "message": "Push token registered"})
+        else:
+            return jsonify({"ok": False, "error": "Push token registration failed"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 
 # Premium branded 404 — covers all unknown paths with zAlive UI
 

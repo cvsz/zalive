@@ -1,6 +1,9 @@
-# Albert Activation Server — systemd unit
+# Albert Activation Server — systemd unit template
 # Install & enable:
-#   sudo cp systemd/albert-server.service /etc/systemd/system/albert-server.service
+#   sudo sed -e 's|__USER__|albert|g' \
+#            -e 's|__WORKDIR__|/opt/albert|g' \
+#            -e 's|__ENVFILE__|/etc/albert.env|g' \
+#            systemd/albert-server.service > /etc/systemd/system/albert-server.service
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now albert-server
 # Verify:
@@ -9,25 +12,40 @@
 #   journalctl -u albert-server -f
 # Disable:
 #   sudo systemctl disable --now albert-server
+
 [Unit]
 Description=Albert Activation Server
 After=network.target
 Wants=network.target
 
 [Service]
-# Parameterise User= / WorkingDirectory= / EnvironmentFile= for your host (default cvsz /home/cvsz/albert_server)
-# e.g. User=albert  WorkingDirectory=/opt/albert  EnvironmentFile=/etc/albert.env
-User=cvsz
-WorkingDirectory=/home/cvsz/albert_server
-ExecStart=/home/cvsz/albert_server/venv/bin/gunicorn -c /home/cvsz/albert_server/gunicorn_conf.py albert_server:app
+# Parameterise for your host:
+#   __USER__       — dedicated service user (create: useradd -r -s /sbin/nologin albert)
+#   __WORKDIR__    — project root (e.g., /opt/albert)
+#   __ENVFILE__    — env file with ALBERT_ACCEPT_RISK=1, tokens (e.g., /etc/albert.env)
+User=__USER__
+WorkingDirectory=__WORKDIR__
+ExecStart=__WORKDIR__/venv/bin/gunicorn -c __WORKDIR__/gunicorn_conf.py albert_server:app
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
-EnvironmentFile=-/home/cvsz/albert_server/.env
+EnvironmentFile=-__ENVFILE__
 StandardOutput=journal
 StandardError=journal
+
+# Hardening (match docker-compose security)
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=__WORKDIR__/certs __WORKDIR__/logs
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+# Resource limits
+LimitNOFILE=65536
+MemoryLimit=512M
+CPUQuota=100%
 
 [Install]
 WantedBy=multi-user.target
