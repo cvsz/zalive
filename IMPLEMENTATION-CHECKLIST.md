@@ -80,4 +80,4 @@
 3. Enable branch protection + Dependabot alerts in GitHub `Settings` for `zalive`.
 4. Copy `docs/architecture.md` → `docs/architecture.md` or link, and declare SemVer in `CHANGELOG.md`.
 
-Last checked: `2026-09-30` — `git a2fd80c` `GPG EDDSA` (restore verified E2E, activation protocol RE), `118 tests` `18090` `dashboard Any iPhone` `/firmware` live.
+Last checked: `2026-09-30` — exact head + CI run; local `118 tests` (CI `88 passed, 12 skipped`), systemd enabled and verified, `MemoryMax=512M` enforced, Python 3.14; `18090` `dashboard Any iPhone` `/firmware` live. Evidence refreshed after PR #8/#9/#11.

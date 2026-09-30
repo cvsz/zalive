@@ -12,7 +12,7 @@
 | Metric | Value |
 |--------|-------|
 | Lines of Code | 4,900+ (Python) + AdminLTE 4 templates |
-| Test Coverage | **118 passed** (44 sync-state, 14 security gate, 13 phoneHome/mTLS, 12 albert, 12 activate_device, 12 parse_trustcache, 6 firmware, 5 bootstrap) + CI `validate` green |
+| Test Coverage | Local **118 passed**; CI **88 passed, 12 skipped** (CI ตัด `test_bootstrap.py` ผ่าน `--ignore` และ `test_parse_trustcache.py` skip เพราะไม่มี `firmware/`) + CI `validate` green |
 | Security Gates | `ruff ✅` `bandit ✅` `CodeQL python,actions ✅` `branch protection strict ci ✅` |
 | Deployment Ready | ✅ Docker multi-stage **3.14-slim**, compose `required:false`, `uv` hashes, `127.0.0.1:18090` secure-by-default + `0.0.0.0` LAN override, `127.0.0.1:18443` green SAN, **systemd unit installed and enabled** |
 | Intended Use | Lab/research activation of owned iOS devices (iPhone 5 → 15 Pro, 13 curated A6-A16). FairPlay placeholder — not for real Apple activation |
@@ -65,13 +65,21 @@
 
 ## Test Coverage
 
-| Suite | Tests | Status |
-|-------|-------|--------|
-| `tests/test_albert.py` | 12 | ✅ |
-| `tests/test_firmware.py` | 6 | ✅ |
-| `tests/test_bootstrap.py` | 5 | ✅ |
-| `tests/test_security_gate.py` | 13 | ✅ |
-| **Total** | **36** | ✅ |
+ตัวเลขนี้เป็น **ผลบนเครื่องที่มี `firmware/`** ส่วน CI ได้ตัวเลขต่างออกไป เพราะ
+`.github/workflows/ci.yml` รัน `pytest -q --ignore=tests/test_bootstrap.py` และ
+`tests/test_parse_trustcache.py` ถูก skip เมื่อไม่มี `firmware/` (gitignored)
+
+| Suite | Tests | บนเครื่อง | ใน CI |
+|-------|-------|-----------|-------|
+| `tests/test_sync_state.py` | 44 | ✅ รัน | ✅ รัน |
+| `tests/test_security_gate.py` | 14 | ✅ รัน | ✅ รัน |
+| `tests/test_phonehome_mtls.py` | 13 | ✅ รัน | ✅ รัน |
+| `tests/test_albert.py` | 12 | ✅ รัน | ✅ รัน |
+| `tests/test_activate_device.py` | 12 | ✅ รัน | ✅ รัน |
+| `tests/test_parse_trustcache.py` | 12 | ✅ รัน | ⏭️ skip (ไม่มี `firmware/`) |
+| `tests/test_firmware.py` | 6 | ✅ รัน | ✅ รัน |
+| `tests/test_bootstrap.py` | 5 | ✅ รัน | 🚫 ถูก `--ignore` |
+| **Total** | **118** | **118 passed** | **88 passed, 12 skipped** |
 
 CI `validate` script: IPSW/FairPlay/DB/env/API/logs checks — all pass.
 
