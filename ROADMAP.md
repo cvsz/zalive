@@ -14,8 +14,8 @@ Derived from `zTemplate` foundation, now `albert_server` product `v0.1.0 2026-09
 ## Product backlog (P2) — next
 - [x] Any-iPhone curated `XR+12/13/14/15` + `albert_server` dynamic `producttype` + `dashboard Any iPhone`.
 - [x] Firmware pages `/firmware` live `ipsw.me` cache 1h + local overlay.
-- [ ] Language adapters (python `3.13-slim` is the pinned runtime (`3.14.4` local venv; a Dependabot bump to `3.14-slim` is still open); add `3.11/3.12` matrix optional).
+- [ ] Language/runtime compatibility matrix: `python:3.13-slim` remains the pinned container runtime and CI currently tests Python 3.13 only; add 3.11/3.12 coverage only if product support policy requires it. No open Dependabot PR is present at this refresh.
 - [x] E2E restore verified on hardware: `idevicerestore -e -y iPhone11,8_18.7.10_22H374_Restore.ipsw` completed with `Status: Restore Finished` on iPhone11,8 / 18.7.10 (`22H374`). Root cause of the earlier `Unable to discover device mode` failures was VMware USB passthrough dropping the device between Recovery and Restore, not the tool or the IPSW. Details: `docs/re/WORK-REPORT.md` §2.
 - [ ] Activation against real Apple still blocked on the device owner's account state (`Apple Account disabled` server-side). The FairPlay DRM handshake cannot be satisfied by a local server — the signing key is private to Apple. Details: `docs/re/ACTIVATION-PROTOCOL.md`.
-- [ ] Distributed `Redis` `100/min` per-IP + per-UDID, `Postgres` option, `OTEL` traces, `mTLS`, `trivy fs` `SBOM`, `cosign`.
+- [ ] Remaining optional production features: PostgreSQL backend, OTEL traces, Trivy/SBOM and cosign attestations. Redis-backed rate limiting and mTLS controls already exist in the current configuration/code path and should not be listed as wholly unimplemented.
 
