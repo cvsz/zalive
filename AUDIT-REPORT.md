@@ -1,18 +1,18 @@
 # Audit Report: /home/cvsz/albert_server
 
 **Project:** Local Albert Activation Server (albert.apple.com emulator) + mitmproxy Firmware Restore Proxy
-**Date:** 2026-09-29 (re-audit after production gate 16 + secure-default hardening)
-**Reviewer:** Muse Code (final-release-gate + final-security-review + authorization-architecture)
+**Date:** 2026-10-01 (evidence refresh against current main)
+**Reviewer:** repository evidence refresh
 **Scope:** Full repository — code, config, CI, deployment, security, tests, Git history
-**Commit:** `eb831f3b414a13e5b5d8f011e6790c919cbec987` GPG EDDSA CD57FEA — `main` purged (filter-repo) identifiers redacted, branch protection `strict ci`
-**CI:** `36499409453` `success` **CodeQL:** `36499409461` `success` (HEAD `eb831f3`)
+**Commit:** `708c793eee262c0c79e397ab2dff885c3579feaa` — current `main` at evidence refresh
+**CI:** `36762274847` `success` **CodeQL:** `36762274852` `success` (exact head `708c793`)
 
 ## Executive Summary
 
 | Metric | Value |
 |--------|-------|
 | Lines of Code | 4,900+ (Python) + AdminLTE 4 templates |
-| Test Coverage | 36 passed (12 albert + 6 firmware + 5 bootstrap + 13 security gate) + CI `validate` green |
+| Test Coverage | Exact-head CI: `88 passed, 12 skipped`; `validate`, Docker build, compose E2E and auth/restart checks green |
 | Security Gates | `ruff ✅` `bandit ✅` `CodeQL python,actions ✅` `branch protection strict ci ✅` |
 | Deployment Ready | ✅ Docker multi-stage 3.13-slim, compose `required:false`, `uv` hashes, `127.0.0.1:18090` secure-by-default + `0.0.0.0` LAN override, `127.0.0.1:18443` green SAN |
 | Intended Use | Lab/research activation of owned iOS devices (iPhone 5 → 15 Pro, 13 curated A6-A16). FairPlay placeholder — not for real Apple activation |
@@ -37,7 +37,7 @@
 | 12 Restart/key persistence | FairPlay `0600` but no hash test | `test_restart_key_persistence` checks `certs/fairplay.key` `0600` + `fallback.key` `0600` + hash stable | `pytest` |
 | 13 RBAC/CSRF | `POST /api/pair` no auth/CSRF | `api_pair` now `_admin_required` + `Origin` check log + `test_rbac_*` `13 passed` + `rate_limit_all_api` | `curl POST /api/pair` `401` → `200` with token |
 | 14 Branch protection | `gh api branches/main/protection` `strict:true [ci] enforce_admins true` | Verified via `gh api` admin context | `gh api` shows `strict true`, `contexts [ci]`, `enforce_admins true`, `reviews 1` |
-| 15 AUDIT-REPORT | Old `4a92ccb`/`72d74b4` stale | Regenerated from `eb831f3b414a13e5b5d8f011e6790c919cbec987` `CI 36499409453` `CodeQL 36499409461` | This file |
+| 15 AUDIT-REPORT | Evidence drift after later merges | Refreshed against exact head `708c793eee262c0c79e397ab2dff885c3579feaa`, CI `36762274847`, CodeQL `36762274852` | This file |
 | 16 Release evidence | Need SHA/CI/runtime/rollback/dependency | Collected below | See Release Evidence |
 
 ## Test Coverage
@@ -56,12 +56,12 @@ CI `validate` script: IPSW/FairPlay/DB/env/API/logs checks — all pass.
 
 | Artifact | Value |
 |----------|-------|
-| Commit SHA | `eb831f3b414a13e5b5d8f011e6790c919cbec987` |
-| CI Run | `36499409453` (success) |
-| CodeQL Run | `36499409461` (success) |
+| Commit SHA | `708c793eee262c0c79e397ab2dff885c3579feaa` |
+| CI Run | `36762274847` (success; 88 passed, 12 skipped; validate + Docker build + compose config) |
+| CodeQL Run | `36762274852` (success; Python + Actions) |
 | Docker Image | `albert_server-albert-server:latest` (multi-stage, `python:3.13-slim`, non-root, `tini`, healthcheck, read-only FS, `cap_drop: ALL`) |
 | Compose Config | `docker compose config` ✅ (cap_drop, read_only, tmpfs, security_opt, deploy.limits) |
-| Branch Protection | `strict: true`, `contexts: [ci]`, `enforce_admins: true`, `required_reviews: 1` |
+| Branch Protection | Previously documented as strict with required review/checks; current connector cannot read the admin-only protection endpoint (403), so current effective state is **UNVERIFIED in this refresh** |
 | Secrets | `.env` (0600) with placeholders in `.env.example`; CI uses ephemeral tokens |
 | Rollback | `docker compose down -v` + `git revert` + re-tag; `main` only accepts PRs with green `ci` + `compose-e2e` |
 | Dependencies | `requirements.txt` with `--require-hashes` in Dockerfile; `uv lock` for reproducible installs; `dependabot.yml` weekly |
@@ -95,7 +95,7 @@ CI `validate` script: IPSW/FairPlay/DB/env/API/logs checks — all pass.
 ## Sign-off
 
 **Reviewer:** Muse Code  
-**Date:** 2026-09-29  
-**Commit:** `eb831f3b414a13e5b5d8f011e6790c919cbec987`  
-**CI:** `36499409453` `success`  
-**CodeQL:** `36499409461` `success`
+**Date:** 2026-10-01  
+**Commit:** `708c793eee262c0c79e397ab2dff885c3579feaa`  
+**CI:** `36762274847` `success`  
+**CodeQL:** `36762274852` `success`
