@@ -2732,7 +2732,7 @@ def api_admin_sync_state_update(udid: str):
     if err:
         return err
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         allowed_fields = [
             "push_token", "apns_topic", "sync_enabled", "find_my_enabled",
             "icloud_enabled", "carrier_activated", "phone_number"
@@ -2791,7 +2791,7 @@ def api_admin_carrier_activate(udid: str):
     if err:
         return err
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         phone_number = data.get("phone_number", "")
         updates = {"carrier_activated": 1}
         if phone_number:
@@ -2813,7 +2813,7 @@ def api_admin_register_push(udid: str):
     if err:
         return err
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         push_token = data.get("push_token", "")
         if not push_token:
             return jsonify({"ok": False, "error": "push_token required"}), 400
