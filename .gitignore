@@ -6,6 +6,16 @@
 *.key
 *.crt
 *.csr
+# PKCS#12 / PKCS#8 bundles embed a private key in a single file
+*.p12
+*.pfx
+*.jks
+*.keystore
+# OpenSSL serial files pair with a CA and reveal issuance history
+*.srl
+# Interception proxy CA — mitmproxy writes its private key under ~/.mitmproxy
+.mitmproxy/
+mitmproxy-ca*
 !static/favicon.svg
 !static/zalive-logo.svg
 !static/zalive-icon.svg
@@ -63,8 +73,12 @@ ehthumbs.db
 *.log
 logs/*
 !logs/.gitkeep
+# Re-open only the folder itself, then re-close its contents. git cannot descend
+# into an excluded directory, so `!logs/restore/` is required; but pairing it
+# with a blanket `logs/restore/*` means a newly added file type stays ignored
+# by default instead of relying on a later rule to catch it.
 !logs/restore/
-!logs/restore/*
+logs/restore/*
 !logs/restore/README.md
 # idevicerestore probe logs — bulk numeric probes auto-ignored, keep only real device start-activate if needed
 restore_*.log
@@ -74,20 +88,45 @@ mitmproxy.log
 # Probe logs capture device identifiers (ECID/UDID/serial/IMEI) — see
 # SECURITY.md "device identifiers are never committed". Keep the folder and
 # its README, never the logs themselves.
-logs/restore/*.log
 logs/restore/**/*.log
+# Runtime state written into the working tree
+.albert.pid
+*.pid
+*.sock
+*.swp
+.dSYM/
 
 # --- IPSW firmware (8.1G binary, never commit) ---
 *.ipsw
 *.dmg
 *.img4
 !*.sha256
+# Apple-signed firmware components. Matched by extension rather than by path so
+# that an extraction into any directory is still ignored, not just ./firmware.
+*.im4p
+*.im4m
+*.trustcache
+*.mtree
+*.root_hash
+*.aea
+*.dmg.*
 # Extracted firmware tree and single-component blobs pulled out of an IPSW
 firmware/
 iBEC
 iBSS
+*.iBEC
+*.iBSS
 # SHSH blob filenames embed the device ECID
 shsh/
+*.shsh
+
+# --- Local databases (hold UDID/IMEI/serial per activation) ---
+*.db
+*.sqlite
+*.sqlite3
+*.db3
+*.db-wal
+*.db-shm
 
 # --- Runtime / local data ---
 .tmp/
@@ -98,8 +137,6 @@ certs/*
 !certs/server-green.crt
 Library/
 grafana/data/
-*.pid
-*.sock
 
 # --- Terraform ---
 .terraform/
@@ -114,3 +151,11 @@ activate_device.py.bak
 albert_server.py.bak
 firmware_restore_proxy.py.bak
 start.sh.bak
+
+# --- Scratch files produced by the RE tooling in scripts/ ---
+# These write a decompressed 54 MiB kernel and its instruction sweep next to
+# whatever path is passed in; keep them out of the repository at any depth.
+kernel.decompressed
+*.sweep.json
+iboot.decompressed
+
