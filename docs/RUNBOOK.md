@@ -27,9 +27,23 @@ curl http://127.0.0.1:18090/health
 1. Put device in Recovery: `ideviceenterrecovery $UDID` or Home+Power (`idevice_id -l` to discover UDID, e.g. `00008020-AAAAAAAAAAAAAAAA`).
 2. Verify: `irecovery -a` or `idevice_id -l` (Recovery) / `lsusb` shows 05ac:12a8.
 3. Restore: `idevicerestore -e -y iPhone11,8_18.7.10_22H374_Restore.ipsw` (Erase). Use `-u $UDID` if multiple devices.
-4. On Hello screen, activation via local Albert:
+   - Run from the **physical host**, not from inside a VM guest with USB passthrough. Passthrough
+     re-enumerates the device between Recovery and Restore (`usb 1-1` ⇄ `usb 1-2`) and the handoff
+     fails with `Device reconnected in Recovery mode, most likely image personalization failed`.
+     `05ac:1280` (Restore Mode) is the mode to watch for; if it never enumerates, suspect transport
+     rather than the IPSW. See `docs/re/WORK-REPORT.md` §2.
+4. On Hello screen, activation:
+   - Against **real Apple** (works when the device's Apple ID is healthy):
+     `./venv/bin/python scripts/try_activate.py` — prompts for the Apple ID and password via
+     `getpass`, so credentials never reach argv, the process list, or shell history. Requires
+     `albert.apple.com` **not** redirected to `127.0.0.1` in `/etc/hosts`.
    - Option A (proxy): Configure device Wi-Fi proxy → `127.0.0.1:28081`, trust CA via `http://mitm.it`.
    - Option B (direct): `python activate_device.py --albert-url http://127.0.0.1:18090 --udid $UDID`
+
+   **The local server cannot activate a device.** The device verifies the FairPlay
+   `HandshakeResponseMessage` against Apple's public key; the signing key never appears on the
+   wire, so no local response can satisfy the check. The endpoint is kept for protocol research and
+   request-handling tests only. See `docs/re/ACTIVATION-PROTOCOL.md`.
 
 ## Logs
 - `albert.log` (host), `docker compose logs albert-server`, `mitmproxy.log`, `logs/`
@@ -67,5 +81,8 @@ Keys are `0600` persisted; backup `certs/` before rotation.
 
 ## Logs
 - All logs under `logs/` (host: `logs/albert.log`, `logs/mitmproxy.log`, `logs/restore/restore_*.log`, `logs/validate.log`; docker volume `logs:/app/logs`). Old root `*.log` ignored via `.gitignore`.
-- `logs/` is gitignored; `logs/.gitkeep` + `logs/restore/README.md` kept.
+- `logs/` is gitignored; `logs/.gitkeep` + `logs/restore/README.md` kept. The restore folder is
+  re-opened and immediately re-closed (`!logs/restore/` + `logs/restore/*` +
+  `!logs/restore/README.md`), so any new file type dropped there stays ignored by default. Restore
+  probe logs carry device identifiers (ECID/UDID/serial/IMEI) and must never be committed.
 - Retention: SQLite `activations` pruned to `10k` rows + `30d` via `DELETE ... NOT IN (SELECT id ... LIMIT 10000)` in `api_admin/checkpoint` and `albert_server.py` every 100 writes.

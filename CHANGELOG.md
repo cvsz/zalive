@@ -2,6 +2,28 @@
 
 All notable changes to `albert_server` (Local Albert for iPhone 5→15 Pro) documented per Keep a Changelog.
 
+## [Unreleased] - 2026-09-30
+
+### Fixed
+- `activate_device.py` broken against pymobiledevice3 v11: `get_device_info` read `MuxDevice.udid` but v11 exposes `.serial`, and `LockdownClient` became an abstract class. Now resolves the UDID across all attribute names and uses `await create_using_usbmux()`. `--info` works again.
+
+### Security
+- `.gitignore` hardening. Added `*.p12`/`*.pfx`/`*.jks`/`*.keystore` (PKCS#12 embeds a private key in a single file — the previous rules covered only `*.pem`/`*.key`/`*.crt`/`*.csr`), `.mitmproxy/`/`mitmproxy-ca*` (interception CA private key), Apple firmware components `*.im4p`/`*.im4m`/`*.trustcache`/`*.mtree`/`*.root_hash`/`*.aea`/`*.dmg.*`/`*.iBEC`/`*.iBSS` (previously only matched under `firmware/` at the repo root), `*.shsh` (filenames embed the device ECID), `*.db`/`*.sqlite*` (activation records hold UDID/IMEI/serial), `*.srl`, and the RE scratch files `kernel.decompressed`/`iboot.decompressed`/`*.sweep.json`.
+- `logs/restore/` no longer blanket-un-ignores its contents. The old `!logs/restore/*` re-opened the whole folder and relied on a later `.log`-specific rule to close it, so any new file type would have been committed. Now the folder is re-opened and immediately re-closed, with only `README.md` allowed through.
+- Device identifiers (UDID/IMEI/serial/ECID) redacted from `docs/re/` and the RE scripts.
+
+### Added
+- `docs/re/` — reverse-engineering write-ups: activation protocol (4 hops, trust anchor), iOS 18.7.10 IPSW structure (76 components, the two BuildIdentities explained as erase/update ramdisks, Image4 DER framing), and a work report.
+- `scripts/` — read-only RE tooling: `parse_im4.py`, `extract_kernel.py`, `analyze_kernel.py`, `sweep_kernel.py`, plus activation helpers `try_activate.py`, `activate_real_apple.py`, `diagnose_activation_reject.py`. None store credentials.
+- `docs/ai/`, `skills/`, `plugins.d/`, `components.d/`, `ecc-install.json`, `CLAUDE.md`, `OPENCODE.md`, `docs/repository-rollout.md` — imported from `cvsz/ztemplate` `main` (`4f40f89`). Existing Local Albert files were left untouched.
+
+### Changed
+- Repository language contract is now Thai for explanations/documentation/comments with English for code, configuration, and technical terms.
+
+### Known issues
+- Activation against real Apple is blocked server-side by the device owner's account state (`Apple Account disabled`). The local server cannot satisfy the FairPlay DRM handshake: the device verifies `HandshakeResponseMessage` against Apple's public key and the signing key never appears on the wire. The previous placeholder response shares only one of five key names with Apple's real response, and three of its keys do not exist in Apple's protocol at all.
+- Erase restore succeeds from the physical host but fails from inside the VMware guest — USB passthrough drops the device across the Recovery to Restore handoff.
+
 ## [v0.2.0] - 2026-09-29
 
 ### Security

@@ -24,7 +24,7 @@ Out of scope for this policy: Apple infrastructure, Apple-copyrighted IPSW files
 
 - **FairPlay key material** is persisted at `certs/fairplay.key` and `certs/fairplay.crt` with `0600` (`0o600`). On first start `albert_server.py` generates RSA 2048 + self-signed CA; on subsequent starts it loads the persisted files. Both files are `chmod 0o600` after write (`albert_server.py:952-956`, `FIRMWARE_CACHE` also `0o600`, `certs/server.key` is `0600` on current host; `certs/server.crt` is public `0644`).
 - **Rotation:** `python albert_server.py --rotate-fairplay` removes `certs/fairplay.key` / `.crt` (also `rm certs/fairplay.* && ./start.sh restart` per `docs/RUNBOOK.md`) and regenerates on next start with `0600`.
-- **Git hygiene:** `.gitignore` excludes `*.key`, `*.pem`, `.env`, `*.log`, `logs/`, `*.ipsw`; `certs/*.key` and device identifiers are never committed. `IMPLEMENTATION-CHECKLIST.md` records no secrets committed.
+- **Git hygiene:** `.gitignore` excludes `*.key`, `*.pem`, `*.crt`, `*.csr`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, `*.srl`, `.env`, `*.log`, `logs/*`, `*.ipsw`, `*.im4p`, `*.trustcache`, `*.mtree`, `*.aea`, `*.shsh`, `firmware/`, `shsh/`, `*.db`, `*.sqlite*`, `.mitmproxy/`; `certs/*.key` and device identifiers are never committed. `logs/restore/` keeps only its `README.md` — re-opening the folder is paired with a blanket `logs/restore/*` so a newly added file type stays ignored by default. `IMPLEMENTATION-CHECKLIST.md` records no secrets committed.
 - Operators are responsible for securing key material and complying with cryptography export controls (see `NOTICE`).
 
 Do not commit or paste key material, `.env` values, or device identifiers.
