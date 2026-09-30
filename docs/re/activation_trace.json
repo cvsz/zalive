@@ -1,0 +1,221 @@
+{
+  "identity": {
+    "SerialNumber": "\u2026EKXKQ",
+    "UniqueDeviceID": "00008020-\u20262E",
+    "ProductType": "iPhone11,8",
+    "ProductVersion": "18.7.10",
+    "BuildVersion": "22H374",
+    "ActivationState": "Unactivated",
+    "InternationalMobileEquipmentIdentity": "35734\u2026491",
+    "MobileEquipmentIdentifier": "35734009168249",
+    "TelephonyCapability": true
+  },
+  "trace": [
+    {
+      "stage": "identity",
+      "direction": "read",
+      "t": 1790771885.8644607
+    },
+    {
+      "stage": "identity",
+      "direction": "value",
+      "t": 1790771885.8855731,
+      "data": {
+        "SerialNumber": "…EKXKQ",
+        "UniqueDeviceID": "00008020-…2E",
+        "ProductType": "iPhone11,8",
+        "ProductVersion": "18.7.10",
+        "BuildVersion": "22H374",
+        "ActivationState": "Unactivated",
+        "InternationalMobileEquipmentIdentity": "35734…491",
+        "MobileEquipmentIdentifier": "35734009168249",
+        "TelephonyCapability": true
+      }
+    },
+    {
+      "stage": "state",
+      "direction": "read",
+      "t": 1790771885.9125478,
+      "activation_state": "Unactivated"
+    },
+    {
+      "stage": "session",
+      "direction": "request",
+      "t": 1790771885.9125657,
+      "command": "CreateTunnel1SessionInfoRequest"
+    },
+    {
+      "stage": "session",
+      "direction": "response",
+      "t": 1790771887.9138033,
+      "structure": {
+        "CollectionBlob": {
+          "type": "bytes",
+          "len": 27454,
+          "sha256_16": "1aacbc917b2a9c4d",
+          "head_hex": "3c3f786d6c2076657273696f6e3d2231"
+        },
+        "HandshakeRequestMessage": {
+          "type": "bytes",
+          "len": 21,
+          "sha256_16": "b6603d1b88a55a76",
+          "head_hex": "82c71f25924d34806a97dbb99f837c61"
+        },
+        "UniqueDeviceID": {
+          "type": "str",
+          "len": 25,
+          "sample": "00008020-…2E"
+        }
+      }
+    },
+    {
+      "stage": "drmHandshake",
+      "direction": "request",
+      "t": 1790771887.9138334,
+      "url": "https://albert.apple.com/deviceservices/drmHandshake",
+      "headers": {
+        "Content-Type": "application/x-apple-plist",
+        "Accept": "application/xml",
+        "User-Agent": "iOS Device Activator (MobileActivation-20 built on Jan 15 2012 at 19:07:28)",
+        "Expect": "100-continue"
+      },
+      "body_keys": [
+        "CollectionBlob",
+        "HandshakeRequestMessage",
+        "UniqueDeviceID"
+      ]
+    },
+    {
+      "stage": "drmHandshake",
+      "direction": "response",
+      "t": 1790771888.8499026,
+      "content_type": "application/xml",
+      "body_len": 1672
+    },
+    {
+      "stage": "drmHandshake",
+      "direction": "decoded",
+      "t": 1790771888.850252,
+      "structure": {
+        "serverKP": {
+          "type": "bytes",
+          "len": 85,
+          "sha256_16": "8e580fc82a8148fb",
+          "head_hex": "03434afea1b3704e7430f5bedb719570"
+        },
+        "FDRBlob": {
+          "type": "bytes",
+          "len": 32,
+          "sha256_16": "1d2625003043df37",
+          "head_hex": "ba432d1fd45d490bc7cc1c7b162046af"
+        },
+        "SUInfo": {
+          "type": "bytes",
+          "len": 366,
+          "sha256_16": "724303aabec1b72d",
+          "head_hex": "95020100d195010ef921da879062382c"
+        },
+        "HandshakeResponseMessage": {
+          "type": "bytes",
+          "len": 508,
+          "sha256_16": "d59b5e9ab9dd3552",
+          "head_hex": "0239db4f75a5eca0d4c3dc9ae1de32d6"
+        }
+      }
+    },
+    {
+      "stage": "activationInfo",
+      "direction": "request",
+      "t": 1790771888.8502746,
+      "command": "CreateTunnel1ActivationInfoRequest"
+    },
+    {
+      "stage": "activationInfo",
+      "direction": "response",
+      "t": 1790771890.9525886,
+      "accepted": true,
+      "structure": {
+        "ActivationInfoXML": {
+          "type": "bytes",
+          "len": 13818,
+          "sha256_16": "dee5d6e2c3ed6677",
+          "head_hex": "3c3f786d6c2076657273696f6e3d2231"
+        },
+        "FairPlayCertChain": {
+          "type": "bytes",
+          "len": 2812,
+          "sha256_16": "2225bacb6a7cb2e7",
+          "head_hex": "308202c43082022da003020102020d33"
+        },
+        "FairPlaySignature": {
+          "type": "bytes",
+          "len": 128,
+          "sha256_16": "bd0ec6586ddc34a4",
+          "head_hex": "8800ccd7bbcece26b25fb5880e7bc7e0"
+        },
+        "RKCertification": {
+          "type": "bytes",
+          "len": 977,
+          "sha256_16": "e8b739940cfb23e5",
+          "head_hex": "308203cd020102308203c60420fe02de"
+        },
+        "RKSignature": {
+          "type": "bytes",
+          "len": 72,
+          "sha256_16": "f78412b43e3d103e",
+          "head_hex": "3046022100e1da5e7f9ed27490f9eed0"
+        },
+        "serverKP": {
+          "type": "bytes",
+          "len": 85,
+          "sha256_16": "8e580fc82a8148fb",
+          "head_hex": "03434afea1b3704e7430f5bedb719570"
+        },
+        "signActRequest": {
+          "type": "bytes",
+          "len": 16,
+          "sha256_16": "b4d315a8d2e19ff9",
+          "head_hex": "bd93172f9e61d35d8c7557d86df6db08"
+        }
+      }
+    },
+    {
+      "stage": "deviceActivation",
+      "direction": "request",
+      "t": 1790771890.9530919,
+      "url": "https://albert.apple.com/deviceservices/deviceActivation",
+      "form_fields": [
+        "AppleSerialNumber",
+        "InStoreActivation",
+        "activation-info"
+      ],
+      "activation_info_len": 25095
+    },
+    {
+      "stage": "deviceActivation",
+      "direction": "response",
+      "t": 1790771892.08505,
+      "content_type": "application/x-buddyml",
+      "body_len": 35912
+    },
+    {
+      "stage": "deviceActivation",
+      "direction": "form",
+      "t": 1790771892.0860043,
+      "elements": [
+        {
+          "tag": "script",
+          "text": "function enableNext() {\n            var username = xmlui.getFieldValue('login');\n            var password = xmlui.getFieldValue('password');\n            if(username && password) {\n                retu"
+        },
+        {
+          "tag": "footer",
+          "text": "This iPhone is linked to an Apple account. Enter the Apple account and password that were used to set up this iPhone. w\u2022\u2022\u2022\u2022\u2022@icloud.com"
+        },
+        {
+          "tag": "footer",
+          "text": "Activation Lock Help"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "FairPlayCertChain": {
+    "total_len": 2812,
+    "der_offsets": [
+      0,
+      4,
+      712,
+      716,
+      1601,
+      1860
+    ],
+    "framing_prefix_len": 0,
+    "framing_prefix_hex": "",
+    "first_cert": {
+      "subject": "CN=iPhone.3333AF070402AF0002AF000003,OU=Apple FairPlay,O=Apple Inc.,C=US",
+      "issuer": "CN=Apple FairPlay Certification Authority,OU=Apple Certification Authority,O=Apple Inc.,C=US",
+      "serial": "3333af070402af0002af000003",
+      "not_after": "2012-03-31T15:17:28+00:00",
+      "sig_alg": "sha1WithRSAEncryption",
+      "key_size": 1024
+    }
+  },
+  "RKCertification": {
+    "total_len": 975,
+    "der_offsets": [],
+    "framing_prefix_len": null,
+    "framing_prefix_hex": null
+  },
+  "ActivationInfoXML_sections": {
+    "ActivationRequestInfo": {
+      "keys": [
+        "ActivationRandomness",
+        "ActivationState",
+        "FMiPAccountExists"
+      ],
+      "n_keys": 3
+    },
+    "BasebandRequestInfo": {
+      "keys": [
+        "ActivationRequiresActivationTicket",
+        "BasebandActivationTicketVersion",
+        "BasebandChipID",
+        "BasebandMasterKeyHash",
+        "BasebandSerialNumber",
+        "InternationalMobileEquipmentIdentity",
+        "InternationalMobileEquipmentIdentity2",
+        "MobileEquipmentIdentifier",
+        "SIMStatus",
+        "SIMStatus2",
+        "SupportsPostponement"
+      ],
+      "n_keys": 11
+    },
+    "DeviceCertRequest": {
+      "type": "bytes",
+      "len": 696
+    },
+    "DeviceID": {
+      "keys": [
+        "SerialNumber",
+        "UniqueDeviceID"
+      ],
+      "n_keys": 2
+    },
+    "DeviceInfo": {
+      "keys": [
+        "BuildVersion",
+        "DeviceClass",
+        "DeviceVariant",
+        "ModelNumber",
+        "OSType",
+        "ProductType",
+        "ProductVersion",
+        "RegionCode",
+        "RegionInfo",
+        "RegulatoryModelNumber",
+        "SigningFuse",
+        "UniqueChipID"
+      ],
+      "n_keys": 12
+    },
+    "RegulatoryImages": {
+      "keys": [
+        "DeviceVariant"
+      ],
+      "n_keys": 1
+    },
+    "SoftwareUpdateRequestInfo": {
+      "keys": [
+        "Enabled"
+      ],
+      "n_keys": 1
+    },
+    "UIKCertification": {
+      "keys": [
+        "BluetoothAddress",
+        "BoardId",
+        "ChipID",
+        "EthernetMacAddress",
+        "UIKCertification",
+        "WifiAddress"
+      ],
+      "n_keys": 6
+    }
+  },
+  "UIKCertification_detail": {
+    "BluetoothAddress": "e4:b2:fb:06:a1:4a",
+    "BoardId": "12",
+    "ChipID": "32800",
+    "EthernetMacAddress": "e4:b2:fb:07:24:3b",
+    "UIKCertification": "<bytes len=7217>",
+    "WifiAddress": "e4:b2:fb:05:fa:5b"
+  }
+}

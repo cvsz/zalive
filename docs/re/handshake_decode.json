@@ -1,0 +1,55 @@
+{
+  "serverKP": {
+    "len": 85,
+    "head_hex": "033a1231be7413ee",
+    "note": "opaque key blob; 0x03 prefix is an ASN.1 context tag"
+  },
+  "FDRBlob": {
+    "len": 32,
+    "note": "32-byte nonce"
+  },
+  "SUInfo": {
+    "len": 366,
+    "head_hex": "95020100d195010e",
+    "note": "starts 9502 0100 -> likely versioned TLV (v2, len 0x0100=256) + 95 01 011a (26-byte field)"
+  },
+  "HandshakeResponseMessage": {
+    "len": 508,
+    "head_hex": "027224fd5d7dc679",
+    "note": "0x02 = ASN.1 OCTET STRING wrapper; remainder is signed payload"
+  },
+  "FairPlayCertChain": [
+    {
+      "parse_error": "error parsing asn1 value: ParseError { kind: ExtraData }"
+    }
+  ],
+  "RKCertification": {
+    "parse_error": "error parsing asn1 value: ParseError { kind: UnexpectedTag { actual: Tag { value: 2, constructed: false, class: Universal } }, location: [\"Certificate::tbs_cert\"] }"
+  },
+  "FairPlaySignature": {
+    "len": 128,
+    "alg": "RSA-1024 (128-byte raw signature)"
+  },
+  "RKSignature": {
+    "len": 71,
+    "note": "72 bytes -> likely ECDSA P-256 r||s plus 8-byte trailer"
+  },
+  "signActRequest": {
+    "len": 16,
+    "hex": "f2c87a7a04f3eee930177232e55c2637"
+  },
+  "ActivationInfoXML": {
+    "len": 13818,
+    "format": "XML plist (embedded in <?xml ...?>)",
+    "top_level_keys": [
+      "ActivationRequestInfo",
+      "BasebandRequestInfo",
+      "DeviceCertRequest",
+      "DeviceID",
+      "DeviceInfo",
+      "RegulatoryImages",
+      "SoftwareUpdateRequestInfo",
+      "UIKCertification"
+    ]
+  }
+}

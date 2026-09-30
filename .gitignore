@@ -71,12 +71,23 @@ restore_*.log
 restore_179*.log
 albert.log
 mitmproxy.log
+# Probe logs capture device identifiers (ECID/UDID/serial/IMEI) — see
+# SECURITY.md "device identifiers are never committed". Keep the folder and
+# its README, never the logs themselves.
+logs/restore/*.log
+logs/restore/**/*.log
 
 # --- IPSW firmware (8.1G binary, never commit) ---
 *.ipsw
 *.dmg
 *.img4
 !*.sha256
+# Extracted firmware tree and single-component blobs pulled out of an IPSW
+firmware/
+iBEC
+iBSS
+# SHSH blob filenames embed the device ECID
+shsh/
 
 # --- Runtime / local data ---
 .tmp/

@@ -643,25 +643,42 @@ async def get_device_info(udid: Optional[str]) -> Optional[Dict[str, Any]]:
         devices = await list_devices()
         if not devices:
             return None
-        device = next((d for d in devices if d.udid == udid), devices[0]) if udid else devices[0]
-        lockdown = LockdownClient(device.udid)
+        # pymobiledevice3 >= 3.x ใช้ MuxDevice.serial; เวอร์ชันเก่ากว่าใช้ .udid/.identifier
+        def _dev_id(d):
+            return getattr(d, "serial", None) or getattr(d, "udid", None) or getattr(d, "identifier", None) or str(d)
+        device = next((d for d in devices if _get_dev_id(d) == udid), devices[0]) if udid else devices[0]
+        dev_id = _dev_id(device)
+        # pymobiledevice3 3.x: LockdownClient เป็น abstract class ต้องใช้ create_using_usbmux (async)
+        try:
+            from pymobiledevice3.lockdown import create_using_usbmux
+            lockdown = await create_using_usbmux(serial=dev_id)
+            get_value = lockdown.get_value
+            all_values = lockdown.all_values
+        except ImportError:
+            lockdown = LockdownClient(dev_id)
+            get_value = lockdown.get_value
+            all_values = lockdown.all_values
         info = {}
         for key in ["SerialNumber", "UniqueDeviceID", "ProductType", "ProductVersion",
                     "InternationalMobileEquipmentIdentity", "MobileEquipmentIdentifier",
                     "InternationalMobileSubscriberIdentity", "IntegratedCircuitCardIdentity",
                     "TelephonyCapability", "ActivationState", "BuildVersion", "ProductVersion"]:
             try:
-                value = lockdown.get_value(key=key)
+                value = get_value(key=key)
+                if asyncio.iscoroutine(value):
+                    value = await value
                 if value:
                     info[key] = value
-            except:
+            except Exception:
                 pass
         try:
-            all_vals = lockdown.all_values
-            for k in ["DeviceName","TimeZone","Language"]:
-                if k in all_vals and k not in info:
-                    info[k] = all_vals[k]
-        except:
+            vals = all_values
+            if asyncio.iscoroutine(vals):
+                vals = await vals
+            for k in ["DeviceName", "TimeZone", "Language"]:
+                if k in vals and k not in info:
+                    info[k] = vals[k]
+        except Exception:
             pass
         return info
     except Exception as e:
