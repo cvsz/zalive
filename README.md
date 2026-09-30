@@ -54,15 +54,32 @@ Services:
 ### 4. Activate Device
 
 ```bash
-# Direct test (simulated)
-python3 activate_device.py --method direct --json
+# Against real Apple — prompts for the Apple ID via getpass (recommended)
+./venv/bin/python scripts/try_activate.py
 
-# Via pymobiledevice3 (USB)
-python3 activate_device.py --method pymobiledevice3 --udid <UDID>
-
-# Via ideviceactivation (USB)
-python3 activate_device.py --method ideviceactivation --udid <UDID>
+# Print Apple's exact rejection reason
+./venv/bin/python scripts/diagnose_activation_reject.py
 ```
+
+`albert.apple.com` must **not** be redirected to `127.0.0.1` in `/etc/hosts` — the client talks to
+Apple directly over USB.
+
+> **A local Albert server cannot activate a real device.** The device verifies the FairPlay
+> `HandshakeResponseMessage` against Apple's public key, and the signing key never appears on the
+> wire, so no local response satisfies the check. `/deviceservices/*` exists for protocol research
+> and request-handling tests. See `docs/re/ACTIVATION-PROTOCOL.md`.
+>
+> A device with no activation lock simply activates against Apple once it can reach
+> `albert.apple.com`. If the account is disabled or iCloud-locked, only the account owner can
+> clear it.
+
+## Reverse engineering notes
+
+`docs/re/` holds the write-ups from inspecting a real iPhone11,8 restore:
+
+- `WORK-REPORT.md` — restore, activation and firmware research, including the corrections
+- `ACTIVATION-PROTOCOL.md` — the 4 activation hops and the FairPlay trust anchor
+- `IPSW-18.7.10-STRUCTURE.md` — 76 components, Image4 DER framing, kernel extraction
 
 ## Endpoints
 

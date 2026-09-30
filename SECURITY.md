@@ -12,7 +12,7 @@ This private-reporting policy is inherited from the template and retained for `a
 
 ## Supported versions
 
-`albert_server` tracks `main`. Security fixes are applied to `main` and the latest tagged release. Older tags and forks are not supported unless noted in `CHANGELOG.md` or a GitHub release. Python `3.14` (`python:3.14-slim` in `Dockerfile`) is the tested runtime; `3.9+` is the minimum per `README.md`.
+`albert_server` tracks `main`. Security fixes are applied to `main` and the latest tagged release. Older tags and forks are not supported unless noted in `CHANGELOG.md` or a GitHub release. Python `3.13` (`python:3.13-slim` in `Dockerfile`, `python-version: "3.13"` in CI) is the tested runtime; `3.9+` is the minimum per `README.md`.
 
 ## Threat model and scope
 
@@ -47,7 +47,7 @@ Operation requires explicit acknowledgement of legal risk (see `NOTICE` Apple To
 
 - Startup refuses with `exit 2` and `ERROR: ALBERT_ACCEPT_RISK must be 1 …` unless `ALBERT_ACCEPT_RISK=1` is set in the environment / `.env`, or `--allow-no-risk` is passed (lab-only, bypass is still logged), or `--rotate-fairplay` is used.
 - When `ALBERT_ACCEPT_RISK=1`, the server logs `ALBERT_ACCEPT_RISK=1 acknowledged — activation bypass enabled (owned devices only, see NOTICE)`.
-- Configure via `.env.example` / `docs/RUNBOOK.md` / `docs/ARCHITECTURE.md` (`ALBERT_HTTP_PORT=18090`, `FAIRPLAY_KEY_PATH`, `ALBERT_MODE`).
+- Configure via `.env.example` / `docs/RUNBOOK.md` / `docs/architecture.md` (`ALBERT_HTTP_PORT=18090`, `FAIRPLAY_KEY_PATH`, `ALBERT_MODE`).
 
 No bypass or activation record is issued without that gate.
 
@@ -58,7 +58,7 @@ Do not add duplicates — the following are already committed:
 - **Dependabot** (`.github/dependabot.yml`): weekly updates for `github-actions` and `docker` (`open-pull-requests-limit: 10`).
 - **CodeQL** (`.github/workflows/codeql.yml` + `.github/codeql-config.yml`): `security-extended` queries; workflow `Analyze GitHub Actions` (`actions` language) on `push`/`pull_request` to `main` and weekly schedule `23 3 * * 1` with `security-events: write`.
 - **Dependency Review** (`.github/workflows/dependency-review.yml`): on `pull_request` to `main`.
-- **CI** (`.github/workflows/ci.yml`): `ruff check`, `bandit -r . --exclude ./venv`, `pytest -q`, `docker compose config` on `push`/`pull_request` (`**`, Python `3.14`).
+- **CI** (`.github/workflows/ci.yml`): `ruff check`, `bandit -r . --exclude ./venv`, `pytest -q`, `docker compose config` on `push`/`pull_request` (`**`, Python `3.13`).
 
 Keep these workflows enabled and review Dependabot alerts.
 

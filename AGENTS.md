@@ -1,11 +1,26 @@
 # AGENTS.md — Repository Agent Contract
 
+# Agent System Rules
+
+## Language & Communication Guidelines
+- **Primary Response Language:** Always communicate, explain, and write documentation/comments in **Thai** (ภาษาไทย).
+- **Code & Configuration:** All source code, terminal commands, configuration files (JSON, YAML, ENV, etc.), variable names, and code syntax MUST remain in **English**.
+- **Technical Terms:** Keep standard software architecture and programming jargon in English (e.g., *refactor*, *middleware*, *dependency injection*) to maintain accuracy.
+
+## Response Behavior
+1. **Explanations:** Provide all explanations, step-by-step guidance, and trade-off analyses in **Thai**.
+2. **Code Blocks:** Write clean, executable code entirely in **English**. Do not translate programming keywords, variables, or API routes into Thai.
+3. **Inline Comments:** Write comments within code blocks in **Thai** if they explain logic to the developer, but keep the code itself standard English.
+
 ## Purpose
-This repository is a reusable GitHub project template. Changes must remain generic, secure by default, easy to customize, and safe to inherit into a newly generated repository.
+`albert_server` is a Local Albert activation server for owned iOS devices (iPhone 5→15 Pro),
+derived from `zTemplate` — it is a product, not a generic project template. Changes must stay
+secure by default, keep the repository inheritable into a newly generated project, and avoid
+inventing project-specific owners, domains, or providers.
 
 ## Operating rules
 - Read README.md, CONTRIBUTING.md, SECURITY.md, ROADMAP.md, and the closest AGENTS.md before editing.
-- Keep code, configuration, filenames, commit messages, and technical documentation in English.
+- Keep code, configuration, filenames, commit messages, and technical documentation both Thai/English.
 - Prefer the smallest reviewable change that satisfies the requested scope.
 - Never weaken CI, security scanning, dependency review, branch protections, or release controls merely to make a check pass.
 - Never commit credentials, tokens, private keys, production endpoints, personal data, or realistic secrets. Use documented placeholders.
