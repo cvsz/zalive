@@ -135,7 +135,9 @@ def main() -> int:
             subprocess.run([cand, "--version"], capture_output=True, check=True)
             nm = cand
             break
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
+            # Candidate is missing or unusable; try the next one. Narrow types
+            # only, so a real failure inside the probe still surfaces.
             continue
     if nm:
         r = subprocess.run([nm, "--defined-only", args.kernel],

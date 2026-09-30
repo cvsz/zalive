@@ -169,8 +169,11 @@ def sign_cms(data: bytes, key, cert_chain: bytes) -> bytes:
     if not certs:
         cert = x509.load_pem_x509_certificate(cert_chain)
         certs = [cert]
+    # SHA-1 is mandated by Apple's APTicket/CMS format; the signature is
+    # verified against Apple's published certificate, so this is a protocol
+    # requirement rather than a weak-hash choice of our own.
     signed = pkcs7.PKCS7SignatureBuilder().set_data(data).add_signer(
-        certs[0], key, hashes.SHA1()
+        certs[0], key, hashes.SHA1()  # nosec B303 - Apple APTicket format requires SHA-1
     ).sign(serialization.Encoding.DER, [])
     return signed
 

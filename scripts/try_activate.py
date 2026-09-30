@@ -66,7 +66,9 @@ def main() -> int:
         # Scrub the credentials from this process' environment copy.
         for key in ("APPLE_LOGIN", "APPLE_PASSWORD"):
             env.pop(key, None)
-        password = ""
+        # Overwrite then drop the local name so the credentials do not stay
+        # reachable in this frame while the child process already has them.
+        password = ""  # nosec B105 - scrubbing, not a secret
         del password
 
 

@@ -142,7 +142,9 @@ async def main() -> int:
     })
 
     if rh.get("Content-Type") == "application/x-buddyml":
-        import xml.etree.ElementTree as ET
+        # The body comes from the device, so parse it with defusedxml rather
+        # than the stdlib parser, which is vulnerable to entity expansion.
+        from defusedxml import ElementTree as ET
         root = ET.fromstring(content.decode())
         texts = [(e.tag.split("}")[-1], (e.text or "").strip())
                  for e in root.iter() if (e.text or "").strip()]

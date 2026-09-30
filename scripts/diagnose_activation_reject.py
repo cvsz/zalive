@@ -10,7 +10,10 @@ written to disk.
 import asyncio
 import os
 import sys
-import xml.etree.ElementTree as ET
+
+# The XML here is Apple's activation response, i.e. untrusted input, so use
+# defusedxml instead of the stdlib parser that is open to entity expansion.
+from defusedxml import ElementTree as ET
 
 import plistlib
 

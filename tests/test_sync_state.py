@@ -14,7 +14,11 @@ import albert_server
 # Synthetic UDID: shape matches the real 25-char form (00008020 + '-' + 16 hex)
 # but is obviously not a device.
 UDID = "00008020-AAAAAAAAAAAAAAAA"
-TOKEN = "test-admin-token-not-a-secret"
+TOKEN = "test-admin-token-not-a-secret"  # nosec B105 - test fixture, not a credential
+# Synthetic APNs token used only as a fixture value. It is never sent to Apple
+# and carries no privilege, but bandit reads the "push_token" key as a secret,
+# so the waiver below is deliberate rather than a way to hide a real finding.
+PUSH_TOKEN = "abcdef0123456789"  # nosec B105 - synthetic fixture, not a credential
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +44,7 @@ def _seed(db, udid=UDID, imei="490154203237518", **cols):
         "udid": udid,
         "imei": imei,
         "serial": "F2LX00TEST",
-        "push_token": None,
+        "push_token": None,  # nosec B105 - default state, not a credential
         "apns_topic": None,
         "sync_enabled": 1,
         "find_my_enabled": 1,
@@ -259,12 +263,12 @@ def test_register_push_derives_topic_from_imei(_isolated_db):
     _seed(_isolated_db, imei="490154203237518")
     r = _client().post(
         f"/api/admin/sync-state/{UDID}/register-push",
-        json={"push_token": "abcdef0123456789"},
+        json={"push_token": PUSH_TOKEN},
         headers=_auth(),
     )
     assert r.status_code == 200
     row = _state(_isolated_db)
-    assert row["push_token"] == "abcdef0123456789"
+    assert row["push_token"] == PUSH_TOKEN
     assert row["apns_topic"] == "com.apple.activation.490154203237518"
 
 
@@ -273,7 +277,7 @@ def test_register_push_response_does_not_overclaim_apns(_isolated_db):
     _seed(_isolated_db)
     r = _client().post(
         f"/api/admin/sync-state/{UDID}/register-push",
-        json={"push_token": "abcdef0123456789"},
+        json={"push_token": PUSH_TOKEN},
         headers=_auth(),
     )
     msg = r.get_json().get("message", "").lower()

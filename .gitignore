@@ -145,12 +145,10 @@ grafana/data/
 .terraform.lock.hcl
 
 # --- Backups ---
+# *.bak already covers the editor backups this project accumulated
+# (README.md.bak, albert_server.py.bak, and friends); listing them
+# individually only goes stale as soon as a new one appears.
 *.bak
-README.md.bak
-activate_device.py.bak
-albert_server.py.bak
-firmware_restore_proxy.py.bak
-start.sh.bak
 
 # --- Scratch files produced by the RE tooling in scripts/ ---
 # These write a decompressed 54 MiB kernel and its instruction sweep next to
