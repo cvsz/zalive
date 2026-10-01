@@ -15,11 +15,30 @@ import plistlib
 import sqlite3
 import sys
 
+import pytest
+
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 import albert_server  # noqa: E402
 import device_profiles as dp  # noqa: E402
 import test_albert  # noqa: E402,F401  -- installs the X-Client-Cert shim on app.test_client
+
+
+@pytest.fixture(autouse=True, scope="module")
+def isolated_db(tmp_path_factory):
+    """Point albert_server at a throwaway database for this module.
+
+    These tests drive the device endpoints for real, so they write sync_state
+    rows. Without this they landed in logs/activations.db and mixed fixture
+    data into the local activation history on every run.
+    """
+    original = albert_server.DB_PATH
+    albert_server.DB_PATH = tmp_path_factory.mktemp("albert-profiles") / "activations.db"
+    albert_server._init_db()
+    try:
+        yield albert_server.DB_PATH
+    finally:
+        albert_server.DB_PATH = original
 
 # test_albert rebinds albert_server.app.test_client to a wrapper that injects
 # X-Client-Cert on /deviceservices/*, because the mTLS gate returns 401 without
@@ -253,3 +272,60 @@ def test_profile_overrides_do_not_mutate_the_profile():
     before = dict(dp.DEVICE_PROFILES["iphone7"])
     dp.activation_payload("iphone7", IMEI="358000000000008")
     assert dp.DEVICE_PROFILES["iphone7"] == before
+
+
+def test_activation_info_accepts_every_encoding_a_client_may_send():
+    """pymobiledevice3 posts a raw plist; older clients and libimobiledevice send
+    base64. Both must work, and a binary plist must survive whether it arrives as
+    a file part or a plain form field.
+
+    The field case is the one that was broken: Werkzeug decodes a plain field as
+    text, a bplist00 payload is not valid UTF-8, and by the time the handler runs
+    the unparsed body is gone under gunicorn's non-seekable stream.
+    """
+    import base64 as _b64
+    import io as _io
+
+    c = albert_server.app.test_client()
+    payload = dp.activation_payload("iphonexr", UniqueDeviceID=_fresh_udid(0x30))
+    xml = plistlib.dumps(payload)
+    binary = plistlib.dumps(payload, fmt=plistlib.FMT_BINARY)
+    b64 = _b64.b64encode(xml).decode()
+
+    def boundary(body, name="activation-info", filename=None):
+        disp = f'Content-Disposition: form-data; name="{name}"'
+        if filename:
+            disp += f'; filename="{filename}"'
+        return (
+            b"--B\r\n" + disp.encode() + b"\r\n\r\n" + body + b"\r\n--B--\r\n"
+        )
+
+    cases = [
+        ("multipart file part, xml", boundary(xml, filename="a.plist"), {}),
+        ("multipart field, xml", boundary(xml), {}),
+        ("multipart file part, binary", boundary(binary, filename="a.plist"), {}),
+        ("multipart field, binary", boundary(binary), {}),
+        ("urlencoded base64", None, {"data": {"activation-info": b64}}),
+    ]
+    for label, body, kw in cases:
+        if body is not None:
+            kw = dict(kw)
+            kw["data"] = body
+            kw["content_type"] = "multipart/form-data; boundary=B"
+        r = c.post("/deviceservices/deviceActivation", **kw)
+        assert r.status_code == 200, (label, r.status_code, r.get_data(as_text=True)[:150])
+        assert "iphone-activation" in plistlib.loads(r.data), label
+
+
+def test_raw_body_cache_is_scoped_to_device_paths():
+    """before_request caches the body for /deviceservices and /WebObjects only.
+    Caching it for /api or static routes would hold every response body in
+    memory for no benefit."""
+    c = albert_server.app.test_client()
+    r = c.get("/health")
+    assert r.status_code == 200
+    # A non-device request must not have populated the cache.
+    with albert_server.app.test_request_context("/health", method="GET"):
+        from flask import request as _rq
+
+        assert "albert.raw_body" not in _rq.environ
