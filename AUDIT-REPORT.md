@@ -16,7 +16,7 @@
 | Security Gates | `ruff ✅` `bandit ✅` `CodeQL python,actions ✅` `branch protection strict ci ✅` |
 | Deployment Ready | ✅ Docker multi-stage **3.14-slim**, compose `required:false`, `uv` hashes, `127.0.0.1:18090` secure-by-default + `0.0.0.0` LAN override, `127.0.0.1:18443` green SAN, **systemd unit installed and enabled** |
 | Intended Use | Lab/research activation of owned iOS devices (iPhone 5 → 15 Pro, 13 curated A6-A16). FairPlay placeholder — not for real Apple activation |
-| Git History | **Purged** 4 real identifiers (serial, UDID, IMEI, MEID — redacted here; the pre-purge values lived only in the discarded `refs/tbh/recovery/*` backup, which is why this report no longer quotes them) → `0` commits via `git-filter-repo --replace-text` + force push (backup `refs/tbh/recovery/before-discard/20260928T225229Z-2399085`) |
+| Git History | **Partially purged** — 4 real identifiers (serial, UDID, IMEI, MEID) were removed from *working-tree* files, but the values are **still present in reachable git history** and can be read with `git show <commit>:<path>`. Commit `ee91c84` (PR #8) still contains the unredacted MEID. Full removal requires `git filter-repo` + force-push, which has not been done. Until then treat the identifiers as compromised: rotate the FairPlay/CA material and assume the device is identifiable from this repository's history. |
 
 ## Findings closed since 2026-09-29
 
@@ -46,7 +46,7 @@
 | Gate | Finding | Fix Applied | Verification |
 |------|---------|-------------|--------------|
 | 01 Remove hardcoded secrets | `admin_token` in config | Move to `.env` + `.env.example` placeholders; rotate CI | `grep -r admin_token . --include="*.py" --include="*.yml" 0 results` |
-| 02 Purge Git history | 20 commits contained real IDs | `git-filter-repo --replace-text /tmp/replace.txt --force` + `refs/tbh/recovery/before-discard/20260928T225229Z-2399085` backup + force push `main` `72d74b4` GPG + `albert-server` `c1509a3` | `git log -S C8PX` `0`, `git rev-list --all --count` (value changes as history grows) |
+| 02 Purge Git history | 20 commits contained real IDs | `git-filter-repo --replace-text /tmp/replace.txt --force` + `refs/tbh/recovery/before-discard/20260928T225229Z-2399085` backup + force push `main` `72d74b4` GPG + `albert-server` `c1509a3` | **Re-verified 2026-10-01: NOT clean** — `git log -S 35734009168249` returns 3 commits and `git show ee91c84:docs/re/activation_trace.json` reads the unredacted MEID. The purge did not cover later commits, so the original '0' evidence no longer holds |
 | 03 Protect device APIs | `/api/device_info` etc lacked auth | Add `_admin_required()` + allowlist `domain/key` `^[A-Za-z0-9._-]+$` + `_validate_udid` | `curl /api/device_info` `401` → with `X-Admin-Token` `200` |
 | 04 Protect activations/logs + rate-limit all /api | `/api/activations`/`/api/logs` public + `api_rate_status` no auth + rate-limit only `/deviceservices` | Gate `8` endpoints behind `_admin_required`, `_match read-only`, `before_request` now `request.path.startswith("/api/")` all 100/min + Redis fail-closed | `curl /api/activations` `401` → `200` with token; `rate_limit_all_api` test `3→429` |
 | 05 Bind control-plane | `0.0.0.0:18090` exposes all routes | `ALBERT_HOST=127.0.0.1` + `docker-compose 127.0.0.1:18090/18443` secure-by-default; LAN override `ALBERT_HOST=0.0.0.0` + `ALBERT_LAN_HOST` + `UFW` documented; `mitmproxy 127.0.0.1:28080/28081` | `docker compose config` shows `127.0.0.1:18090` + `ALBERT_HOST=127.0.0.1` in `Dockerfile`/` .env.example` |
@@ -113,7 +113,7 @@ CI `validate` script: IPSW/FairPlay/DB/env/API/logs checks — all pass.
 - [x] CI: `compose-e2e` job runs full stack health + auth gates + restart + `down -v`
 - [x] Certs: `0600` perms, host-owned, container read-only mount
 - [x] Green CA generated locally for trusted LAN TLS. The certificate pair is **no longer tracked** — its SAN list carried a real LAN address and a private hostname, and the server never loaded it (gunicorn serves plain HTTP). Generate a fresh pair per host instead of committing one.
-- [x] Git history purged of real device IDs (filter-repo + force push)
+- [ ] Git history purged of real device IDs — **incomplete**. A 2026-09-28 `filter-repo` pass cleaned 20 commits, but real identifiers re-entered in later commits (e.g. `ee91c84` carries the unredacted MEID). Working-tree files are now redacted; the history still is not.
 
 ## Risk Acceptance
 
