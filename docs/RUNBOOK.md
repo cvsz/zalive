@@ -64,7 +64,7 @@ Keys are `0600` persisted; backup `certs/` before rotation.
 - Toggle via `.env` `ALBERT_MTLS_CA=/path/to/ca.pem` (CA bundle that signed `ALBERT_MTLS_CERT`).
 - Proxy must present client cert: `ALBERT_MTLS_CERT`/`ALBERT_MTLS_KEY` in `firmware_restore_proxy.py` env.
 - HTTP-mode header-only (`X-Client-Cert: present/mtls`) is spoofable; proxy now forwards real PEM or `X-MTLS-Token` (`ALBERT_MTLS_TOKEN`) when set. For production use `LOCAL_ALBERT_SCHEME=https` + gunicorn TLS so `SSL_CLIENT_VERIFY=SUCCESS` (real mTLS). Header fallback is gated by `ALBERT_MTLS_ALLOW_HEADER_FALLBACK` (`1` allows localhost header, `0` rejects spoofable path).
-- `gunicorn_conf.py` reads `ALBERT_MTLS_CA` at **import time** (`cert_reqs=2`), not per-request. Changing the var requires full restart:
+- `ALBERT_MTLS_CA` is read by `albert_server.py` on every request, but changing it still needs a restart to pick up a new `.env`. Note the worker itself serves **plain HTTP** — `gunicorn_conf.py` has no `certfile`/`keyfile`, so it never opens a TLS listener. To terminate TLS in gunicorn you must set `certfile` and `keyfile` as well; see the comment at the top of `gunicorn_conf.py`.
   ```bash
   sudo systemctl restart albert-server  # systemd
   # or
@@ -72,7 +72,12 @@ Keys are `0600` persisted; backup `certs/` before rotation.
   # or
   docker compose restart albert-server  # docker
   ```
-- Verify: `curl http://127.0.0.1:18090/health` still 200, but `curl -k https://127.0.0.1:18443/deviceservices/drmHandshake` without cert should 401 when mTLS on.
+- Verify (HTTP mode, which is what this deployment uses):
+  ```bash
+  curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18090/health            # 200
+  curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:18090/deviceservices/activity  # 401, no cert
+  ```
+  There is no listener on `18443` — `ALBERT_HTTPS_PORT` is published by `docker-compose.yml` but nothing in the app binds it, and the device-facing TLS is terminated by mitmproxy..
 
 ## Rate limiting
 - Defaults `100/min per IP` + `10/min per UDID` (env `ALBERT_REDIS_URL` → Redis `INCR+EXPIRE` distributed, else in-memory per-worker).

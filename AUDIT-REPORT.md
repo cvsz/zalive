@@ -12,7 +12,7 @@
 | Metric | Value |
 |--------|-------|
 | Lines of Code | 4,900+ (Python) + AdminLTE 4 templates |
-| Test Coverage | Local **120 passed**; CI **103 passed, 12 skipped** (CI ตัด `test_bootstrap.py` ผ่าน `--ignore` และ `test_parse_trustcache.py` skip เพราะไม่มี `firmware/`) + CI `validate` green |
+| Test Coverage | Local **124 passed**; CI **107 passed, 12 skipped** (CI ตัด `test_bootstrap.py` ผ่าน `--ignore` และ `test_parse_trustcache.py` skip เพราะไม่มี `firmware/`) + CI `validate` green |
 | Security Gates | `ruff ✅` `bandit ✅` `CodeQL python,actions ✅` `branch protection strict ci ✅` |
 | Deployment Ready | ✅ Docker multi-stage **3.14-slim**, compose `required:false`, `uv` hashes, `127.0.0.1:18090` secure-by-default + `0.0.0.0` LAN override, `127.0.0.1:18443` green SAN, **systemd unit installed and enabled** |
 | Intended Use | Lab/research activation of owned iOS devices (iPhone 5 → 15 Pro, 13 curated A6-A16). FairPlay placeholder — not for real Apple activation |
@@ -79,7 +79,7 @@
 | `tests/test_parse_trustcache.py` | 12 | ✅ รัน | ⏭️ skip (ไม่มี `firmware/`) |
 | `tests/test_firmware.py` | 6 | ✅ รัน | ✅ รัน |
 | `tests/test_bootstrap.py` | 5 | ✅ รัน | 🚫 ถูก `--ignore` |
-| **Total** | **120** | **120 passed** | **103 passed, 12 skipped** |
+| **Total** | **124** | **124 passed** | **107 passed, 12 skipped** |
 
 CI `validate` script: IPSW/FairPlay/DB/env/API/logs checks — all pass.
 
