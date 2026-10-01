@@ -134,7 +134,11 @@ def test_docker_compose_config_valid():
     import os
     env = os.environ.copy()
     env["MITMPROXY_WEB_PASSWORD"] = secrets.token_urlsafe(24)
-    out = subprocess.run(["docker","compose","config"], capture_output=True, text=True, timeout=15, env=env)
+    # 60s, not 15s: on a CI runner with a cold docker daemon this call can take
+    # longer than 15s and fail with TimeoutExpired even though the compose file
+    # is valid. It takes ~0.2s locally, and the separate `docker compose config`
+    # CI step already covers the workflow-level check.
+    out = subprocess.run(["docker","compose","config"], capture_output=True, text=True, timeout=60, env=env)
     assert out.returncode == 0, out.stderr
     assert "albert-server" in out.stdout
 
