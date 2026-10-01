@@ -5,6 +5,28 @@ Serial: `…EKXKQ`  UDID: `00008020-…2E`  ECID: `0x…78002e`
 โฮสต์: VMware guest `albert-core` (Ubuntu 26.04), repo `/home/cvsz/albert_server`
 ช่วงเวลา: 2026-09-30
 
+### เอกสารอ้างอิงภายนอก
+
+`zalive` มี ZEAZ layer อยู่แล้ว (`docs/ai/`, `components.d/`, `skills/zeaz-skill-finder`)
+แต่ **specialist RE skills ไม่ได้ถูกนำเข้ามา** — `skills/` ในโปรเจกต์นี้มีแค่ตัว
+ค้นหา ส่วน `zeaz-re-apple` / `zeaz-re-firmware` / `zeaz-re-triage` อยู่ที่ `cvsz/zrepro`
+(แยก repo, 17 skills)
+
+จึงอ้างอิงข้าม repo แทนการ vendor เข้ามา เพราะ `zalive` เป็น product ไม่ใช่ template
+และ `AGENTS.md` กำหนดให้รักษา template portability — specialist layer ที่ต้อง
+maintain แยกอยู่ที่เดียวก็พอ
+
+ที่เกี่ยวกับงานในรายงานนี้:
+
+- [`docs/ai/playbooks/apple-reverse-engineering.md`](https://github.com/cvsz/zrepro/blob/main/docs/ai/playbooks/apple-reverse-engineering.md)
+- [`docs/ai/playbooks/firmware-reverse-engineering.md`](https://github.com/cvsz/zrepro/blob/main/docs/ai/playbooks/firmware-reverse-engineering.md)
+- [`skills/zeaz-re-triage/SKILL.md`](https://github.com/cvsz/zrepro/blob/main/skills/zeaz-re-triage/SKILL.md) — จุดเริ่มต้นตามลำดับ
+- [`skills/zeaz-re-apple/SKILL.md`](https://github.com/cvsz/zrepro/blob/main/skills/zeaz-re-apple/SKILL.md)
+- [`skills/zeaz-re-firmware/SKILL.md`](https://github.com/cvsz/zrepro/blob/main/skills/zeaz-re-firmware/SKILL.md)
+
+ระบบ evidence-state ของ ZEAZ (`VERIFIED` / `PARTIALLY VERIFIED` / `UNVERIFIED` /
+`BLOCKED` / `NOT APPLICABLE`) ใช้ในรายงานนี้แล้ว
+
 ---
 
 ## 1. สรุปผล
