@@ -1,6 +1,15 @@
 # Makefile — albert_server common tasks
 # Usage: make <target>
 
+# Always go through the project venv. Bare pytest/ruff/bandit/python3
+# resolve from PATH and hit /usr/bin, which lacks the pinned
+# dependencies — `make test` failed there while the venv passed.
+VENV_BIN := venv/bin
+PYTHON   := $(VENV_BIN)/python
+PYTEST   := $(VENV_BIN)/pytest
+RUFF     := $(VENV_BIN)/ruff
+BANDIT   := $(VENV_BIN)/bandit
+
 .PHONY: help test lint security build run stop logs clean rotate-fairplay validate docker-build docker-up docker-down
 
 # Default target
@@ -24,34 +33,34 @@ help:
 
 # Testing
 test:
-	pytest -q
+	$(PYTEST) -q
 
 test-verbose:
-	pytest -v
+	$(PYTEST) -v
 
 test-ci:
-	ALBERT_ADMIN_TOKEN=ci-test-token ALBERT_ACCEPT_RISK=1 pytest -q --ignore=tests/test_bootstrap.py
+	ALBERT_ADMIN_TOKEN=ci-test-token ALBERT_ACCEPT_RISK=1 $(PYTEST) -q --ignore=tests/test_bootstrap.py
 
 # Linting
 lint:
-	ruff check .
+	$(RUFF) check .
 
 lint-fix:
-	ruff check . --fix
+	$(RUFF) check . --fix
 
 # Security
 security:
-	bandit -r . --exclude ./venv -q
+	$(BANDIT) -r . --exclude ./venv -q
 
 security-verbose:
-	bandit -r . --exclude ./venv
+	$(BANDIT) -r . --exclude ./venv
 
 # Combined checks
 check: lint security test
 
 # Validation
 validate:
-	ALBERT_ADMIN_TOKEN=ci-test-token ALBERT_ACCEPT_RISK=1 python3 scripts/validate.py
+	ALBERT_ADMIN_TOKEN=ci-test-token ALBERT_ACCEPT_RISK=1 $(PYTHON) scripts/validate.py
 
 # Docker
 docker-build:
@@ -82,15 +91,15 @@ logs-mitm:
 run:
 	@if [ ! -f .env ]; then echo "ERROR: .env not found. cp .env.example .env"; exit 1; fi
 	@if ! grep -q "ALBERT_ACCEPT_RISK=1" .env; then echo "ERROR: ALBERT_ACCEPT_RISK=1 required in .env"; exit 1; fi
-	python3 albert_server.py --host 0.0.0.0 --port 18090
+	$(PYTHON) albert_server.py --host 0.0.0.0 --port 18090
 
 run-https:
 	@if [ ! -f .env ]; then echo "ERROR: .env not found"; exit 1; fi
-	python3 albert_server.py --host 0.0.0.0 --port 18443 --ssl-cert certs/server.crt --ssl-key certs/server.key
+	$(PYTHON) albert_server.py --host 0.0.0.0 --port 18443 --ssl-cert certs/server.crt --ssl-key certs/server.key
 
 # FairPlay key rotation
 rotate-fairplay:
-	python3 albert_server.py --rotate-fairplay
+	$(PYTHON) albert_server.py --rotate-fairplay
 
 # Cleanup
 clean:
@@ -116,7 +125,7 @@ db-shell:
 
 # Generate admin token
 gen-token:
-	@python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+	@$(PYTHON) -c "import secrets; print(secrets.token_urlsafe(32))"
 
 gen-mitm-password:
-	@python3 -c "import secrets; print(secrets.token_urlsafe(16))"
+	@$(PYTHON) -c "import secrets; print(secrets.token_urlsafe(16))"
