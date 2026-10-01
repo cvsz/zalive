@@ -1443,7 +1443,7 @@ def drm_handshake():
         except Exception as e:
             logger.warning(f"Failed to parse handshake plist: {e}, trying base64 path")
             _inc_failure()
-            return Response(f"Invalid plist: {e}", status=400)
+            return jsonify({"error": "invalid plist", "request_id": getattr(g, "request_id", "-")}), 400
         logger.debug(f"Handshake request keys: {list(handshake_request.keys()) if isinstance(handshake_request, dict) else type(handshake_request)}")
         response = {
             # Apple คืน 4 key: serverKP(85B), FDRBlob(32B), SUInfo(366B),
@@ -1468,7 +1468,7 @@ def drm_handshake():
             return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
         logger.error(f"DRM handshake error: {e}", exc_info=True)
         _inc_failure()
-        return Response(f"Error: {str(e)}", status=500)
+        return jsonify({"error": "internal error", "request_id": getattr(g, "request_id", "-")}), 500
 
 @app.route('/deviceservices/deviceActivation', methods=['POST','GET'])
 def device_activation():
@@ -1509,13 +1509,13 @@ def device_activation():
                         activation_info = plistlib.loads(base64.b64decode(activation_info_b64, validate=False))
                     except Exception as e2:
                         _inc_failure()
-                        return Response(f"Invalid activation-info: {e2}", status=400)
+                        return jsonify({"error": "invalid activation-info", "request_id": getattr(g, "request_id", "-")}), 400
             elif "application/x-apple-plist" in content_type or "application/xml" in content_type or "text/xml" in content_type:
                 try:
                     activation_info = plistlib.loads(request.get_data())
                 except Exception as e:
                     _inc_failure()
-                    return Response(f"Invalid plist: {e}", status=400)
+                    return jsonify({"error": "invalid plist", "request_id": getattr(g, "request_id", "-")}), 400
             elif "multipart/form-data" in content_type:
                 # Flask parses multipart into form as well, but fallback to raw
                 if request.form.get("activation-info"):
@@ -1524,7 +1524,7 @@ def device_activation():
                         activation_info = plistlib.loads(base64.b64decode(b64, validate=False))
                     except Exception as e:
                         _inc_failure()
-                        return Response(f"Invalid activation-info: {e}", status=400)
+                        return jsonify({"error": "invalid activation-info", "request_id": getattr(g, "request_id", "-")}), 400
                 else:
                     _inc_failure()
                     return Response("Missing activation-info in multipart", status=400)
@@ -1547,7 +1547,7 @@ def device_activation():
                             activation_info = plistlib.loads(base64.b64decode(b64, validate=False))
                         except Exception as e:
                             _inc_failure()
-                            return Response(f"Invalid activation-info: {e}", status=400)
+                            return jsonify({"error": "invalid activation-info", "request_id": getattr(g, "request_id", "-")}), 400
                     else:
                         _inc_failure()
                         return Response("Unsupported content type", status=400)
@@ -1620,7 +1620,7 @@ def device_activation():
                 return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
             logger.error(f"Device activation error: {e}", exc_info=True)
             _inc_failure()
-            return Response(f"Error: {str(e)}", status=500)
+            return jsonify({"error": "internal error", "request_id": getattr(g, "request_id", "-")}), 500
     finally:
         if _otel_entered:
             try:
@@ -3514,9 +3514,30 @@ def api_activations():
         return jsonify({"error": "internal error"}), 500
     return jsonify({"activations": rows, "total": len(rows)})
 
+_TOOL_ARG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _validate_tool_arg(value: str) -> bool:
+    """Allowlist for a value that becomes one argv element of a subprocess.
+
+    Requires an alphanumeric first character on purpose. The previous pattern
+    (^[A-Za-z0-9._-]+$) also matched a leading '-', which let a caller pass
+    ?domain=-oRoot or ?key=--help and have the tool read the value as a flag
+    instead of as data. shell=False does not help here -- argument injection
+    needs no shell.
+    """
+    return bool(_TOOL_ARG_RE.match(value or ""))
+
+
 def _run_tool(cmd, timeout=2):
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        # cmd is always a list literal assembled by this module; shell=False (the
+        # default) means no metacharacter expansion, so this is not a shell
+        # injection sink. Every user-supplied element is validated first:
+        # udid by _validate_udid, domain/key by _validate_tool_arg, which
+        # requires an alphanumeric first character so a value cannot be read as
+        # a flag. See _validate_tool_arg for why that leading-dash rule matters.
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)  # nosec B603 B607
         return {"ok": out.returncode == 0, "returncode": out.returncode, "stdout": (out.stdout or "")[:4000], "stderr": (out.stderr or "")[:4000], "cmd": " ".join(cmd)}
     except Exception as e:
         return {"ok": False, "error": str(e), "cmd": " ".join(cmd)}
@@ -3529,10 +3550,14 @@ def api_device_info():
     domain = request.args.get("domain") or ""
     key = request.args.get("key") or ""
     udid = request.args.get("udid") or ""
-    # allowlist validation to prevent injection
-    if domain and not re.match(r'^[A-Za-z0-9._-]+$', domain):
+    # Allowlist validation. The character class alone was not enough: it permits
+    # a leading '-', so '?domain=-oRoot' or '?key=--help' passed and ideviceinfo
+    # read the value as a flag rather than data (argument injection). Requiring
+    # an alphanumeric first character closes that; empty still means "not
+    # supplied" and is handled by the `if domain:` guards below.
+    if domain and not _validate_tool_arg(domain):
         return jsonify({"error": "invalid domain"}), 400
-    if key and not re.match(r'^[A-Za-z0-9._-]+$', key):
+    if key and not _validate_tool_arg(key):
         return jsonify({"error": "invalid key"}), 400
     if udid and not _validate_udid(udid):
         return jsonify({"error": "invalid UDID"}), 400

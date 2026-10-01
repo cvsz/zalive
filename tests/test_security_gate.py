@@ -223,3 +223,52 @@ def test_device_identity_still_rejects_malformed_after_strip():
         udid, imei, rejected = albert_server._device_identity_from_plist({"UDID": bad})
         assert rejected is True, bad
         assert udid == "" and imei == "", bad
+
+
+def test_device_error_responses_do_not_leak_exception_text():
+    """Regression for CodeQL py/stack-trace-exposure. drmHandshake and
+    deviceActivation used to return f"Invalid plist: {e}" / f"Error: {str(e)}",
+    which puts exception text -- often including server-side paths -- straight
+    into the response body. The detail is still logged server-side."""
+    c = albert_server.app.test_client()
+    for path, body in [
+        ("/deviceservices/drmHandshake", b"this is not a plist at all"),
+        ("/deviceservices/deviceActivation", b"<<< not a plist >>>"),
+    ]:
+        r = c.post(path, data=body, content_type="application/x-apple-plist")
+        text = r.get_data(as_text=True)
+        # Either it parsed and moved on, or it failed generically -- but no
+        # exception text may reach the client.
+        for leak in ("Invalid plist:", "Error: ", "Traceback", "File \"", ".py\", line"):
+            assert leak not in text, f"{path} leaked {leak!r}: {text[:200]}"
+        if r.status_code >= 400:
+            assert r.is_json, f"{path} error must be JSON, got {r.content_type}"
+
+
+def test_device_error_responses_include_request_id():
+    """The generic error body still carries request_id so a client report can be
+    correlated with the server log, which is where the exception detail lives."""
+    c = albert_server.app.test_client()
+    r = c.post("/deviceservices/drmHandshake", data=b"not a plist",
+               content_type="application/x-apple-plist")
+    if r.status_code >= 400 and r.is_json:
+        body = r.get_json()
+        assert "request_id" in body, body
+        assert "error" in body, body
+
+
+def test_tool_arg_rejects_leading_dash():
+    """Regression: the old allowlist was ^[A-Za-z0-9._-]+$, which also matched a
+    leading '-', so ?domain=-oRoot or ?key=--help passed validation and
+    ideviceinfo read the value as a flag rather than data. shell=False does not
+    help -- argument injection needs no shell."""
+    for bad in ("-oRoot", "--help", "-q", "--version", ".hidden", "_x", "a;b", "a b", "../x"):
+        assert albert_server._validate_tool_arg(bad) is False, bad
+
+
+def test_tool_arg_accepts_real_domains_and_keys():
+    """Normal values must keep working -- the allowlist is not meant to reject
+    real ideviceinfo domains or keys."""
+    for good in ("ProductVersion", "ProductType", "BuildVersion", "0abc", "a.b_c-d"):
+        assert albert_server._validate_tool_arg(good) is True, good
+    assert albert_server._validate_tool_arg("") is False
