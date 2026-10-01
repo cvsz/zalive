@@ -1601,6 +1601,27 @@ def device_activation():
             except Exception:
                 pass
 
+def _device_identity_from_plist(data) -> tuple:
+    """Pull UDID/IMEI out of a device request and check them before use.
+
+    activity, certifyMe and phoneHome are device-facing and therefore sit
+    behind mTLS rather than the admin token, but nothing stopped them writing
+    whatever the request body contained into sync_state. Format validation is
+    not a substitute for a per-device credential -- a caller holding a valid
+    certificate can still name another device's UDID -- but it stops junk rows
+    and the arbitrary-value writes that came with the old behaviour.
+    """
+    imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
+    udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+    if udid and not _validate_udid(str(udid)):
+        logger.warning(f"rejecting sync_state write: malformed UDID ({len(str(udid))} chars)")
+        return "", "", True
+    if imei and not _validate_imei(str(imei)):
+        logger.warning(f"rejecting sync_state write: malformed IMEI ({len(str(imei))} chars)")
+        return "", "", True
+    return str(udid), str(imei), False
+
+
 @app.route('/deviceservices/activity', methods=['POST','GET'])
 def activity():
     logger.info("Received activity request")
@@ -1611,8 +1632,7 @@ def activity():
     try:
         if request.method == 'POST' and request.get_data():
             data = plistlib.loads(request.get_data())
-            imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
-            udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+            udid, imei, rejected = _device_identity_from_plist(data)
             push_token = data.get("PushToken") or data.get("aps-token") or ""
     except Exception:
         pass
@@ -1645,8 +1665,7 @@ def certify_me():
     try:
         if request.method == 'POST' and request.get_data():
             data = plistlib.loads(request.get_data())
-            imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
-            udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+            udid, imei, rejected = _device_identity_from_plist(data)
     except Exception:
         pass
     
@@ -1681,8 +1700,7 @@ def phone_home():
     try:
         if request.method == 'POST' and request.get_data():
             data = plistlib.loads(request.get_data())
-            imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
-            udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+            udid, imei, rejected = _device_identity_from_plist(data)
             phone_number = data.get("PhoneNumber") or data.get("MSISDN") or ""
     except Exception:
         pass
