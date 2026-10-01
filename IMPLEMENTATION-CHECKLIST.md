@@ -24,7 +24,7 @@
 
 ## Security
 - [x] `SECURITY.md` private reporting policy kept from template; `docs/PRODUCTION_GAP_ANALYSIS.md` documents threat model (FairPlay `0600`, `ALBERT_ACCEPT_RISK=1` gate, `MAX_CONTENT_LENGTH 512K`, per-IP `100/min`, redacted UDID, `SHA1 ARS` Apple-spec `nosec B303/B324`).
-- [ ] Dependabot alerts/security updates — **check**: `gh repo view` shows `visibility: PRIVATE` but `dependabot.yml` present (`pip`/`github-actions`). Enable in `Settings → Security → Dependabot`.
+- [x] Dependabot alerts/security updates — repo is `PUBLIC` and alerts are enabled. `dependabot.yml` covers `github-actions`, `docker` and `pip`. The `pip` entry ignores `tornado >=6.5.6` because mitmproxy 12.2.3 pins `tornado<=6.5.5`; the three accepted advisories and why they are unreachable are documented inline in `dependabot.yml`.
 - [x] `CodeQL` language detection — `.github/workflows/codeql.yml` present from template, supports Python.
 - [x] `dependency-review` enabled for PRs (`dependency-review.yml`).
 - [x] Secret scanning/push protection — template enables where available for private repos; verify in `Settings → Code security`.
