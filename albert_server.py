@@ -9,6 +9,7 @@ import os
 import pathlib
 import json
 import base64
+import hmac
 import hashlib
 import plistlib
 import logging
@@ -956,6 +957,52 @@ def _validate_serial(v) -> bool:
 
 # --- Request ID middleware (P1-3) + OPTIONS handling (P2) + rate limiting ---
 
+def _verify_forwarded_cert(cert_hdr: str, mtls_ca, request) -> bool:
+    """Validate a client certificate forwarded by the proxy in a header.
+
+    The previous implementation accepted any string containing "-----BEGIN"
+    that was longer than 100 characters, so a hand-written placeholder
+    satisfied the mTLS gate from any peer. The signature has to check out
+    against the configured CA, or the header proves nothing.
+    """
+    if not mtls_ca:
+        logger.warning(
+            f"forwarded client cert rejected for {request.path} — no CA configured "
+            f"via ALBERT_MTLS_CA (request_id={getattr(g, 'request_id', '-')})"
+        )
+        return False
+    try:
+        pem = cert_hdr.encode()
+        if b"-----BEGIN CERTIFICATE-----" not in pem:
+            return False
+        presented = x509.load_pem_x509_certificate(pem)
+        ca = x509.load_pem_x509_certificate(pathlib.Path(mtls_ca).read_bytes())
+    except Exception as exc:
+        logger.warning(
+            f"forwarded client cert could not be parsed for {request.path}: "
+            f"{type(exc).__name__} (request_id={getattr(g, 'request_id', '-')})"
+        )
+        return False
+
+    now = datetime.now(timezone.utc)
+    if not (presented.not_valid_before_utc <= now <= presented.not_valid_after_utc):
+        logger.warning(f"forwarded client cert outside validity window for {request.path}")
+        return False
+
+    # The CA signs the leaf; verify that signature with the CA's public key.
+    try:
+        ca.public_key().verify(
+            presented.signature,
+            presented.tbs_certificate_bytes,
+            padding.PKCS1v15(),
+            presented.signature_hash_algorithm,
+        )
+    except Exception:
+        logger.warning(f"forwarded client cert is not signed by {mtls_ca} (request_id={getattr(g, 'request_id', '-')})")
+        return False
+    return True
+
+
 @app.before_request
 def before_request_hardening():
     # Attach request_id (X-Request-ID uuid, attach to g and logs)
@@ -992,14 +1039,17 @@ def before_request_hardening():
             # Check shared-secret header if configured (stronger than bare X-Client-Cert)
             expected_token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
             presented_token = request.headers.get("X-MTLS-Token", "").strip()
-            if expected_token and presented_token and presented_token == expected_token:
+            if expected_token and presented_token and hmac.compare_digest(presented_token, expected_token):
                 has_cert = True
             else:
-                # Check for real PEM cert in header (proxy forwards actual cert, not just "present")
                 cert_hdr = (request.headers.get("X-Client-Cert") or request.headers.get("X-Forwarded-Client-Cert") or request.headers.get("X-SSL-Client-Cert") or "").strip()
-                if cert_hdr and "-----BEGIN" in cert_hdr and len(cert_hdr) > 100:
-                    # Real PEM forwarded — verify fingerprint against ALBERT_MTLS_CERT if available (optional)
-                    has_cert = True
+                if cert_hdr and "-----BEGIN" in cert_hdr:
+                    # A forwarded certificate is only worth as much as the
+                    # signature it carries. This branch used to accept anything
+                    # containing "-----BEGIN" longer than 100 characters, so a
+                    # hand-written string bypassed the gate from any peer. Parse
+                    # it and check it against ALBERT_MTLS_CA.
+                    has_cert = _verify_forwarded_cert(cert_hdr, mtls_ca, request)
                 elif cert_hdr:
                     # Bare "present"/"mtls" over HTTP is spoofable — default DENY unless explicitly allowed.
                     # Require ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1 plus localhost; otherwise require token/PEM.

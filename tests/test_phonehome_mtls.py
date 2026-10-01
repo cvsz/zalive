@@ -21,7 +21,64 @@ IMEI = "490154203237518"  # passes Luhn
 
 # An HTTP header cannot carry newlines, so a proxy forwarding the real client
 # certificate sends it as a single line. Werkzeug rejects multi-line values.
-REAL_PEM = "-----BEGIN CERTIFICATE-----" + ("A" * 120) + "-----END CERTIFICATE-----"
+# A syntactically plausible certificate that was never signed by anyone.
+# The gate must reject this: it used to be accepted because the check was only
+# `"-----BEGIN" in header and len > 100`, which this string satisfies.
+FAKE_PEM = "-----BEGIN CERTIFICATE-----" + ("A" * 120) + "-----END CERTIFICATE-----"
+
+
+def _make_pki(tmp_path):
+    """Generate a CA and a client certificate signed by it.
+
+    The tests must not depend on certs/ — it is gitignored, so CI has no
+    certificates and a test that reads them fails there while passing locally.
+    That mistake was made twice in this change; generating the material keeps
+    the suite self-contained.
+    """
+    import datetime as _dt
+
+    from cryptography import x509 as _x509
+    from cryptography.hazmat.primitives import hashes as _hashes
+    from cryptography.hazmat.primitives import serialization as _ser
+    from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+    from cryptography.x509.oid import NameOID as _OID
+
+    now = _dt.datetime.now(_dt.timezone.utc)
+    ca_key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ca_name = _x509.Name([_x509.NameAttribute(_OID.COMMON_NAME, "test-mtls-ca")])
+    ca = (
+        _x509.CertificateBuilder()
+        .subject_name(ca_name).issuer_name(ca_name)
+        .public_key(ca_key.public_key())
+        .serial_number(_x509.random_serial_number())
+        .not_valid_before(now - _dt.timedelta(days=1))
+        .not_valid_after(now + _dt.timedelta(days=30))
+        .add_extension(_x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(ca_key, _hashes.SHA256())
+    )
+    leaf_key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    leaf = (
+        _x509.CertificateBuilder()
+        .subject_name(_x509.Name([_x509.NameAttribute(_OID.COMMON_NAME, "test-client")]))
+        .issuer_name(ca_name)
+        .public_key(leaf_key.public_key())
+        .serial_number(_x509.random_serial_number())
+        .not_valid_before(now - _dt.timedelta(days=1))
+        .not_valid_after(now + _dt.timedelta(days=30))
+        .sign(ca_key, _hashes.SHA256())
+    )
+    ca_path = tmp_path / "ca.crt"
+    ca_path.write_bytes(ca.public_bytes(_ser.Encoding.PEM))
+    leaf_pem = leaf.public_bytes(_ser.Encoding.PEM).decode().replace("\n", "")
+    return str(ca_path), leaf_pem, ca
+
+
+@pytest.fixture
+def pki(tmp_path, monkeypatch):
+    """A CA plus a client certificate it signed, wired into the gate."""
+    ca_path, leaf_pem, ca_cert = _make_pki(tmp_path)
+    monkeypatch.setenv("ALBERT_MTLS_CA", ca_path)
+    return {"ca_path": ca_path, "leaf_pem": leaf_pem, "ca": ca_cert}
 
 
 @pytest.fixture(autouse=True)
@@ -35,14 +92,16 @@ def _isolated_db(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _gate_enabled(monkeypatch):
-    """Force the mTLS gate on regardless of what certs/ happens to hold.
+    """Make sure the mTLS gate is engaged for this module.
 
-    The gate only engages when certs/mtls-ca.crt exists, and certs/ is
-    gitignored, so CI runs with the gate silently disabled. Letting that leak
-    into the assertions made these four tests fail off this machine (and would
-    have made them pass vacuously in CI). Patch the lookup instead.
+    The gate only engages when ALBERT_MTLS_CA is set, and certs/ is gitignored
+    so CI has no CA at all. Setting the variable (rather than patching
+    _get_mtls_ca) keeps a single source of truth: the `pki` fixture can point
+    the gate at a CA it generated, and overriding the function would have
+    silently ignored that.
     """
-    monkeypatch.setattr(albert_server, "_get_mtls_ca", lambda: "certs/mtls-ca.crt")
+    if not os.environ.get("ALBERT_MTLS_CA"):
+        monkeypatch.setenv("ALBERT_MTLS_CA", "certs/mtls-ca.crt")
 
 
 def _client():
@@ -86,15 +145,50 @@ def test_phonehome_rejects_bare_header_when_fallback_disabled(monkeypatch):
     assert r.status_code == 401, "spoofable bare header was accepted without opt-in"
 
 
-def test_phonehome_accepts_real_pem(_isolated_db):
+def test_phonehome_rejects_unsigned_pem(monkeypatch, _isolated_db, pki):
+    """A hand-written header must not satisfy the mTLS gate.
+
+    This is the regression for the bypass where any string containing
+    "-----BEGIN" over 100 characters was treated as a real certificate.
+    """
+    monkeypatch.setenv("ALBERT_MTLS_CA", "certs/mtls-ca.crt")
     r = _client().post(
         "/WebObjects/ALUnbrick.woa/wa/phoneHome",
-        headers={"X-Client-Cert": REAL_PEM},
+        headers={"X-Client-Cert": FAKE_PEM},
         data=_plist_body(UDID=UDID, IMEI=IMEI),
         content_type="application/xml",
+        environ_base={"REMOTE_ADDR": "192.168.1.66"},
+    )
+    assert r.status_code == 401, "an unsigned certificate header was accepted"
+    assert _state(_isolated_db) == {}, "rejected request must not write"
+
+
+def test_phonehome_accepts_cert_signed_by_the_ca(_isolated_db, pki):
+    """The legitimate path: a certificate the configured CA actually signed."""
+    r = _client().post(
+        "/WebObjects/ALUnbrick.woa/wa/phoneHome",
+        headers={"X-Client-Cert": pki["leaf_pem"]},
+        data=_plist_body(UDID=UDID, IMEI=IMEI),
+        content_type="application/xml",
+        environ_base={"REMOTE_ADDR": "192.168.1.66"},
     )
     assert r.status_code == 200
     assert _state(_isolated_db)["udid"] == UDID
+
+
+def test_phonehome_rejects_cert_signed_by_a_different_ca(_isolated_db, pki, tmp_path):
+    """A well-formed certificate from an untrusted CA must not pass."""
+    other_dir = tmp_path / "other"
+    other_dir.mkdir(exist_ok=True)
+    other_ca, other_leaf, _ = _make_pki(other_dir)
+    r = _client().post(
+        "/WebObjects/ALUnbrick.woa/wa/phoneHome",
+        headers={"X-Client-Cert": other_leaf},
+        data=_plist_body(UDID=UDID, IMEI=IMEI),
+        content_type="application/xml",
+        environ_base={"REMOTE_ADDR": "192.168.1.66"},
+    )
+    assert r.status_code == 401, "certificate from an untrusted CA was accepted"
 
 
 def test_phonehome_accepts_shared_token(monkeypatch, _isolated_db):
@@ -121,10 +215,10 @@ def test_phonehome_rejects_wrong_shared_token(monkeypatch):
 
 # --- the handler ---------------------------------------------------------
 
-def test_phonehome_creates_sync_state_row(_isolated_db):
+def test_phonehome_creates_sync_state_row(_isolated_db, pki):
     r = _client().post(
         "/WebObjects/ALUnbrick.woa/wa/phoneHome",
-        headers={"X-Client-Cert": REAL_PEM},
+        headers={"X-Client-Cert": pki["leaf_pem"]},
         data=_plist_body(UDID=UDID, IMEI=IMEI),
         content_type="application/xml",
     )
@@ -135,10 +229,10 @@ def test_phonehome_creates_sync_state_row(_isolated_db):
     assert row["carrier_activated"] == 1
 
 
-def test_phonehome_returns_a_plist(_isolated_db):
+def test_phonehome_returns_a_plist(_isolated_db, pki):
     r = _client().post(
         "/WebObjects/ALUnbrick.woa/wa/phoneHome",
-        headers={"X-Client-Cert": REAL_PEM},
+        headers={"X-Client-Cert": pki["leaf_pem"]},
         data=_plist_body(UDID=UDID, IMEI=IMEI),
         content_type="application/xml",
     )
@@ -148,21 +242,21 @@ def test_phonehome_returns_a_plist(_isolated_db):
     assert body["carrierActivated"] == 1
 
 
-def test_phonehome_stores_phone_number_when_present(_isolated_db):
+def test_phonehome_stores_phone_number_when_present(_isolated_db, pki):
     _client().post(
         "/WebObjects/ALUnbrick.woa/wa/phoneHome",
-        headers={"X-Client-Cert": REAL_PEM},
+        headers={"X-Client-Cert": pki["leaf_pem"]},
         data=_plist_body(UDID=UDID, IMEI=IMEI, PhoneNumber="+66912345678"),
         content_type="application/xml",
     )
     assert _state(_isolated_db)["phone_number"] == "+66912345678"
 
 
-def test_phonehome_survives_a_malformed_plist(_isolated_db):
+def test_phonehome_survives_a_malformed_plist(_isolated_db, pki):
     """Bad input must be swallowed by the handler, not surface as a 500."""
     r = _client().post(
         "/WebObjects/ALUnbrick.woa/wa/phoneHome",
-        headers={"X-Client-Cert": REAL_PEM},
+        headers={"X-Client-Cert": pki["leaf_pem"]},
         data=b"this is not a plist",
         content_type="application/xml",
     )
@@ -170,35 +264,35 @@ def test_phonehome_survives_a_malformed_plist(_isolated_db):
     assert _state(_isolated_db) == {}, "a malformed body must not create a row"
 
 
-def test_phonehome_ignores_a_body_missing_identifiers(_isolated_db):
+def test_phonehome_ignores_a_body_missing_identifiers(_isolated_db, pki):
     """Only IMEI without a UDID must not produce a half-written row."""
     _client().post(
         "/WebObjects/ALUnbrick.woa/wa/phoneHome",
-        headers={"X-Client-Cert": REAL_PEM},
+        headers={"X-Client-Cert": pki["leaf_pem"]},
         data=_plist_body(IMEI=IMEI),
         content_type="application/xml",
     )
     assert _state(_isolated_db) == {}
 
 
-def test_phonehome_accepts_the_apple_key_spellings(_isolated_db):
+def test_phonehome_accepts_the_apple_key_spellings(_isolated_db, pki):
     """Devices use UniqueDeviceID / InternationalMobileEquipmentIdentity."""
     _client().post(
         "/WebObjects/ALUnbrick.woa/wa/phoneHome",
-        headers={"X-Client-Cert": REAL_PEM},
+        headers={"X-Client-Cert": pki["leaf_pem"]},
         data=_plist_body(UniqueDeviceID=UDID, InternationalMobileEquipmentIdentity=IMEI),
         content_type="application/xml",
     )
     assert _state(_isolated_db)["udid"] == UDID
 
 
-def test_phonehome_is_idempotent(_isolated_db):
+def test_phonehome_is_idempotent(_isolated_db, pki):
     """A device re-sending phoneHome must not create duplicate rows."""
     c = _client()
     for _ in range(3):
         c.post(
             "/WebObjects/ALUnbrick.woa/wa/phoneHome",
-            headers={"X-Client-Cert": REAL_PEM},
+            headers={"X-Client-Cert": pki["leaf_pem"]},
             data=_plist_body(UDID=UDID, IMEI=IMEI),
             content_type="application/xml",
         )
