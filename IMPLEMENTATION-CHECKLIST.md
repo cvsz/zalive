@@ -7,7 +7,7 @@
 - [x] `scripts/bootstrap.py` reviewed — not applied (would overwrite `README.md`/`ABOUT.md` with placeholder). Considered idempotent, skipped deliberately. See `docs/superpowers/specs/2026-09-28-any-iphone-firmware-design.md` for spec.
 - [x] Four identity files retained from template merge: `README.md` kept as **Local Albert** (not zTemplate), `ABOUT.md` remains builder profile, `CODEOWNERS` `* @cvsz`, `.ztemplate-initialized.json` not needed (existing project).
 - [x] Profile recorded: `any-iPhone curated` (XR+12/13/14/15) in `docs/architecture.md` + `docs/superpowers/specs/…`, non-goals: exhaustive 30-model matrix, TSS local, download proxy.
-- [ ] `README`/`ABOUT` still reference builder `cvsz` — not a product org, acceptable for private `zalive` repo. Revisit if published as public template.
+- [x] `README`/`ABOUT` reference `cvsz` — owner handle, correct for this repo (`visibility: PUBLIC`, owner `cvsz`).
 
 ## Repository identity
 - [x] `ztemplate` references replaced where material: `README.md` is **Local Albert Activation Server** (not zTemplate), badges not required for private repo.
@@ -18,13 +18,13 @@
 ## Ownership and governance
 - [x] `.github/CODEOWNERS` `* @cvsz` ✓
 - [x] `CONTRIBUTING.md` / `CODE_OF_CONDUCT.md` from template ✓ (not customized, acceptable)
-- [ ] Branch protection / rulesets — **pending**: `main` is now `5e04f52` GPG-signed but no ruleset requiring PR review or checks. Add: `Require PR + 1 review + Require status checks (CI)` via `Settings → Rules`.
-- [ ] PR review required — pending (same as above)
-- [ ] Status checks before merge — pending
+- [x] Branch protection / rulesets — **done**: `main` requires 1 approving review, `ci` status check (strict), `enforce_admins: true`, `dismiss_stale_reviews: true`. Verified via `GET /branches/main/protection`.
+- [x] PR review required — 1 approving review from a write-access reviewer.
+- [x] Status checks before merge — required context `ci`, strict mode on.
 
 ## Security
 - [x] `SECURITY.md` private reporting policy kept from template; `docs/PRODUCTION_GAP_ANALYSIS.md` documents threat model (FairPlay `0600`, `ALBERT_ACCEPT_RISK=1` gate, `MAX_CONTENT_LENGTH 512K`, per-IP `100/min`, redacted UDID, `SHA1 ARS` Apple-spec `nosec B303/B324`).
-- [x] Dependabot alerts/security updates — repo is `PUBLIC` and alerts are enabled. `dependabot.yml` covers `github-actions`, `docker` and `pip`. The `pip` entry ignores `tornado >=6.5.6` because mitmproxy 12.2.3 pins `tornado<=6.5.5`; the three accepted advisories and why they are unreachable are documented inline in `dependabot.yml`.
+- [x] Dependabot alerts/security updates — repo is `PUBLIC` and alerts are enabled. `dependabot.yml` covers `github-actions`, `docker` and `pip`. The `pip` entry ignores `tornado >=6.5.6` because mitmproxy 12.2.3 pins `tornado<=6.5.5`; the three accepted advisories and why they are unreachable are documented inline in `dependabot.yml`. (fix(makefile): ใช้ venv ทุก target + แก้เอกสารที่ขัดกับความจริง)
 - [x] `CodeQL` language detection — `.github/workflows/codeql.yml` present from template, supports Python.
 - [x] `dependency-review` enabled for PRs (`dependency-review.yml`).
 - [x] Secret scanning/push protection — template enables where available for private repos; verify in `Settings → Code security`.
@@ -32,12 +32,12 @@
 - [x] Actions least privilege `permissions: contents: read` in template `ci.yml` + our `ci.yml` uses `contents: read` implicitly.
 
 ## Development
-- [x] Language/runtime: `python:3.14-slim` (`Dockerfile`), `python-version: "3.14"` in CI, `3.14.4` local venv, `pip` + `requirements.txt` pinned (`flask3.0.0/cryptography48.0.1/pyOpenSSL26.2.0/gunicorn21.2.0`).
+- [x] Language/runtime: `python:3.14-slim` (`Dockerfile`, `Dockerfile.firmware`), `python-version: "3.14"` in CI, local venv `3.14.x`, `requirements.txt` pinned with hashes.
 - [x] Formatter/linter: `ruff` (`pyproject.toml` `line-length 120`, `select E,F`), `bandit`.
 - [x] Tests: `tests/test_sync_state.py` 44 + `tests/test_security_gate.py` 18 + `tests/test_phonehome_mtls.py` 15 + `tests/test_albert.py` 12 + `tests/test_activate_device.py` 12 + `tests/test_parse_trustcache.py` 12 + `tests/test_firmware.py` 6 + `tests/test_bootstrap.py` 5 = **124** (`pytest 124 passed`)
-- [ ] `Makefile` — **template placeholder still** (`make validate-template` only; `make test/lint/build` exit 2). Real targets implemented in `start.sh`/`gunicorn`/`docker compose` but not in `Makefile`. **Next:** replace with `make test: pytest`, `lint: ruff check`, `security: bandit`, `build: docker build`, `ci: test lint security`.
+- [x] `Makefile` — real targets (`test`/`test-ci`/`lint`/`lint-fix`/`security`/`check`/`validate`/`docker-*`/`up`/`down`/`logs`/`run`/`rotate-fairplay`/`gen-token`). All tool invocations go through `venv/bin`, not `PATH`. (fix(makefile): ใช้ venv ทุก target + แก้เอกสารที่ขัดกับความจริง)
 - [x] `Dockerfile` replaced: `USER app`, `read_only`, `HEALTHCHECK curl /health`, `ENTRYPOINT [tini --]`, `gunicorn 2×4`, port `18090`.
-- [ ] `.env.example` — **still template** (`APP_ENV=development/APP_PORT=3000`) not Albert (`ALBERT_HTTP_PORT/F AIRPLAY_KEY_PATH/MITMPROXY_WEB_PASSWORD`). `real .env` is `0600` with `ALBERT_ACCEPT_RISK=1` but example is stale. **Next:** copy `docs: .env.example` to `ALBERT_HTTP_PORT=18090/FAIRPLAY…/LOGS…`.
+- [x] `.env.example` — Albert keys only (`ALBERT_HTTP_PORT`/`ALBERT_HTTPS_PORT`/`ALBERT_BIND_ADDRESS`/`ALBERT_ACCEPT_RISK`/`ALBERT_ADMIN_TOKEN`/`MITMPROXY_WEB_PASSWORD`/`FAIRPLAY_KEY_PATH`/`FAIRPLAY_CERT_PATH`); no template `APP_ENV`/`APP_PORT` placeholders remain.
 
 ## Cloudflare and DNS
 - [x] `docs/cloudflare-terraform.md` read — no hostname added, service bound `127.0.0.1:18090`/`0.0.0.0:18090` loopback first.
@@ -46,16 +46,16 @@
 - [x] Verified no destroy plan (no TF).
 
 ## CI/CD
-- [x] CI customized: `main` now uses **Albert CI** (`ruff+bandit+pytest+docker compose config`) in `.github/workflows/ci.yml` (branches `**`, Python `3.14`), not template `repository-baseline` (branches `main`). Template baseline overwritten during `429fff8` → kept intentionally. Consider adding matrix `3.11/3.12`.
-- [x] Runtime pinned: `python:3.14-slim` + `3.14` in CI, `requirements.txt` pinned.
+- [x] CI customized: `main` now uses **Albert CI** (`ruff+bandit+pytest+docker compose config`) in `.github/workflows/ci.yml` (branches `**`, Python `3.14`), not template `repository-baseline` (branches `main`). Template baseline overwritten during `429fff8` → kept intentionally.
+- [x] Runtime pinned: `python:3.14-slim` + `3.14` in CI, `requirements.txt` pinned with `--hash=sha256` (1799 hash lines, `uv pip compile --generate-hashes`); `Makefile` routes every tool through `venv/bin` because bare `pytest` on the system PATH failed 1/118 while the venv passed. (fix(makefile): ใช้ venv ทุก target + แก้เอกสารที่ขัดกับความจริง)
 - [x] Build validation: `docker compose config` + `gunicorn --check-config`.
 - [ ] Artifact retention — not needed (no packages).
 - [ ] Environments/approvals — not configured (single-host `18090`).
 - [x] Forks do not receive credentials (no `pull_request_target`).
 
 ## Release
-- [ ] SemVer policy — not yet declared (template `RELEASE.md` placeholder).
-- [ ] Changelog `CHANGELOG.md` placeholder from template, empty.
+- [x] SemVer in use — `CHANGELOG.md` follows Keep-a-Changelog with `[Unreleased]` and `[v0.2.0]` sections. No separate `RELEASE.md` exists (the template never shipped one); the release steps live in `docs/release.md`.
+- [x] Changelog `CHANGELOG.md` — 4 release entries covering v0.1.0 through the PR #8 security work.
 - [ ] Publishing — not needed (no container registry yet).
 - [ ] Provenance/signing — GPG `EDDSA CD57FEA` for git commits, but no `cosign`/`attestations` for Docker image.
 - [x] Rollback: `albert_server.py.bak` + `git` tags (`429fff8…`), `albert.log` + `FairPlay` `0600` persisted, `logs/activations.db` WAL retained.

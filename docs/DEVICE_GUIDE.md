@@ -64,9 +64,8 @@ pymobiledevice3 mobileactivation activate --skip-apple-id-query
 
 ## ตัวเลือกของ activate_device.py
 
-`activate_device.py` **ไม่มี** `--host` / `--port` / `--ssl-cert` / `--ssl-key`
-เอกสารรุ่นเก่าเคยระบุ flag เหล่านี้แต่ไม่เคยมีในโค้ด — ค่าการเชื่อมต่อมาจาก
-environment ตามรายการด้านล่าง
+`activate_device.py` เป็น **client** — flag ทุกตัวในตารางนี้มาจาก `parse_args` ที่ `activate_device.py:711-721`
+(flag ฝั่ง server อยู่คนละชุด ดูหัวข้อถัดไป)
 
 | flag | ความหมาย |
 |---|---|
@@ -78,6 +77,26 @@ environment ตามรายการด้านล่าง
 | `--retries N` | จำนวนครั้งที่ลองใหม่ |
 | `--timeout SEC` | timeout ต่อคำขอ |
 | `--skip-apple-id` | ข้ามการถาม Apple ID |
+
+## ตัวเลือกของ albert_server.py
+
+`albert_server.py` **มี** flag ฝั่ง server จริง (ยืนยันที่ `albert_server.py:3707-3710`):
+
+| flag | ค่าเริ่มต้น | ความหมาย |
+|---|---|---|
+| `--host HOST` | `0.0.0.0` | bind address — ค่านี้ผูกกับ LAN exposure ดูหัวข้อความปลอดภัย |
+| `--port PORT` | `8080` | **ไม่ใช่ 18090** — production ใช้ gunicorn ตาม `gunicorn_conf.py` ซึ่ง default `18090` |
+| `--ssl-cert FILE` | — | certificate สำหรับ HTTPS |
+| `--ssl-key FILE` | — | private key สำหรับ HTTPS |
+| `--no-debug` | — | ปิด debug mode |
+| `--allow-no-risk` | — | ยอมให้ start โดยไม่มี `ALBERT_ACCEPT_RISK=1` (มี log เตือน) |
+| `--rotate-fairplay` | — | ลบและสร้าง `certs/fairplay.key`/`.crt` ใหม่ |
+
+> **หมายเหตุการแก้ไข:** เอกสารรุ่นก่อนหน้าของโปรเจกต์ระบุว่า flag `--host` /
+> `--port` / `--ssl-cert` / `--ssl-key` "ไม่เคยมีในโค้ด" ซึ่ง**ผิด** — flag เหล่านี้มีจริง
+> แต่การค้นหาเดิมใช้ regex ที่จับเฉพาะ double-quote จึงพลาด single-quote
+> ที่ `add_argument` ใช้ ส่วนที่ README รุ่นเดิมระบุผิดจริงคือค่า default ของ `--port`
+> (เขียน `18090` แต่จริงคือ `8080`)
 
 ## ตัวแปรสภาพแวดล้อม
 
