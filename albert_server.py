@@ -1111,7 +1111,34 @@ def after_request_add_id(response):
             albert_request_latency.labels(endpoint=request.path).observe(time.time() - g.request_start)
     except Exception:
         pass
+    _set_security_headers(response)
     return response
+
+# Pages embed the admin token in localStorage, so a script injected from a CDN
+# would be able to read it. This CSP is the only thing standing between a
+# compromised or typo-squatted CDN asset and full admin access. jsDelivr is
+# allowlisted because the templates pull Bootstrap/AdminLTE from it.
+_ADMIN_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "font-src 'self' https://cdn.jsdelivr.net data:; "
+    "img-src 'self' data: blob:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+def _set_security_headers(response):
+    """Apply baseline browser hardening headers to every response."""
+    response.headers.setdefault("Content-Security-Policy", _ADMIN_CSP)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
 
 # Explicit OPTIONS route for /deviceservices/* (ensures Flask url_map covers it, returns 204)
 @app.route('/deviceservices/<path:subpath>', methods=['OPTIONS'])
