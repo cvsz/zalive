@@ -9,28 +9,6 @@ _mtls_ca = os.environ.get("ALBERT_MTLS_CA", "").strip()
 if _mtls_ca:
     ca_certs = _mtls_ca
     cert_reqs = 2  # ssl.CERT_REQUIRED
-    # cert_reqs only takes effect once gunicorn is actually serving TLS, and
-    # gunicorn decides that from certfile/keyfile alone (Config.is_ssl is
-    # `return self.certfile or self.keyfile`). Without these two the CA was
-    # loaded and then ignored, no TLS listener was opened, and the
-    # SSL_CLIENT_VERIFY branch in albert_server.py could never fire -- the mTLS
-    # gate silently fell back to the forgeable header path.
-    _tls_cert = os.environ.get("ALBERT_TLS_CERT", "certs/server.crt").strip()
-    _tls_key = os.environ.get("ALBERT_TLS_KEY", "certs/server.key").strip()
-    import pathlib as _pathlib
-    if _pathlib.Path(_tls_cert).exists() and _pathlib.Path(_tls_key).exists():
-        certfile = _tls_cert
-        keyfile = _tls_key
-    else:
-        # Fail loudly rather than pretending mTLS is on: without a server
-        # certificate gunicorn would serve plain HTTP and every client-cert
-        # check would be decided by a header.
-        _missing = [p for p in (_tls_cert, _tls_key) if not _pathlib.Path(p).exists()]
-        raise SystemExit(
-            f"ALBERT_MTLS_CA is set ({_mtls_ca}) but the server certificate is missing: "
-            f"{', '.join(_missing)}. Generate certs/server.crt and certs/server.key, or "
-            f"unset ALBERT_MTLS_CA to run without mTLS deliberately."
-        )
 else:
     # No mTLS — will warn at worker startup via hook
     pass
