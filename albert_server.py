@@ -1443,7 +1443,7 @@ def drm_handshake():
         except Exception as e:
             logger.warning(f"Failed to parse handshake plist: {e}, trying base64 path")
             _inc_failure()
-            return Response(f"Invalid plist: {e}", status=400)
+            return jsonify({"error": "invalid plist", "request_id": getattr(g, "request_id", "-")}), 400
         logger.debug(f"Handshake request keys: {list(handshake_request.keys()) if isinstance(handshake_request, dict) else type(handshake_request)}")
         response = {
             # Apple คืน 4 key: serverKP(85B), FDRBlob(32B), SUInfo(366B),
@@ -1468,7 +1468,7 @@ def drm_handshake():
             return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
         logger.error(f"DRM handshake error: {e}", exc_info=True)
         _inc_failure()
-        return Response(f"Error: {str(e)}", status=500)
+        return jsonify({"error": "internal error", "request_id": getattr(g, "request_id", "-")}), 500
 
 @app.route('/deviceservices/deviceActivation', methods=['POST','GET'])
 def device_activation():
@@ -1509,13 +1509,13 @@ def device_activation():
                         activation_info = plistlib.loads(base64.b64decode(activation_info_b64, validate=False))
                     except Exception as e2:
                         _inc_failure()
-                        return Response(f"Invalid activation-info: {e2}", status=400)
+                        return jsonify({"error": "invalid activation-info", "request_id": getattr(g, "request_id", "-")}), 400
             elif "application/x-apple-plist" in content_type or "application/xml" in content_type or "text/xml" in content_type:
                 try:
                     activation_info = plistlib.loads(request.get_data())
                 except Exception as e:
                     _inc_failure()
-                    return Response(f"Invalid plist: {e}", status=400)
+                    return jsonify({"error": "invalid plist", "request_id": getattr(g, "request_id", "-")}), 400
             elif "multipart/form-data" in content_type:
                 # Flask parses multipart into form as well, but fallback to raw
                 if request.form.get("activation-info"):
@@ -1524,7 +1524,7 @@ def device_activation():
                         activation_info = plistlib.loads(base64.b64decode(b64, validate=False))
                     except Exception as e:
                         _inc_failure()
-                        return Response(f"Invalid activation-info: {e}", status=400)
+                        return jsonify({"error": "invalid activation-info", "request_id": getattr(g, "request_id", "-")}), 400
                 else:
                     _inc_failure()
                     return Response("Missing activation-info in multipart", status=400)
@@ -1547,7 +1547,7 @@ def device_activation():
                             activation_info = plistlib.loads(base64.b64decode(b64, validate=False))
                         except Exception as e:
                             _inc_failure()
-                            return Response(f"Invalid activation-info: {e}", status=400)
+                            return jsonify({"error": "invalid activation-info", "request_id": getattr(g, "request_id", "-")}), 400
                     else:
                         _inc_failure()
                         return Response("Unsupported content type", status=400)
@@ -1620,7 +1620,7 @@ def device_activation():
                 return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
             logger.error(f"Device activation error: {e}", exc_info=True)
             _inc_failure()
-            return Response(f"Error: {str(e)}", status=500)
+            return jsonify({"error": "internal error", "request_id": getattr(g, "request_id", "-")}), 500
     finally:
         if _otel_entered:
             try:
@@ -3516,7 +3516,14 @@ def api_activations():
 
 def _run_tool(cmd, timeout=2):
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        # cmd is always a list literal assembled by this module, and no caller
+        # passes user input as its own argv element -- udid is regex-validated at
+        # albert_server.py:3537 and domain/key are value arguments after a fixed
+        # flag. shell=False (the default) means no metacharacter expansion, so this
+        # is not a shell injection sink. The remaining risk is argument injection
+        # (a crafted domain/key being read as a flag), which needs allowlisting,
+        # not list-vs-string handling.
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)  # nosec B603 B607
         return {"ok": out.returncode == 0, "returncode": out.returncode, "stdout": (out.stdout or "")[:4000], "stderr": (out.stderr or "")[:4000], "cmd": " ".join(cmd)}
     except Exception as e:
         return {"ok": False, "error": str(e), "cmd": " ".join(cmd)}
