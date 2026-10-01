@@ -1,13 +1,35 @@
 version: 2
-updates: 
+updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
-
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+  # tornado is pinned to 6.5.5 by mitmproxy 12.2.3 (see requirements.in). Dependabot
+  # has no pip ecosystem configured, so these advisories arrive as repo-level alerts
+  # rather than upgrade PRs. Do not bump tornado on its own -- mitmproxy declares
+  # tornado>=6.5.0,<=6.5.5, and a newer mitmproxy must land first.
+  #
+  # Open advisories accepted here (tornado 6.5.5, checked 2026-10-01):
+  #   GHSA-c2m8-h5v5-343r  high    StaticFileHandler follows symlinks outside static root
+  #   GHSA-chx6-46f5-w4vp  high    CurlAsyncHTTPClient enforces no response-size limit
+  #   GHSA-3hv7-mjh2-fv65  medium  Unbounded query-string argument count
+  #
+  # None of these paths are reachable in this deployment: no module in this repo
+  # imports tornado (grep confirms), the server runs Flask/gunicorn rather than
+  # tornado's StaticFileHandler, and the device-facing proxy path
+  # (firmware_restore_proxy.py) does not use CurlAsyncHTTPClient. Re-evaluate when
+  # mitmproxy is next upgraded.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: tornado
+        versions: [">=6.5.6"]

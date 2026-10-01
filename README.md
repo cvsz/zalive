@@ -38,7 +38,8 @@ docker compose up -d
 ```
 
 Services:
-- **Albert Server**: `http://127.0.0.1:18090` (HTTP) — gunicorn does not terminate TLS; the device-facing TLS is terminated by mitmproxy, and the proxy→Albert hop is plain HTTP gated by `X-MTLS-Token` or a forwarded client cert
+  - **Albert Server**: `http://127.0.0.1:18090` (HTTP) — gunicorn does not terminate TLS; the device-facing TLS is terminated by mitmproxy, and the proxy→Albert hop is plain HTTP
+    - ⚠️ **Device endpoints `/deviceservices/*` and `/WebObjects/*` are unauthenticated unless `ALBERT_MTLS_CA` is set.** Without it the gate at `albert_server.py:1031` is skipped entirely and those routes are served with no client-cert check. `.env.example` ships the variable commented out, so a fresh copy is open on this hop. To close it, uncomment `ALBERT_MTLS_CA` and have the proxy present `ALBERT_MTLS_CERT`/`ALBERT_MTLS_KEY`, or send `X-MTLS-Token`.
 - **mitmproxy Web UI**: `http://127.0.0.1:28080` (password from `MITMPROXY_WEB_PASSWORD`)
 - **mitmproxy Proxy**: `127.0.0.1:28081`
 

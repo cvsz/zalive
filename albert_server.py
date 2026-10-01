@@ -1640,13 +1640,19 @@ def _device_identity_from_plist(data) -> tuple:
     """
     imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
     udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
-    if udid and not _validate_udid(str(udid)):
-        logger.warning(f"rejecting sync_state write: malformed UDID ({len(str(udid))} chars)")
+    # _validate_udid/_validate_imei check str(v).strip(), so " <valid> " would
+    # pass validation and then be written to sync_state as a key distinct from
+    # the canonical row for the same device. Return the normalized form so the
+    # key is always the canonical one.
+    udid = str(udid).strip()
+    imei = str(imei).strip()
+    if udid and not _validate_udid(udid):
+        logger.warning(f"rejecting sync_state write: malformed UDID ({len(udid)} chars)")
         return "", "", True
-    if imei and not _validate_imei(str(imei)):
-        logger.warning(f"rejecting sync_state write: malformed IMEI ({len(str(imei))} chars)")
+    if imei and not _validate_imei(imei):
+        logger.warning(f"rejecting sync_state write: malformed IMEI ({len(imei)} chars)")
         return "", "", True
-    return str(udid), str(imei), False
+    return udid, imei, False
 
 
 @app.route('/deviceservices/activity', methods=['POST','GET'])
@@ -1801,8 +1807,8 @@ def health():
 </main>
 <footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
 </body>
 </html>"""
         return Response(html, mimetype='text/html')
@@ -1918,8 +1924,8 @@ def ready():
 </main>
 <footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
 </body>
 </html>"""
         return Response(html, mimetype='text/html')
@@ -2020,8 +2026,8 @@ def metrics():
 </main>
 <footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
 </body>
 </html>"""
         return Response(html, mimetype='text/html')
@@ -2148,8 +2154,8 @@ DASHBOARD_HTML = r'''<!doctype html>
 </main>
 <footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> <span id="ver">1.1-fixed</span> · gunicorn 2×4 · See RUNBOOK · <a href="/admin">admin</a> · Template <a href="https://github.com/topics/dashboard-template" target="_blank">dashboard-template</a> (AdminLTE 4)</footer>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -2364,8 +2370,8 @@ select:focus{background:#1e293b;color:#f1f5f9}
 </main>
 <footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · <a href="/admin">admin</a> · Template <a href="https://github.com/topics/dashboard-template" target="_blank">dashboard-template</a> (AdminLTE 4)</footer>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
 
 <script>
 const $=id=>document.getElementById(id);
@@ -2478,8 +2484,8 @@ NOTFOUND_HTML = r'''<!doctype html>
 <footer class="app-footer text-center"><small class="text-secondary">zAlive · <a href="/dashboard">dashboard</a> · <a href="/firmware">firmware</a> · <a href="/admin">admin</a></small></footer>
 </div>
 <script>document.getElementById('path').textContent = location.pathname + location.search;</script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
 </body>
 </html>
 
@@ -2572,8 +2578,8 @@ ADMIN_HTML = r'''<!doctype html>
 </main>
 <footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -3063,8 +3069,8 @@ def api_validate():
 </main>
 <footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
 </body>
 </html>"""
         return Response(html, mimetype='text/html')
@@ -3387,7 +3393,7 @@ def api_status():
         # Render premium HTML like /health, /ready
         ok = p.get("health", {}).get("status") == "ok"
         badge = "bg-success" if ok else "bg-danger"
-        html = f"""<!doctype html><html lang="en" data-bs-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/static/favicon.svg"><title>zAlive — Status — {'✓ ok' if ok else '✗ fail'}</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/css/adminlte.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"><style>:root{{--zalive-card:#151a21;--zalive-border:#232b36}} .app-wrapper{{min-height:100vh;background:#0b0f14}} .app-header{{border-bottom:1px solid var(--zalive-border)}} .app-sidebar{{background:#0f141b;border-right:1px solid var(--zalive-border)}} .card{{border:1px solid var(--zalive-border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.45)}} .mono{{font-family:ui-monospace,monospace}}</style></head><body class="layout-fixed-complete"><div class="app-wrapper"><nav class="app-header navbar navbar-expand bg-body"><div class="container-fluid"><ul class="navbar-nav"><li class="nav-item"><a class="nav-link" data-lte-toggle="sidebar" href="#"><i class="bi bi-list"></i></a></li><li class="nav-item"><a href="/dashboard" class="nav-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:22px"></a></li></ul><ul class="navbar-nav ms-auto"><li class="nav-item"><span class="badge {badge}">{'✓ ok' if ok else '✗ fail'}</span></li><li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li><li class="nav-item"><a class="nav-link" href="/api/status?format=json">JSON</a></li></ul></div></nav><aside class="app-sidebar sidebar-dark"><div class="sidebar-brand"><a href="/dashboard" class="brand-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px"><span class="brand-text fw-light ms-2">zAlive Albert</span></a></div><div class="sidebar-wrapper"><nav class="mt-2"><ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview" role="menu"><li class="nav-item"><a href="/dashboard" class="nav-link"><i class="nav-icon bi bi-speedometer2"></i><p>Dashboard</p></a></li><li class="nav-item"><a href="/firmware" class="nav-link"><i class="nav-icon bi bi-hdd-stack"></i><p>Firmware</p></a></li><li class="nav-item"><a href="/admin" class="nav-link"><i class="nav-icon bi bi-shield-lock"></i><p>Admin</p></a></li><li class="nav-item"><a href="/health" class="nav-link"><i class="nav-icon bi bi-heart-pulse"></i><p>Health</p></a></li><li class="nav-item"><a href="/ready" class="nav-link"><i class="nav-icon bi bi-check-circle"></i><p>Ready</p></a></li><li class="nav-item"><a href="/metrics" class="nav-link"><i class="nav-icon bi bi-graph-up"></i><p>Metrics</p></a></li><li class="nav-item"><a href="/api/status" class="nav-link active"><i class="nav-icon bi bi-heart-pulse"></i><p>Status</p></a></li></ul></nav></div></aside><main class="app-main"><div class="app-content-header"><div class="container-fluid"><div class="row"><div class="col-sm-6"><h3 class="mb-0">Status <small class="text-secondary">· {'✓ ok' if ok else '✗ fail'}</small></h3><small class="text-secondary">Template: AdminLTE 4 (dashboard-template #1) · Public status</small></div><div class="col-sm-6"><ol class="breadcrumb float-sm-end"><li class="breadcrumb-item"><a href="/">Home</a></li><li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li><li class="breadcrumb-item active">Status</li></ol></div></div></div><div class="app-content"><div class="container-fluid"><div class="row g-3"><div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Health</h3><span class="badge {badge} float-end">{'✓ ok' if ok else '✗ fail'}</span></div><div class="card-body"><div class="mono small">{p.get('health', {}).get('server', 'albert-local')} · {p.get('health', {}).get('version', '1.1-fixed')}</div></div></div></div><div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Ready</h3><span class="badge {badge} float-end">{'✓ ready' if p.get('ready', {}).get('fairplay_loaded') else '✗ not-ready'}</span></div><div class="card-body"><div class="mono small">FairPlay loaded: {str(p.get('ready', {}).get('fairplay_loaded', False)).lower()}</div><div class="mono small text-secondary">mTLS: {'enabled' if p.get('ready', {}).get('mtls', {}).get('enabled') else 'disabled'}</div></div></div></div><div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Version</h3></div><div class="card-body"><div class="mono small">{p.get('version', '1.1-fixed')}</div></div></div></div></div><div class="card mt-3"><div class="card-header"><h3 class="card-title small" style="color:#94a3b8">Raw JSON</h3><a href="/api/status?format=json" class="btn btn-sm btn-outline-primary float-end">View JSON</a></div><div class="card-body"><pre class="mono small bg-dark p-3 rounded" style="white-space:pre-wrap">{json.dumps(p, indent=2)}</pre></div></div></div></div></main><footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer></div><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script><script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script></body></html>"""
+        html = f"""<!doctype html><html lang="en" data-bs-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/static/favicon.svg"><title>zAlive — Status — {'✓ ok' if ok else '✗ fail'}</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/css/adminlte.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"><style>:root{{--zalive-card:#151a21;--zalive-border:#232b36}} .app-wrapper{{min-height:100vh;background:#0b0f14}} .app-header{{border-bottom:1px solid var(--zalive-border)}} .app-sidebar{{background:#0f141b;border-right:1px solid var(--zalive-border)}} .card{{border:1px solid var(--zalive-border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.45)}} .mono{{font-family:ui-monospace,monospace}}</style></head><body class="layout-fixed-complete"><div class="app-wrapper"><nav class="app-header navbar navbar-expand bg-body"><div class="container-fluid"><ul class="navbar-nav"><li class="nav-item"><a class="nav-link" data-lte-toggle="sidebar" href="#"><i class="bi bi-list"></i></a></li><li class="nav-item"><a href="/dashboard" class="nav-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:22px"></a></li></ul><ul class="navbar-nav ms-auto"><li class="nav-item"><span class="badge {badge}">{'✓ ok' if ok else '✗ fail'}</span></li><li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li><li class="nav-item"><a class="nav-link" href="/api/status?format=json">JSON</a></li></ul></div></nav><aside class="app-sidebar sidebar-dark"><div class="sidebar-brand"><a href="/dashboard" class="brand-link"><img src="/static/zalive-logo.svg" alt="zAlive" style="height:28px"><span class="brand-text fw-light ms-2">zAlive Albert</span></a></div><div class="sidebar-wrapper"><nav class="mt-2"><ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview" role="menu"><li class="nav-item"><a href="/dashboard" class="nav-link"><i class="nav-icon bi bi-speedometer2"></i><p>Dashboard</p></a></li><li class="nav-item"><a href="/firmware" class="nav-link"><i class="nav-icon bi bi-hdd-stack"></i><p>Firmware</p></a></li><li class="nav-item"><a href="/admin" class="nav-link"><i class="nav-icon bi bi-shield-lock"></i><p>Admin</p></a></li><li class="nav-item"><a href="/health" class="nav-link"><i class="nav-icon bi bi-heart-pulse"></i><p>Health</p></a></li><li class="nav-item"><a href="/ready" class="nav-link"><i class="nav-icon bi bi-check-circle"></i><p>Ready</p></a></li><li class="nav-item"><a href="/metrics" class="nav-link"><i class="nav-icon bi bi-graph-up"></i><p>Metrics</p></a></li><li class="nav-item"><a href="/api/status" class="nav-link active"><i class="nav-icon bi bi-heart-pulse"></i><p>Status</p></a></li></ul></nav></div></aside><main class="app-main"><div class="app-content-header"><div class="container-fluid"><div class="row"><div class="col-sm-6"><h3 class="mb-0">Status <small class="text-secondary">· {'✓ ok' if ok else '✗ fail'}</small></h3><small class="text-secondary">Template: AdminLTE 4 (dashboard-template #1) · Public status</small></div><div class="col-sm-6"><ol class="breadcrumb float-sm-end"><li class="breadcrumb-item"><a href="/">Home</a></li><li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li><li class="breadcrumb-item active">Status</li></ol></div></div></div><div class="app-content"><div class="container-fluid"><div class="row g-3"><div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Health</h3><span class="badge {badge} float-end">{'✓ ok' if ok else '✗ fail'}</span></div><div class="card-body"><div class="mono small">{p.get('health', {}).get('server', 'albert-local')} · {p.get('health', {}).get('version', '1.1-fixed')}</div></div></div></div><div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Ready</h3><span class="badge {badge} float-end">{'✓ ready' if p.get('ready', {}).get('fairplay_loaded') else '✗ not-ready'}</span></div><div class="card-body"><div class="mono small">FairPlay loaded: {str(p.get('ready', {}).get('fairplay_loaded', False)).lower()}</div><div class="mono small text-secondary">mTLS: {'enabled' if p.get('ready', {}).get('mtls', {}).get('enabled') else 'disabled'}</div></div></div></div><div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Version</h3></div><div class="card-body"><div class="mono small">{p.get('version', '1.1-fixed')}</div></div></div></div></div><div class="card mt-3"><div class="card-header"><h3 class="card-title small" style="color:#94a3b8">Raw JSON</h3><a href="/api/status?format=json" class="btn btn-sm btn-outline-primary float-end">View JSON</a></div><div class="card-body"><pre class="mono small bg-dark p-3 rounded" style="white-space:pre-wrap">{json.dumps(p, indent=2)}</pre></div></div></div></div></main><footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer></div><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script><script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script></body></html>"""
         return Response(html, mimetype='text/html')
     return jsonify(p)
 
@@ -3694,8 +3700,8 @@ def index():
 </main>
 <footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
 </body>
 </html>"""
         return Response(html, mimetype='text/html')

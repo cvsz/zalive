@@ -180,3 +180,46 @@ def test_restart_key_persistence_tmpdir():
         h2 = hashlib.sha256(key_path.read_bytes()).hexdigest()
         assert h1 == h2
         assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+
+def test_device_identity_normalizes_whitespace():
+    """Regression: a value that passes validation after strip() must be written
+    back in normalized form. _validate_udid/_validate_imei check str(v).strip(),
+    so " <valid> " used to be accepted and then stored as a sync_state key that
+    did not match the canonical row for the same device."""
+    udid, imei, rejected = albert_server._device_identity_from_plist(
+        {"UDID": " 00008020-AAAAAAAAAAAAAAAA ", "IMEI": " 350000000000006 "}
+    )
+    assert rejected is False
+    assert udid == "00008020-AAAAAAAAAAAAAAAA"
+    assert imei == "350000000000006"
+
+
+def test_device_identity_padded_and_bare_collapse_to_same_key():
+    """Padded and unpadded forms must produce the identical key."""
+    padded, _, r1 = albert_server._device_identity_from_plist(
+        {"UDID": " 00008020-AAAAAAAAAAAAAAAA "}
+    )
+    bare, _, r2 = albert_server._device_identity_from_plist(
+        {"UDID": "00008020-AAAAAAAAAAAAAAAA"}
+    )
+    assert r1 is False and r2 is False
+    assert padded == bare
+
+
+def test_device_identity_whitespace_only_is_empty_not_rejected():
+    """A whitespace-only value normalizes to empty, which means "not supplied"
+    and must not be reported as a malformed identifier."""
+    udid, imei, rejected = albert_server._device_identity_from_plist(
+        {"UDID": "   ", "IMEI": "  "}
+    )
+    assert (udid, imei) == ("", "")
+    assert rejected is False
+
+
+def test_device_identity_still_rejects_malformed_after_strip():
+    """Normalization must not weaken validation: junk stays rejected."""
+    for bad in ("bad", "00008020-AAAAAAA", "00008020-AAAAAAAAAAAAAAAA-EXTRA", "x" * 60):
+        udid, imei, rejected = albert_server._device_identity_from_plist({"UDID": bad})
+        assert rejected is True, bad
+        assert udid == "" and imei == "", bad
