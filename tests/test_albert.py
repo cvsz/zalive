@@ -226,9 +226,13 @@ def test_invalid_imei_400():
     c = albert_server.app.test_client()
     r = c.post("/deviceservices/deviceActivation", data={"activation-info": b64})
     assert r.status_code == 400
-    j = r.get_json()
+    # The error body is a plist, not JSON: iOS parses device-endpoint responses
+    # as a property list and reports a JSON body as NSCocoaErrorDomain 3840
+    # ("Unexpected character {"), which hides the validation detail from the
+    # device. See _activation_error in albert_server.py.
+    j = r.get_json() if r.is_json else plistlib.loads(r.data)
     assert j is not None
-    assert "error" in j or "details" in j
+    assert "Error" in j or "error" in j
     # details should mention IMEI
     body = str(j)
     assert "IMEI" in body or "imei" in body.lower()

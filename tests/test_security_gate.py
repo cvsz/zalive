@@ -239,22 +239,28 @@ def test_device_error_responses_do_not_leak_exception_text():
         text = r.get_data(as_text=True)
         # Either it parsed and moved on, or it failed generically -- but no
         # exception text may reach the client.
-        for leak in ("Invalid plist:", "Error: ", "Traceback", "File \"", ".py\", line"):
+        for leak in ("Invalid plist:", "Traceback", "File \"", ".py\", line"):
             assert leak not in text, f"{path} leaked {leak!r}: {text[:200]}"
         if r.status_code >= 400:
-            assert r.is_json, f"{path} error must be JSON, got {r.content_type}"
+            # iOS parses device-endpoint responses as a property list and turns a
+            # JSON body into NSCocoaErrorDomain 3840 ("Unexpected character {"),
+            # which hides the real error. A plist body is required here.
+            assert "xml" in r.content_type, f"{path} error must be a plist, got {r.content_type}"
+            assert r.get_data().lstrip().startswith(b"<?xml"), f"{path} body is not a plist"
 
 
 def test_device_error_responses_include_request_id():
     """The generic error body still carries request_id so a client report can be
     correlated with the server log, which is where the exception detail lives."""
     c = albert_server.app.test_client()
+    import plistlib as _plistlib
+
     r = c.post("/deviceservices/drmHandshake", data=b"not a plist",
                content_type="application/x-apple-plist")
-    if r.status_code >= 400 and r.is_json:
-        body = r.get_json()
-        assert "request_id" in body, body
-        assert "error" in body, body
+    assert r.status_code >= 400, r.status_code
+    body = _plistlib.loads(r.get_data())
+    assert "RequestID" in body, body
+    assert "Error" in body, body
 
 
 def test_tool_arg_rejects_leading_dash():
