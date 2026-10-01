@@ -7,7 +7,7 @@
     "BuildVersion": "22H374",
     "ActivationState": "Unactivated",
     "InternationalMobileEquipmentIdentity": "35734\u2026491",
-    "MobileEquipmentIdentifier": "35734009168249",
+    "MobileEquipmentIdentifier": "35734\u2026249",
     "TelephonyCapability": true
   },
   "trace": [
@@ -28,7 +28,7 @@
         "BuildVersion": "22H374",
         "ActivationState": "Unactivated",
         "InternationalMobileEquipmentIdentity": "35734…491",
-        "MobileEquipmentIdentifier": "35734009168249",
+        "MobileEquipmentIdentifier": "35734\u2026249",
         "TelephonyCapability": true
       }
     },

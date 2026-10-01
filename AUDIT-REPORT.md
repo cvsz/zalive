@@ -16,7 +16,7 @@
 | Security Gates | `ruff ✅` `bandit ✅` `CodeQL python,actions ✅` `branch protection strict ci ✅` |
 | Deployment Ready | ✅ Docker multi-stage **3.14-slim**, compose `required:false`, `uv` hashes, `127.0.0.1:18090` secure-by-default + `0.0.0.0` LAN override, `127.0.0.1:18443` green SAN, **systemd unit installed and enabled** |
 | Intended Use | Lab/research activation of owned iOS devices (iPhone 5 → 15 Pro, 13 curated A6-A16). FairPlay placeholder — not for real Apple activation |
-| Git History | **Purged** `C8PXJF1EKXKQ`/`00008020-001224C81178002E`/`35734009168`/`8904903200` → `0` commits via `git-filter-repo --replace-text` + force push (backup `refs/tbh/recovery/before-discard/20260928T225229Z-2399085`) |
+| Git History | **Purged** 4 real identifiers (serial, UDID, IMEI, MEID — redacted here; the pre-purge values lived only in the discarded `refs/tbh/recovery/*` backup, which is why this report no longer quotes them) → `0` commits via `git-filter-repo --replace-text` + force push (backup `refs/tbh/recovery/before-discard/20260928T225229Z-2399085`) |
 
 ## Findings closed since 2026-09-29
 
@@ -112,7 +112,7 @@ CI `validate` script: IPSW/FairPlay/DB/env/API/logs checks — all pass.
 - [x] Compose: `127.0.0.1` ports, `depends_on service_healthy`, `restart: unless-stopped`
 - [x] CI: `compose-e2e` job runs full stack health + auth gates + restart + `down -v`
 - [x] Certs: `0600` perms, host-owned, container read-only mount
-- [x] Green CA: `certs/server-green.crt` SAN `core.zeaz.dev` + `192.168.1.123` for trusted LAN TLS
+- [x] Green CA generated locally for trusted LAN TLS. The certificate pair is **no longer tracked** — its SAN list carried a real LAN address and a private hostname, and the server never loaded it (gunicorn serves plain HTTP). Generate a fresh pair per host instead of committing one.
 - [x] Git history purged of real device IDs (filter-repo + force push)
 
 ## Risk Acceptance
