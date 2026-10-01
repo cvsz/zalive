@@ -137,7 +137,8 @@ certs/*
 # un-ignored here so a fresh clone could serve trusted LAN TLS, but the server
 # never loaded it (gunicorn_conf.py sets no certfile/keyfile, so it serves plain
 # HTTP) and the SAN list carried a real LAN address and a private hostname.
-# Generate your own pair instead: docs/TLS.md.
+# Generate a per-host pair instead -- see the "สร้าง certificate สำหรับ dev"
+# section of docs/DEVICE_GUIDE.md, or setup.sh's generate_ssl_certs.
 Library/
 grafana/data/
 
