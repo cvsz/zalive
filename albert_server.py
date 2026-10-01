@@ -414,7 +414,7 @@ def _fetch_ipsw(productType: str) -> dict:
                     data = json.loads(FIRMWARE_CACHE.read_text())
                     entry = data.get(productType)
                     if entry:
-                        return {"firmwares": entry["data"].get("firmwares", []), "cached": True, "fetchedAt": entry["fetchedAt"], "stale": True, "warning": str(e), "data": entry["data"]}
+                        return {"firmwares": entry["data"].get("firmwares", []), "cached": True, "fetchedAt": entry["fetchedAt"], "stale": True, "warning": "showing cached data; upstream unreachable", "data": entry["data"]}
             except Exception:
                 pass
         raise
@@ -2702,8 +2702,8 @@ def api_admin_status():
         payload["ok"] = True
         return jsonify(payload)
     except Exception as e:
-        logger.warning(f"api_admin_status error: {e}")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        logger.exception("api_admin_status error")
+        return jsonify({"ok": False, "error": "internal error"}), 500
 
 @app.route('/api/admin/clear-cache', methods=['POST'])
 def api_admin_clear_cache():
@@ -3081,8 +3081,8 @@ def api_firmwares():
         })
     except Exception as e:
         # try stale fallback already inside _fetch, but handle 502
-        logger.warning(f"firmware fetch failed for {productType}: {e}")
-        return jsonify({"error": "upstream unavailable", "details": str(e), "retryAfter": 60}), 502
+        logger.exception("firmware fetch failed for %s", productType)
+        return jsonify({"error": "upstream unavailable", "retryAfter": 60}), 502
 
 
 def _get_restore_progress():
@@ -3476,8 +3476,9 @@ def api_activations():
             cur=c.execute("SELECT id,udid,serial,created_at FROM activations ORDER BY id DESC LIMIT ?", (limit,))
             for id_,udid,serial,at in cur.fetchall():
                 rows.append({"id":id_,"udid":udid,"serial":serial,"created_at":at})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        logger.exception("activation listing failed")
+        return jsonify({"error": "internal error"}), 500
     return jsonify({"activations": rows, "total": len(rows)})
 
 def _run_tool(cmd, timeout=2):
