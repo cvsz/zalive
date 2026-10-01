@@ -3514,15 +3514,29 @@ def api_activations():
         return jsonify({"error": "internal error"}), 500
     return jsonify({"activations": rows, "total": len(rows)})
 
+_TOOL_ARG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _validate_tool_arg(value: str) -> bool:
+    """Allowlist for a value that becomes one argv element of a subprocess.
+
+    Requires an alphanumeric first character on purpose. The previous pattern
+    (^[A-Za-z0-9._-]+$) also matched a leading '-', which let a caller pass
+    ?domain=-oRoot or ?key=--help and have the tool read the value as a flag
+    instead of as data. shell=False does not help here -- argument injection
+    needs no shell.
+    """
+    return bool(_TOOL_ARG_RE.match(value or ""))
+
+
 def _run_tool(cmd, timeout=2):
     try:
-        # cmd is always a list literal assembled by this module, and no caller
-        # passes user input as its own argv element -- udid is regex-validated at
-        # albert_server.py:3537 and domain/key are value arguments after a fixed
-        # flag. shell=False (the default) means no metacharacter expansion, so this
-        # is not a shell injection sink. The remaining risk is argument injection
-        # (a crafted domain/key being read as a flag), which needs allowlisting,
-        # not list-vs-string handling.
+        # cmd is always a list literal assembled by this module; shell=False (the
+        # default) means no metacharacter expansion, so this is not a shell
+        # injection sink. Every user-supplied element is validated first:
+        # udid by _validate_udid, domain/key by _validate_tool_arg, which
+        # requires an alphanumeric first character so a value cannot be read as
+        # a flag. See _validate_tool_arg for why that leading-dash rule matters.
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)  # nosec B603 B607
         return {"ok": out.returncode == 0, "returncode": out.returncode, "stdout": (out.stdout or "")[:4000], "stderr": (out.stderr or "")[:4000], "cmd": " ".join(cmd)}
     except Exception as e:
@@ -3536,10 +3550,14 @@ def api_device_info():
     domain = request.args.get("domain") or ""
     key = request.args.get("key") or ""
     udid = request.args.get("udid") or ""
-    # allowlist validation to prevent injection
-    if domain and not re.match(r'^[A-Za-z0-9._-]+$', domain):
+    # Allowlist validation. The character class alone was not enough: it permits
+    # a leading '-', so '?domain=-oRoot' or '?key=--help' passed and ideviceinfo
+    # read the value as a flag rather than data (argument injection). Requiring
+    # an alphanumeric first character closes that; empty still means "not
+    # supplied" and is handled by the `if domain:` guards below.
+    if domain and not _validate_tool_arg(domain):
         return jsonify({"error": "invalid domain"}), 400
-    if key and not re.match(r'^[A-Za-z0-9._-]+$', key):
+    if key and not _validate_tool_arg(key):
         return jsonify({"error": "invalid key"}), 400
     if udid and not _validate_udid(udid):
         return jsonify({"error": "invalid UDID"}), 400

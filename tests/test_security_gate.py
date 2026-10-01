@@ -255,3 +255,20 @@ def test_device_error_responses_include_request_id():
         body = r.get_json()
         assert "request_id" in body, body
         assert "error" in body, body
+
+
+def test_tool_arg_rejects_leading_dash():
+    """Regression: the old allowlist was ^[A-Za-z0-9._-]+$, which also matched a
+    leading '-', so ?domain=-oRoot or ?key=--help passed validation and
+    ideviceinfo read the value as a flag rather than data. shell=False does not
+    help -- argument injection needs no shell."""
+    for bad in ("-oRoot", "--help", "-q", "--version", ".hidden", "_x", "a;b", "a b", "../x"):
+        assert albert_server._validate_tool_arg(bad) is False, bad
+
+
+def test_tool_arg_accepts_real_domains_and_keys():
+    """Normal values must keep working -- the allowlist is not meant to reject
+    real ideviceinfo domains or keys."""
+    for good in ("ProductVersion", "ProductType", "BuildVersion", "0abc", "a.b_c-d"):
+        assert albert_server._validate_tool_arg(good) is True, good
+    assert albert_server._validate_tool_arg("") is False
