@@ -133,8 +133,11 @@ shsh/
 tmp/
 certs/*
 !certs/.gitkeep
-!certs/green-ca.crt
-!certs/server-green.crt
+# certs/*.crt is NOT force-tracked any more. The green CA certificate pair was
+# un-ignored here so a fresh clone could serve trusted LAN TLS, but the server
+# never loaded it (gunicorn_conf.py sets no certfile/keyfile, so it serves plain
+# HTTP) and the SAN list carried a real LAN address and a private hostname.
+# Generate your own pair instead: docs/TLS.md.
 Library/
 grafana/data/
 
