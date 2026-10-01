@@ -12,7 +12,7 @@
 | Metric | Value |
 |--------|-------|
 | Lines of Code | 4,900+ (Python) + AdminLTE 4 templates |
-| Test Coverage | Local **118 passed**; CI **88 passed, 12 skipped** (CI ตัด `test_bootstrap.py` ผ่าน `--ignore` และ `test_parse_trustcache.py` skip เพราะไม่มี `firmware/`) + CI `validate` green |
+| Test Coverage | Local **120 passed**; CI **103 passed, 12 skipped** (CI ตัด `test_bootstrap.py` ผ่าน `--ignore` และ `test_parse_trustcache.py` skip เพราะไม่มี `firmware/`) + CI `validate` green |
 | Security Gates | `ruff ✅` `bandit ✅` `CodeQL python,actions ✅` `branch protection strict ci ✅` |
 | Deployment Ready | ✅ Docker multi-stage **3.14-slim**, compose `required:false`, `uv` hashes, `127.0.0.1:18090` secure-by-default + `0.0.0.0` LAN override, `127.0.0.1:18443` green SAN, **systemd unit installed and enabled** |
 | Intended Use | Lab/research activation of owned iOS devices (iPhone 5 → 15 Pro, 13 curated A6-A16). FairPlay placeholder — not for real Apple activation |
@@ -46,19 +46,19 @@
 | Gate | Finding | Fix Applied | Verification |
 |------|---------|-------------|--------------|
 | 01 Remove hardcoded secrets | `admin_token` in config | Move to `.env` + `.env.example` placeholders; rotate CI | `grep -r admin_token . --include="*.py" --include="*.yml" 0 results` |
-| 02 Purge Git history | 20 commits contained real IDs | `git-filter-repo --replace-text /tmp/replace.txt --force` + `refs/tbh/recovery/before-discard/20260928T225229Z-2399085` backup + force push `main` `72d74b4` GPG + `albert-server` `c1509a3` | `git log -S C8PX` `0`, `git rev-list --all --count 74` |
+| 02 Purge Git history | 20 commits contained real IDs | `git-filter-repo --replace-text /tmp/replace.txt --force` + `refs/tbh/recovery/before-discard/20260928T225229Z-2399085` backup + force push `main` `72d74b4` GPG + `albert-server` `c1509a3` | `git log -S C8PX` `0`, `git rev-list --all --count` (value changes as history grows) |
 | 03 Protect device APIs | `/api/device_info` etc lacked auth | Add `_admin_required()` + allowlist `domain/key` `^[A-Za-z0-9._-]+$` + `_validate_udid` | `curl /api/device_info` `401` → with `X-Admin-Token` `200` |
 | 04 Protect activations/logs + rate-limit all /api | `/api/activations`/`/api/logs` public + `api_rate_status` no auth + rate-limit only `/deviceservices` | Gate `8` endpoints behind `_admin_required`, `_match read-only`, `before_request` now `request.path.startswith("/api/")` all 100/min + Redis fail-closed | `curl /api/activations` `401` → `200` with token; `rate_limit_all_api` test `3→429` |
-| 05 Bind control-plane | `0.0.0.0:18090` exposes all routes | `ALBERT_HOST=127.0.0.1` + `docker-compose 127.0.0.1:18090/18443` secure-by-default; LAN override `ALBERT_HOST=0.0.0.0` + `ALBERT_LAN_HOST` + `UFW` documented; `mitmproxy 127.0.0.1:8081/8082` | `docker compose config` shows `127.0.0.1:18090` + `ALBERT_HOST=127.0.0.1` in `Dockerfile`/` .env.example` |
+| 05 Bind control-plane | `0.0.0.0:18090` exposes all routes | `ALBERT_HOST=127.0.0.1` + `docker-compose 127.0.0.1:18090/18443` secure-by-default; LAN override `ALBERT_HOST=0.0.0.0` + `ALBERT_LAN_HOST` + `UFW` documented; `mitmproxy 127.0.0.1:28080/28081` | `docker compose config` shows `127.0.0.1:18090` + `ALBERT_HOST=127.0.0.1` in `Dockerfile`/` .env.example` |
 | 06 Certs persistence | `certs:/app/certs:ro` OK but drift | Document `ro` is intentional (host generates `0600`, container reads) + `logs:/app/logs` rw | `docker compose config` shows `:ro` + `volumes` |
-| 07 mitmproxy port | `docker-compose` missing `--listen-port 8082` defaults `8080` breaks `127.0.0.1:8082:8082` | Add `--listen-port 8082` to `command` | `docker-compose config` now `... --listen-port 8082` |
+| 07 mitmproxy port | `docker-compose` missing `--listen-port 28081` defaults `8080` breaks `127.0.0.1:8082:8082` | Add `--listen-port 28081` to `command` | `docker-compose config` now `... --listen-port 8082` |
 | 08 CodeQL python | `languages: actions` only | `languages: python,actions` | `cat .github/workflows/codeql.yml` shows `python,actions` |
 | 09 Query-string tokens | `_check_admin_auth` accepted `?token=` + `cookie zAlive_admin` leak via Referer | Remove query+cookie, keep `X-Admin-Token` + `Authorization Bearer` header-only, warn on `?token=` | `curl /api/device_info?token=$TOKEN` `401 query-string not allowed` |
 | 10 Redis URI leak | `api_rate_status 2743` `redis_url[:20] + ...` + `601` log redacted | `redis_url: "redacted"` + `log (redacted)` | `curl /api/rate_status` `{redis_url: redacted}` |
-| 11 Clean-volume E2E | No `down -v` test | `test_clean_volume_e2e_placeholder` checks `docker compose config` valid + `cap_drop` | `pytest 13 passed` |
-| 11 Docker runtime E2E | No `up/health/restart/down -v` E2E | `test_docker_compose_config_valid` (compose parse, not full E2E) + new `compose-e2e` job `docker compose up --wait /health /ready /api 401 → 200 / restart / down -v` | `pytest 13 passed` + `CI compose-e2e` |
+| 11 Clean-volume E2E | No `down -v` test | the compose/E2E job in `ci.yml` (no pytest test by that name exists) checks `docker compose config` valid + `cap_drop` | `pytest` counts vary per selection |
+| 11 Docker runtime E2E | No `up/health/restart/down -v` E2E | `test_docker_compose_config_valid` (compose parse, not full E2E) + new `compose-e2e` job `docker compose up --wait /health /ready /api 401 → 200 / restart / down -v` | `pytest` counts vary per selection + `CI compose-e2e` |
 | 12 Restart/key persistence | FairPlay `0600` but no hash test | `test_restart_key_persistence` checks `certs/fairplay.key` `0600` + `fallback.key` `0600` + hash stable | `pytest` |
-| 13 RBAC/CSRF | `POST /api/pair` no auth/CSRF | `api_pair` now `_admin_required` + `Origin` check log + `test_rbac_*` `13 passed` + `rate_limit_all_api` | `curl POST /api/pair` `401` → `200` with token |
+| 13 RBAC/CSRF | `POST /api/pair` no auth/CSRF | `api_pair` now `_admin_required` + `Origin` check log + `test_rbac_*` (7 tests) + `rate_limit_all_api` | `curl POST /api/pair` `401` → `200` with token |
 | 14 Branch protection | `gh api branches/main/protection` `strict:true [ci] enforce_admins true` | Verified via `gh api` admin context | `gh api` shows `strict true`, `contexts [ci]`, `enforce_admins true`, `reviews 1` |
 | 15 AUDIT-REPORT | Old `4a92ccb`/`72d74b4` stale | Regenerated from `eb831f3b414a13e5b5d8f011e6790c919cbec987` `CI 36499409453` `CodeQL 36499409461` | This file |
 | 16 Release evidence | Need SHA/CI/runtime/rollback/dependency | Collected below | See Release Evidence |
@@ -73,13 +73,13 @@
 |-------|-------|-----------|-------|
 | `tests/test_sync_state.py` | 44 | ✅ รัน | ✅ รัน |
 | `tests/test_security_gate.py` | 14 | ✅ รัน | ✅ รัน |
-| `tests/test_phonehome_mtls.py` | 13 | ✅ รัน | ✅ รัน |
+| `tests/test_phonehome_mtls.py` | 15 | ✅ รัน | ✅ รัน |
 | `tests/test_albert.py` | 12 | ✅ รัน | ✅ รัน |
 | `tests/test_activate_device.py` | 12 | ✅ รัน | ✅ รัน |
 | `tests/test_parse_trustcache.py` | 12 | ✅ รัน | ⏭️ skip (ไม่มี `firmware/`) |
 | `tests/test_firmware.py` | 6 | ✅ รัน | ✅ รัน |
 | `tests/test_bootstrap.py` | 5 | ✅ รัน | 🚫 ถูก `--ignore` |
-| **Total** | **118** | **118 passed** | **88 passed, 12 skipped** |
+| **Total** | **120** | **120 passed** | **103 passed, 12 skipped** |
 
 CI `validate` script: IPSW/FairPlay/DB/env/API/logs checks — all pass.
 
@@ -90,12 +90,12 @@ CI `validate` script: IPSW/FairPlay/DB/env/API/logs checks — all pass.
 | Commit SHA | `eb831f3b414a13e5b5d8f011e6790c919cbec987` |
 | CI Run | `36499409453` (success) |
 | CodeQL Run | `36499409461` (success) |
-| Docker Image | `albert_server-albert-server:latest` (multi-stage, `python:3.13-slim`, non-root, `tini`, healthcheck, read-only FS, `cap_drop: ALL`) |
+| Docker Image | `albert_server-albert-server:latest` (multi-stage, `python:3.14-slim`, non-root, `tini`, healthcheck, read-only FS, `cap_drop: ALL`) |
 | Compose Config | `docker compose config` ✅ (cap_drop, read_only, tmpfs, security_opt, deploy.limits) |
 | Branch Protection | `strict: true`, `contexts: [ci]`, `enforce_admins: true`, `required_reviews: 1` |
 | Secrets | `.env` (0600) with placeholders in `.env.example`; CI uses ephemeral tokens |
 | Rollback | `docker compose down -v` + `git revert` + re-tag; `main` only accepts PRs with green `ci` + `compose-e2e` |
-| Dependencies | `requirements.txt` with `--require-hashes` in Dockerfile; `uv lock` for reproducible installs; `dependabot.yml` weekly |
+| Dependencies | `requirements.txt` with `--require-hashes` in Dockerfile; hash-pinned `requirements.txt` (`uv pip compile --generate-hashes`); `dependabot.yml` weekly |
 
 ## Hardening Checklist (Production)
 

@@ -64,7 +64,7 @@ Production entry is `gunicorn` (`gunicorn_conf.py`); dev fallback is `python alb
 │   Docker (docker-compose.yml)                                           │
 │   ┌─────────────────────┐   ┌─────────────────────┐                     │
 │   │ albert-server       │   │ mitmproxy            │                     │
-│   │ build: . (3.13-slim)│──▶│ image: 12.2.3        │                     │
+│   │ build: . (3.14-slim)│──▶│ image: 12.2.3        │                     │
 │   │ USER app, readOnly  │   │ 127.0.0.1:28080/28081  │                     │
 │   │ ports 18090,18443   │   │ web_password=$MITMP..│                     │
 │   │ healthcheck /health │   │ depends_on healthy   │                     │
@@ -90,8 +90,8 @@ Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) �
 | Activation client | `activate_device.py` | Direct `POST` to Albert without proxy (alternative to Wi-Fi proxy), `--albert-url http://127.0.0.1:18090`, retries `10s`×`3` exponential, `X-Request-ID` | `DEFAULT_ALBERT_URL 127.0.0.1:18090` (legacy 8080 → 18090) |
 | IPSW | `iPhone11,8_18.7.10_22H374_Restore.ipsw` (8.1 GB) | External restore image, `scripts/sha256_manifest.sh` → `*.sha256`/`ipsw.sha256`, `.gitignore *.ipsw` | filesystem + `api.ipsw.me` |
 | Firmware service | `albert_server.py:_fetch_ipsw` | `ipsw.me` live fetch with `logs/firmware_cache.json` TTL `3600`, curated `CURATED_SET`, stale fallback, allow any `iPhone\d+,\d+` | `IPSW_API https://api.ipsw.me/v4/device/{productType}` |
-| Compose | `docker-compose.yml` | Two-service stack, `read_only`, `cap_drop ALL`, `no-new-priv`, `healthcheck /health` | `18090`, `18443`, `28080`, `28081` (mitmproxy bound `127.0.0.1`) |
-| Dockerfile | `Dockerfile` | `python:3.13-slim`, `tini`, `useradd app`, `USER app`, `HEALTHCHECK` | `EXPOSE 18090 18443` |
+| Compose | `docker-compose.yml` | Three-service stack, `read_only`, `cap_drop ALL`, `no-new-priv`, `healthcheck /health` | `18090`, `18443`, `28080`, `28081` (mitmproxy bound `127.0.0.1`) |
+| Dockerfile | `Dockerfile` | `python:3.14-slim`, `tini`, `useradd app`, `USER app`, `HEALTHCHECK` | `EXPOSE 18090 18443` |
 | systemd | `systemd/albert-server.service` | `User=cvsz`, `WorkingDirectory`, `ExecStart gunicorn`, `Restart=on-failure`, `PrivateTmp`, `NoNewPrivileges` | `0.0.0.0:18090` via `gunicorn_conf.py` |
 
 ### Activation request flow (session mode)
@@ -151,7 +151,7 @@ Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) �
 | docker | `docker compose up -d --build` | `gunicorn` in container | Same as prod | Env `ALBERT_ACCEPT_RISK=1` |
 
 - **Host**: `0.0.0.0:18090` (`ALBERT_HOST` env, `gunicorn_conf.py:bind`), `18443` HTTPS dev only (`certs/server.crt/key`); container `albert-server:18090` vs `127.0.0.1:18090` vs `LOCAL_ALBERT_HOST` toggle (docker `albert-server`, host `127.0.0.1`).
-- **Docker Compose** (`docker-compose.yml`): two services `albert-server` (`build: . python:3.13-slim`, `USER app`, `read_only:true` `tmpfs /tmp`, `cap_drop ALL` `cap_add CHOWN/SETUID/SETGID`, `no-new-privileges`, `deploy resources limits cpus 1 memory 512M`, `volumes certs:ro logs`, `env_file .env`, `healthcheck curl /health`) + `mitmproxy` (`image 12.2.3`, `mitmweb -s firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port 28080 --set web_password=$MITMPROXY_WEB_PASSWORD`, ports `127.0.0.1:28080/28081`, `depends_on healthy`, `network albert-network bridge`).
+- **Docker Compose** (`docker-compose.yml`): three services `albert-server` (`build: . python:3.14-slim`, `USER app`, `read_only:true` `tmpfs /tmp`, `cap_drop ALL` `cap_add CHOWN/SETUID/SETGID`, `no-new-privileges`, `deploy resources limits cpus 1 memory 512M`, `volumes certs:ro logs`, `env_file .env`, `healthcheck curl /health`) + `mitmproxy` (`image 12.2.3`, `mitmweb -s firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port 28080 --set web_password=$MITMPROXY_WEB_PASSWORD`, ports `127.0.0.1:28080/28081`, `depends_on healthy`, `network albert-network bridge`).
 - **systemd** (`systemd/albert-server.service`): `[Unit] After=network.target`, `[Service] User=cvsz WorkingDirectory=/home/cvsz/albert_server ExecStart=/home/cvsz/albert_server/venv/bin/gunicorn -c gunicorn_conf.py albert_server:app Restart=on-failure RestartSec=5 EnvironmentFile=-.env PrivateTmp NoNewPrivileges`.
 - **Scaling**: `gunicorn` `workers=2 threads=4` (`gthread`), `timeout 30`, `graceful 10`, `keepalive 5`; stateless Flask + SQLite WAL (concurrent reads), rate limiter in-memory per worker (non-distributed).
 
