@@ -349,14 +349,14 @@ def get_device_from_tac(imei: str) -> str:
 
 ## Testing IMEI Activation
 
-```bash
-# Test with valid IMEI (Luhn valid)
-python3 activate_device.py --method direct --udid 00008020-AAAAAAAAAAAAAAAA \
-  --imei 350000000000006 --json
+`activate_device.py` has no `--imei` flag — the client arguments are `--udid`,
+`--albert-url`, `--skip-apple-id`, `--method`, `--info`, `--json`, `--timeout`,
+`--retries`. There is no Luhn pre-validation on the client either; IMEI handling
+lives server-side. Test the server path directly instead:
 
-# Test with invalid IMEI (should 400)
-python3 activate_device.py --method direct --udid 00008020-AAAAAAAAAAAAAAAA \
-  --imei 12345 --json
+```bash
+# Activate a device (IMEI is read from the paired device, not from argv)
+python3 activate_device.py --method direct --udid 00008020-AAAAAAAAAAAAAAAA --json
 
 # Check sync state
 curl -H "X-Admin-Token: $ALBERT_ADMIN_TOKEN" \
