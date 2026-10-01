@@ -309,3 +309,100 @@ def test_dashboard_token_key_matches_admin_panel():
     header is sent with an empty value and the endpoints stay gated."""
     assert "'zalive_admin_token'" in albert_server.ADMIN_HTML
     assert "'zalive_admin_token'" in albert_server.DASHBOARD_HTML
+
+
+def _reset_device_live_cache():
+    albert_server._DEVICE_LIVE_CACHE["data"] = None
+    albert_server._DEVICE_LIVE_CACHE["ts"] = 0.0
+
+
+def test_live_device_info_reads_plist_not_capped_text():
+    """ideviceinfo -x must be parsed as a plist. Parsing the text dump instead is
+    what made UniqueDeviceID vanish: _run_tool caps stdout at 4000 bytes and the
+    dump is larger, so the tail was silently truncated and the dashboard fell back
+    to the stale activation snapshot while still looking connected."""
+    src = albert_server.__file__
+    with open(src) as fh:
+        code = fh.read()
+    assert '["ideviceinfo", "-x"]' in code
+    assert "plistlib.loads(proc.stdout)" in code
+
+
+def test_live_device_info_returns_empty_without_device(monkeypatch):
+    """No device attached must yield {}, never a stale or invented identity, so the
+    card can fall back to the last activation snapshot."""
+
+    def boom(*a, **k):
+        raise OSError("no device")
+
+    _reset_device_live_cache()
+    monkeypatch.setattr(albert_server.subprocess, "run", boom)
+    assert albert_server._get_live_device_info() == {}
+
+
+def test_live_device_info_caches_between_polls(monkeypatch):
+    """/api/status is polled every 2s. Without a TTL the device is re-read on every
+    tick, spawning two extra processes per tick."""
+    calls = []
+
+    class FakeProc:
+        returncode = 0
+        stdout = plistlib.dumps({"UniqueDeviceID": "FAKEUDID0000", "ProductType": "iPhone9,3"})
+
+    def fake_run(cmd, *a, **k):
+        calls.append(cmd)
+        return FakeProc()
+
+    _reset_device_live_cache()
+    monkeypatch.setattr(albert_server.subprocess, "run", fake_run)
+    first = albert_server._get_live_device_info()
+    second = albert_server._get_live_device_info()
+    assert first["UniqueDeviceID"] == "FAKEUDID0000"
+    assert first == second
+    assert len(calls) == 2, "second call should be served from cache"
+
+
+def test_live_device_overrides_db_snapshot(monkeypatch):
+    """The attached device must win over the stored activation row, otherwise the
+    card keeps showing the previously activated device after a swap."""
+
+    class FakeProc:
+        returncode = 0
+        stdout = plistlib.dumps(
+            {
+                "UniqueDeviceID": "LIVEUDID00000001",
+                "ProductType": "iPhone9,3",
+                "SerialNumber": "LIVESERIAL1",
+                "HardwareModel": "N71AP",
+                "ProductVersion": "16.7.11",
+                "BuildVersion": "20G115",
+            }
+        )
+
+    _reset_device_live_cache()
+    monkeypatch.setattr(albert_server.subprocess, "run", lambda cmd, *a, **k: FakeProc())
+    payload = albert_server._build_status_payload()
+    dev = payload["device"]
+    assert dev["live"] is True
+    assert dev["UDID"] == "LIVEUDID00000001"
+    assert dev["ProductType"] == "iPhone9,3"
+    assert dev["HardwareModel"] == "N71AP"
+    assert dev["ProductVersion"] == "16.7.11"
+
+
+def test_dashboard_marks_device_card_as_live_or_snapshot():
+    """The card must say which it is showing, otherwise a stale snapshot is
+    indistinguishable from a plugged-in device."""
+    html = albert_server.DASHBOARD_HTML
+    assert '>live</span>' in html
+    assert '>last snapshot</span>' in html
+
+
+def test_dashboard_redacts_live_serial():
+    """SerialNumber now comes from the attached device rather than a placeholder, so
+    it must be redacted on the card the same way the UDID already is."""
+    device_line = next(
+        line for line in albert_server.DASHBOARD_HTML.splitlines() if "$('device')" in line
+    )
+    assert "SN '+redact(d.SerialNumber||'')" in device_line
+    assert "' SN '+(d.SerialNumber||'-')" not in device_line

@@ -2334,7 +2334,9 @@ async function tick(){
   }catch(e){}
   try{
     const d=j.device||{};
-    if($('device')) $('device').innerHTML = '<b>'+(d.ProductType||'-')+'</b> '+(d.ModelNumber||'-')+' · SN '+(d.SerialNumber||'-')+' · UDID '+redact(d.UDID||'')+' · EID '+safeSlice(d.EID,0,8)+'…'+safeSlice(d.EID,-4)+' · IMEI '+safeSlice(d.IMEI,0,3)+'...'+safeSlice(d.IMEI,-3)+' / '+safeSlice(d.IMEI2,0,3)+'...'+safeSlice(d.IMEI2,-3)+' · '+(d.Storage||'');
+    const dLive=d.live?'<span class="badge ok">live</span>':'<span class="badge warn">last snapshot</span>';
+    const dOs=d.ProductVersion?(d.ProductVersion+(d.BuildVersion?' ('+d.BuildVersion+')':'')):'';
+    if($('device')) $('device').innerHTML = dLive+' <b>'+(d.ProductType||'-')+'</b> '+(d.ModelNumber||'-')+(d.HardwareModel?' ['+d.HardwareModel+']':'')+' · iOS '+(dOs||'-')+' · SN '+redact(d.SerialNumber||'')+' · UDID '+redact(d.UDID||'')+' · EID '+safeSlice(d.EID,0,8)+'…'+safeSlice(d.EID,-4)+' · IMEI '+safeSlice(d.IMEI,0,3)+'...'+safeSlice(d.IMEI,-3)+' / '+safeSlice(d.IMEI2,0,3)+'...'+safeSlice(d.IMEI2,-3)+' · '+(d.Storage||'');
   }catch(e){}
   try{
     if($('usb')) $('usb').innerHTML = (j.usb?.connected?'<span class="badge ok">USB Apple 05ac</span>':'<span class="badge warn">no Apple USB — VM passthrough needed</span>') + ' · idevice_id: ' + (j.usb?.idevice||'255') + ' · restore: ' + (j.usb?.restore||'-');
@@ -3263,6 +3265,76 @@ def api_firmwares():
         return jsonify({"error": "upstream unavailable", "retryAfter": 60}), 502
 
 
+def _format_device_storage(live: dict) -> str:
+    """Render live free/total capacity as "X GB (Y Avail)", matching the
+    placeholder format already used by the device card."""
+    total = live.get("TotalDataCapacity")
+    avail = live.get("TotalDataAvailable")
+    if not isinstance(total, int) or total <= 0:
+        return ""
+    used = f"{total / 1e9:.2f} GB"
+    if isinstance(avail, int) and avail > 0:
+        return f"{used} ({avail / 1e9:.2f} Avail)"
+    return used
+
+
+_DEVICE_LIVE_CACHE = {"ts": 0.0, "data": None}
+_DEVICE_LIVE_TTL = 3.0
+
+
+def _get_live_device_info(ttl: float = _DEVICE_LIVE_TTL) -> dict:
+    """Read the attached device's identity over usbmux.
+
+    Returns {} when nothing is attached or libimobiledevice is missing, so the
+    caller can fall back to the last activation snapshot.
+
+    Reads the XML plist (`-x`) rather than scraping the text dump: _run_tool caps
+    stdout at 4000 bytes and the full dump plus the disk_usage domain exceed that,
+    which truncates the tail and silently drops UniqueDeviceID.
+
+    Results are cached because /api/status is polled every 2s and re-reading the
+    device per tick would add two processes per tick.
+    """
+    now = time.monotonic()
+    if _DEVICE_LIVE_CACHE["data"] is not None and now - _DEVICE_LIVE_CACHE["ts"] < ttl:
+        return _DEVICE_LIVE_CACHE["data"]
+    out: dict = {}
+    try:
+        proc = subprocess.run(  # nosec B603 B607 - fixed argv, shell=False
+            ["ideviceinfo", "-x"], capture_output=True, timeout=2
+        )
+        if proc.returncode == 0 and proc.stdout:
+            info = plistlib.loads(proc.stdout)
+            if isinstance(info, dict):
+                for key in ("ProductType", "ProductVersion", "BuildVersion",
+                            "DeviceName", "HardwareModel", "SerialNumber",
+                            "UniqueDeviceID", "EID"):
+                    value = info.get(key)
+                    if isinstance(value, str) and value.strip():
+                        out[key] = value.strip()
+    except Exception:
+        out = {}
+    if out.get("UniqueDeviceID"):
+        try:
+            usage = subprocess.run(  # nosec B603 B607 - fixed argv, shell=False
+                ["ideviceinfo", "-q", "com.apple.disk_usage", "-x"],
+                capture_output=True,
+                timeout=2,
+            )
+            if usage.returncode == 0 and usage.stdout:
+                usage_info = plistlib.loads(usage.stdout)
+                if isinstance(usage_info, dict):
+                    for key in ("TotalDataCapacity", "TotalDataAvailable"):
+                        value = usage_info.get(key)
+                        if isinstance(value, int) and value > 0:
+                            out[key] = value
+        except Exception:
+            pass
+    _DEVICE_LIVE_CACHE["ts"] = now
+    _DEVICE_LIVE_CACHE["data"] = out
+    return out
+
+
 def _get_restore_progress():
     """Parse latest logs/restore/restore*.log for live idevicerestore progress.
     Returns {active,bool, percent 0-100, stage, file, lastLine, updatedAt}.
@@ -3453,6 +3525,26 @@ def _build_status_payload():
                     device["SerialNumber"] = row[2]
     except Exception:
         pass
+    # Live read from usbmux, applied after the snapshot above so the attached
+    # device wins: unplugging clears the card instead of leaving the previously
+    # activated device on screen. Falls back to the snapshot when nothing is
+    # attached, so the card is never blank.
+    live_dev = _get_live_device_info()
+    if live_dev.get("UniqueDeviceID"):
+        device.update({
+            "ProductType": live_dev.get("ProductType") or device["ProductType"],
+            "SerialNumber": live_dev.get("SerialNumber") or device["SerialNumber"],
+            "UDID": live_dev.get("UniqueDeviceID") or device["UDID"],
+            # ModelNumber stays the marketing name from CURATED_DEVICES; the live
+            # HardwareModel is the board codename (e.g. N841AP) and belongs beside
+            # it rather than replacing it.
+            "HardwareModel": live_dev.get("HardwareModel") or "",
+            "ProductVersion": live_dev.get("ProductVersion") or "",
+            "BuildVersion": live_dev.get("BuildVersion") or "",
+            "DeviceName": live_dev.get("DeviceName") or "",
+            "Storage": _format_device_storage(live_dev),
+            "live": True,
+        })
     # usb
     usb = {"connected": False, "idevice": "255", "restore": "Unable to discover device mode"}
     try:
