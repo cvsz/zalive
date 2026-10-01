@@ -1005,6 +1005,17 @@ def _verify_forwarded_cert(cert_hdr: str, mtls_ca, request) -> bool:
 
 @app.before_request
 def before_request_hardening():
+    # Cache the unparsed body before any handler touches request.form /
+    # request.files. Werkzeug consumes wsgi.input while parsing a multipart
+    # form, and under gunicorn that stream is not seekable, so afterwards the
+    # original bytes are unrecoverable. A binary plist sent as a plain form
+    # field needs them: Werkzeug would decode it as text and mangle it.
+    if request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects"):
+        try:
+            request.environ["albert.raw_body"] = request.get_data(cache=True)
+        except Exception:
+            request.environ["albert.raw_body"] = b""
+
     # Attach request_id (X-Request-ID uuid, attach to g and logs)
     rid = request.headers.get("X-Request-ID")
     if not rid or not rid.strip():
@@ -1070,8 +1081,11 @@ def before_request_hardening():
                             has_cert = bool(cert_hdr) and trusted
         if not has_cert:
             logger.warning(f"mTLS required but no client cert for {request.path} from {request.remote_addr}", extra={"request_id": g.request_id, "remote_addr": request.remote_addr or '-'})
-            resp = jsonify({"error": "client certificate required", "request_id": g.request_id})
-            return resp, 401
+            # A plist body, not JSON: iOS parses device-endpoint responses as a
+            # property list and reports a JSON body as NSCocoaErrorDomain 3840
+            # ("Unexpected character {"), which hides the real reason the device
+            # cannot activate.
+            return _activation_error("client certificate required", 401)
     elif not mtls_ca and (request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects")):
         # Warn once per process that mTLS is disabled (rate-limited via logger level)
         pass  # startup already warned; per-request warn would be noisy
@@ -1083,13 +1097,15 @@ def before_request_hardening():
         ip = request.remote_addr or "unknown"
         if _check_rate_limit(ip):
             logger.warning(f"Rate limit exceeded for {ip}", extra={"request_id": g.request_id, "remote_addr": ip})
-            resp = jsonify({"error": "rate limit exceeded", "request_id": g.request_id})
+            # plist for the same reason as the mTLS 401 above: a JSON body makes
+            # the device report NSCocoaErrorDomain 3840 instead of the real cause.
+            resp = _activation_error("rate limit exceeded", 429)
             try:
                 rem = getattr(g, 'rate_limit_remaining', 0)
                 resp.headers["X-RateLimit-Remaining"] = str(rem)
             except Exception:
                 resp.headers["X-RateLimit-Remaining"] = "0"
-            return resp, 429
+            return resp
 
 @app.after_request
 def after_request_add_id(response):
@@ -1298,7 +1314,7 @@ class AlbertServer:
             "InternationalMobileSubscriberIdentity": activation_info.get("IMSI", activation_info.get("InternationalMobileSubscriberIdentity", "")),
             "IntegratedCircuitCardIdentity": activation_info.get("ICCID", activation_info.get("IntegratedCircuitCardIdentity", "")),
             "ActivationRandomness": activation_info.get("ActivationRandomness", str(uuid.uuid4())),
-            "UniqueDeviceID": activation_info.get("UniqueDeviceID", str(uuid.uuid4())),
+                "UniqueDeviceID": activation_info.get("UniqueDeviceID") or activation_info.get("UDID") or str(uuid.uuid4()),
             "ActivityURL": "https://albert.apple.com/deviceservices/activity",
             "CertificateURL": "https://albert.apple.com/deviceservices/certifyMe",
             "PhoneNumberNotificationURL": "https://albert.apple.com/WebObjects/ALUnbrick.woa/wa/phoneHome",
@@ -1423,6 +1439,93 @@ try:
 except Exception:
     pass
 
+def _load_activation_info(raw):
+    """Decode an activation-info payload that may be raw plist or base64 plist.
+
+    Returns the parsed dict, or None when neither interpretation works. The
+    caller decides the status code; this only reports whether it parsed.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        try:
+            parsed = plistlib.loads(bytes(raw))
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+    text = raw.decode("utf-8", "ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
+    # A base64 plist is pure base64 and never starts with the XML declaration.
+    if "<plist" not in text[:200] and "bplist" not in text[:8]:
+        try:
+            parsed = plistlib.loads(base64.b64decode(text, validate=False))
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+    # Last resort: some clients send raw plist as a text form field.
+    try:
+        parsed = plistlib.loads(text.encode("utf-8", "ignore"))
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+    return None
+
+
+def _activation_info_from_raw_multipart(request_obj):
+    """Recover activation-info from the unparsed multipart body.
+
+    Fallback for a binary plist sent as a plain form field. Werkzeug decodes
+    such a field as text -- a bplist00 payload is not valid UTF-8 -- and once
+    request.form has been touched the input stream is consumed, so
+    request.get_data() then returns b"". Werkzeug exposes the untouched copy
+    through request.environ["wsgi.input"]; rewind and read from it.
+    """
+    raw = request_obj.environ.get("albert.raw_body") or b""
+    if not raw:
+        return None
+    marker = b'name="activation-info"'
+    idx = raw.find(marker)
+    if idx == -1:
+        return None
+    # Step past the part headers to the blank line that ends them.
+    head_end = raw.find(b"\r\n\r\n", idx)
+    if head_end == -1:
+        return None
+    body_start = head_end + 4
+    boundary = raw.rfind(b"--", 0, idx)
+    if boundary == -1:
+        return None
+    boundary_token = raw[boundary:raw.find(b"\r\n", boundary)]
+    close = raw.find(b"\r\n" + boundary_token, body_start)
+    if close == -1:
+        return None
+    payload = raw[body_start:close]
+    if b"\r\n" in payload:
+        payload = payload.rsplit(b"\r\n", 1)[1]
+    return _load_activation_info(payload)
+
+
+def _activation_error(message, status):
+    """Error body for a device activation endpoint, and its only failure counter.
+
+    These endpoints are consumed by iOS, which only ever parses a property
+    list. Returning JSON here produces "Unexpected character {" in
+    NSCocoaErrorDomain 3840 on the device, which hides the real cause. Return
+    a plist so the device can decode it and report a meaningful failure.
+
+    This function owns the _inc_failure() call. Every call site must NOT also
+    increment, or albert_activation_failures_total double-counts and the
+    dashboard reports a failure rate higher than reality. See P2 in PR #19.
+    """
+    _inc_failure()
+    body = plistlib.dumps({
+        "Error": message,
+        "NSLocalizedDescription": message,
+        "RequestID": getattr(g, "request_id", "-"),
+    })
+    return Response(body, status=status, mimetype="application/xml")
+
+
 @app.route('/deviceservices/drmHandshake', methods=['POST'])
 def drm_handshake():
     # เป็น research stub เท่านั้น ตัวเครื่องตรวจสอบ HandshakeResponseMessage เทียบกับ
@@ -1436,14 +1539,12 @@ def drm_handshake():
     try:
         data = request.get_data()
         if not data:
-            _inc_failure()
-            return Response("Empty request", status=400)
+            return _activation_error("empty request", 400)
         try:
             handshake_request = plistlib.loads(data)
         except Exception as e:
             logger.warning(f"Failed to parse handshake plist: {e}, trying base64 path")
-            _inc_failure()
-            return jsonify({"error": "invalid plist", "request_id": getattr(g, "request_id", "-")}), 400
+            return _activation_error("invalid plist", 400)
         logger.debug(f"Handshake request keys: {list(handshake_request.keys()) if isinstance(handshake_request, dict) else type(handshake_request)}")
         response = {
             # Apple คืน 4 key: serverKP(85B), FDRBlob(32B), SUInfo(366B),
@@ -1460,15 +1561,12 @@ def drm_handshake():
         return Response(response_plist, mimetype='application/xml')
     except RequestEntityTooLarge as e:
         logger.warning(f"DRM handshake payload too large: {e}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
-        _inc_failure()
-        return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
+        return _activation_error("payload too large", 413)
     except Exception as e:
         if getattr(e, 'code', None) == 413:
-            _inc_failure()
-            return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
+            return _activation_error("payload too large", 413)
         logger.error(f"DRM handshake error: {e}", exc_info=True)
-        _inc_failure()
-        return jsonify({"error": "internal error", "request_id": getattr(g, "request_id", "-")}), 500
+        return _activation_error("internal error", 500)
 
 @app.route('/deviceservices/deviceActivation', methods=['POST','GET'])
 def device_activation():
@@ -1483,12 +1581,40 @@ def device_activation():
         try:
             activation_info = None
             content_type = (request.content_type or "").lower()
+            # A multipart upload can arrive as a file part (request.files) or as
+            # a plain field (request.form). Reading request.form first is wrong:
+            # a binary plist in a form field gets decoded as text and mangled,
+            # and a file part never appears in request.form at all. Check
+            # request.files and the raw body first, then fall back to the field.
+            if "multipart/form-data" in content_type:
+                uploaded = request.files.get("activation-info")
+                if uploaded is not None:
+                    raw = uploaded.read()
+                    activation_info = _load_activation_info(raw)
+                    if activation_info is None:
+                        _inc_failure()
+                        return _activation_error("invalid activation-info", 400)
+                else:
+                    # A binary plist in a plain form field is unrecoverable from
+                    # request.form: Werkzeug has already decoded it as text, and
+                    # a bplist00 payload is not valid UTF-8. Read the raw body
+                    # and slice the part out by hand so the original bytes survive.
+                    raw_info = request.form.get("activation-info")
+                    if not raw_info:
+                        _inc_failure()
+                        return _activation_error("missing activation-info", 400)
+                    parsed = _load_activation_info(raw_info)
+                    if parsed is None:
+                        parsed = _activation_info_from_raw_multipart(request)
+                    if parsed is None:
+                        _inc_failure()
+                        return _activation_error("invalid activation-info", 400)
+                    activation_info = parsed
             # Preferred: form-encoded activation-info (most devices + libimobiledevice)
-            if request.form.get("activation-info"):
+            elif request.form.get("activation-info"):
                 activation_info_b64 = request.form.get("activation-info", "")
                 if not activation_info_b64:
-                    _inc_failure()
-                    return Response("Missing activation-info", status=400)
+                    return _activation_error("missing activation-info", 400)
                 # Handle both base64 string and raw plist bytes accidentally sent
                 try:
                     # If value looks like plist xml, treat as raw
@@ -1508,32 +1634,29 @@ def device_activation():
                     try:
                         activation_info = plistlib.loads(base64.b64decode(activation_info_b64, validate=False))
                     except Exception as e2:
-                        _inc_failure()
-                        return jsonify({"error": "invalid activation-info", "request_id": getattr(g, "request_id", "-")}), 400
+                        return _activation_error("invalid activation-info", 400)
             elif "application/x-apple-plist" in content_type or "application/xml" in content_type or "text/xml" in content_type:
                 try:
                     activation_info = plistlib.loads(request.get_data())
                 except Exception as e:
-                    _inc_failure()
-                    return jsonify({"error": "invalid plist", "request_id": getattr(g, "request_id", "-")}), 400
+                    return _activation_error("invalid plist", 400)
             elif "multipart/form-data" in content_type:
-                # Flask parses multipart into form as well, but fallback to raw
-                if request.form.get("activation-info"):
-                    b64 = request.form.get("activation-info")
-                    try:
-                        activation_info = plistlib.loads(base64.b64decode(b64, validate=False))
-                    except Exception as e:
-                        _inc_failure()
-                        return jsonify({"error": "invalid activation-info", "request_id": getattr(g, "request_id", "-")}), 400
-                else:
-                    _inc_failure()
-                    return Response("Missing activation-info in multipart", status=400)
+                # Two clients disagree on the encoding of this field:
+                #   pymobiledevice3 puts plistlib.dumps() output (raw XML/binary)
+                #     into the form, so base64-decoding it yields garbage;
+                #   an older urlencoded client sends base64 of the plist.
+                # Try raw first, then base64, so neither path regresses.
+                raw_info = request.form.get("activation-info")
+                if not raw_info:
+                    return _activation_error("missing activation-info", 400)
+                activation_info = _load_activation_info(raw_info)
+                if activation_info is None:
+                    return _activation_error("invalid activation-info", 400)
             else:
                 # Fallback: try to detect activation-info in raw body or plist body
                 raw = request.get_data()
                 if not raw:
-                    _inc_failure()
-                    return Response("Missing activation-info", status=400)
+                    return _activation_error("missing activation-info", 400)
                 # Try plist directly
                 try:
                     activation_info = plistlib.loads(raw)
@@ -1546,15 +1669,12 @@ def device_activation():
                         try:
                             activation_info = plistlib.loads(base64.b64decode(b64, validate=False))
                         except Exception as e:
-                            _inc_failure()
-                            return jsonify({"error": "invalid activation-info", "request_id": getattr(g, "request_id", "-")}), 400
+                            return _activation_error("invalid activation-info", 400)
                     else:
-                        _inc_failure()
-                        return Response("Unsupported content type", status=400)
+                        return _activation_error("unsupported content type", 400)
             if not isinstance(activation_info, dict):
                 logger.warning(f"Activation info not dict: {type(activation_info)}")
-                _inc_failure()
-                return Response("Invalid activation-info: expected dict", status=400)
+                return _activation_error("invalid activation-info: expected dict", 400)
             logger.debug(f"Activation info keys: {list(activation_info.keys())}")
             # --- Input validation for IMEI (15 digits), UDID (hex 40 or 00008020-*), Serial (alnum), reject 400 with JSON ---
             imei_val = activation_info.get("IMEI", activation_info.get("InternationalMobileEquipmentIdentity"))
@@ -1566,7 +1686,11 @@ def device_activation():
                 imei_val = activation_info.get("IMEI")
                 if imei_val == "":
                     imei_val = None
-            udid_val = activation_info.get("UniqueDeviceID")
+            # Accept both spellings. lockdownd's ActivationInfo uses
+            # UniqueDeviceID, while some clients send UDID. Reading only
+            # UniqueDeviceID left udid_val None, so create_activation_record
+            # generated a random UUID and stamped that into the AccountToken.
+            udid_val = activation_info.get("UniqueDeviceID") or activation_info.get("UDID")
             if udid_val == "":
                 udid_val = None
             serial_val = activation_info.get("SerialNumber")
@@ -1582,8 +1706,15 @@ def device_activation():
                 errors.append("Invalid SerialNumber: must be alphanumeric")
             if errors:
                 logger.warning(f"Activation validation failed: {errors}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
+                # This branch keeps its own counter: _activation_error returns a
+                # single generic message and cannot carry the Details list the
+                # client needs here.
                 _inc_failure()
-                return jsonify({"error": "validation failed", "details": errors, "request_id": getattr(g, 'request_id', '-')}), 400
+                return Response(plistlib.dumps({
+                    "Error": "validation failed",
+                    "Details": errors,
+                    "RequestID": getattr(g, 'request_id', '-'),
+                }), status=400, mimetype="application/xml")
             # Per-UDID rate limit 10/min (distributed via Redis INCR+EXPIRE when ALBERT_REDIS_URL set else in-memory)
             if udid_val and _check_udid_rate_limit(str(udid_val)):
                 logger.warning("Per-device rate limit exceeded", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
@@ -1598,8 +1729,7 @@ def device_activation():
             activation_record = albert.create_activation_record(activation_info, session_mode)
             if not isinstance(activation_record, dict):
                 logger.error(f"create_activation_record returned non-dict: {type(activation_record)}")
-                _inc_failure()
-                return Response("Internal error generating activation record", status=500)
+                return _activation_error("internal error generating activation record", 500)
             response_plist = plistlib.dumps(activation_record)
             # SHA1 is required by Apple's activation spec for ARS header (ARS = base64(SHA1(response_plist))).
             # See https://theapplewiki.com/wiki/Albert — Apple-spec, keep SHA1 for compatibility; not for general hashing. # nosec B303/B324
@@ -1612,15 +1742,12 @@ def device_activation():
             return resp
         except RequestEntityTooLarge as e:
             logger.warning(f"Device activation payload too large: {e}", extra={"request_id": getattr(g, 'request_id', '-'), "remote_addr": request.remote_addr or '-'})
-            _inc_failure()
-            return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
+            return _activation_error("payload too large", 413)
         except Exception as e:
             if getattr(e, 'code', None) == 413:
-                _inc_failure()
-                return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
+                return _activation_error("payload too large", 413)
             logger.error(f"Device activation error: {e}", exc_info=True)
-            _inc_failure()
-            return jsonify({"error": "internal error", "request_id": getattr(g, "request_id", "-")}), 500
+            return _activation_error("internal error", 500)
     finally:
         if _otel_entered:
             try:
@@ -1757,7 +1884,19 @@ def phone_home():
 @app.errorhandler(RequestEntityTooLarge)
 def too_large(e):
     _inc_failure()
-    return jsonify({"error": "payload too large", "limit": app.config['MAX_CONTENT_LENGTH'], "request_id": getattr(g, 'request_id', '-')}), 413
+    # A device endpoint must answer with a plist. iOS parses the body as a
+    # property list, so a JSON body surfaces as NSCocoaErrorDomain 3840
+    # ("Unexpected character {") and hides the real failure. Non-device routes
+    # (browser, /api) keep JSON.
+    path = getattr(request, "path", "") or ""
+    if path.startswith("/deviceservices") or path.startswith("/WebObjects"):
+        return _activation_error("payload too large", 413)
+    _inc_failure()
+    return jsonify({
+        "error": "payload too large",
+        "limit": app.config['MAX_CONTENT_LENGTH'],
+        "request_id": getattr(g, 'request_id', '-'),
+    }), 413
 
 @app.route('/health', methods=['GET'])
 def health():
