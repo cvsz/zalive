@@ -34,7 +34,7 @@
 ## Development
 - [x] Language/runtime: `python:3.14-slim` (`Dockerfile`, `Dockerfile.firmware`), `python-version: "3.14"` in CI, local venv `3.14.x`, `requirements.txt` pinned with hashes.
 - [x] Formatter/linter: `ruff` (`pyproject.toml` `line-length 120`, `select E,F`), `bandit`.
-  - `make test` → `pytest -q` — **141 passed** (44 sync-state + 22 security gate + 15 phoneHome/mTLS + 13 device profiles + 12 albert + 12 activate_device + 12 parse_trustcache + 6 firmware + 5 bootstrap)
+  - `make test` → `pytest -q` — **143 passed** (44 sync-state + 24 security gate + 15 phoneHome/mTLS + 13 device profiles + 12 albert + 12 activate_device + 12 parse_trustcache + 6 firmware + 5 bootstrap)
 - [x] `Makefile` — real targets (`test`/`test-ci`/`lint`/`lint-fix`/`security`/`check`/`validate`/`docker-*`/`up`/`down`/`logs`/`run`/`rotate-fairplay`/`gen-token`). All tool invocations go through `venv/bin`, not `PATH`. (fix(makefile): ใช้ venv ทุก target + แก้เอกสารที่ขัดกับความจริง)
 - [x] `Dockerfile` replaced: `USER app`, `read_only`, `HEALTHCHECK curl /health`, `ENTRYPOINT [tini --]`, `gunicorn 2×4`, port `18090`.
 - [x] `.env.example` — Albert keys only (`ALBERT_HTTP_PORT`/`ALBERT_HTTPS_PORT`/`ALBERT_BIND_ADDRESS`/`ALBERT_ACCEPT_RISK`/`ALBERT_ADMIN_TOKEN`/`MITMPROXY_WEB_PASSWORD`/`FAIRPLAY_KEY_PATH`/`FAIRPLAY_CERT_PATH`); no template `APP_ENV`/`APP_PORT` placeholders remain.

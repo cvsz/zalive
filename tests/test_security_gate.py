@@ -288,3 +288,24 @@ def test_tool_arg_accepts_real_domains_and_keys():
         r = c.get("/api/device_info?domain=" + good, headers=h)
         assert r.status_code == 200, (good, r.status_code, r.get_data(as_text=True)[:120])
         assert "invalid domain" not in r.get_data(as_text=True), good
+
+
+def test_dashboard_sends_admin_token_to_gated_endpoints():
+    """Regression: /dashboard polled /api/status and /api/logs without the
+    X-Admin-Token header. /api/status then returned only the public payload
+    (health/ready/version), so the page's activations table and rate readout read
+    undefined and stayed blank, and /api/logs answered 401 on every poll."""
+    html = albert_server.DASHBOARD_HTML
+    assert "localStorage.getItem('zalive_admin_token')" in html, (
+        "dashboard no longer reads the token that /admin stores"
+    )
+    # Both gated fetches must carry the header, not just one of them.
+    assert "fetch('/api/status', {cache:'no-store', headers:" in html
+    assert "fetch('/api/logs?lines=60',{cache:'no-store', headers:" in html
+
+
+def test_dashboard_token_key_matches_admin_panel():
+    """The dashboard and /admin must agree on the localStorage key, otherwise the
+    header is sent with an empty value and the endpoints stay gated."""
+    assert "'zalive_admin_token'" in albert_server.ADMIN_HTML
+    assert "'zalive_admin_token'" in albert_server.DASHBOARD_HTML

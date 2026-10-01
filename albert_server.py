@@ -2305,7 +2305,11 @@ async function tick(){
   try{ $('clock').textContent = new Date().toLocaleTimeString(); }catch(e){}
   let j=null;
   try{
-    const r = await fetch('/api/status', {cache:'no-store'});
+    // Send the token from localStorage. Without it /api/status returns only the
+    // public payload (health/ready/version), so j.activations and j.rate read
+    // below are undefined and the table plus the rate readout stay empty.
+    const tok = (localStorage.getItem('zalive_admin_token') || '');
+    const r = await fetch('/api/status', {cache:'no-store', headers: tok ? {'X-Admin-Token': tok} : {}});
     j = await r.json();
   }catch(e){
     try{ $('healthPill').textContent='fetch error'; $('healthPill').style.color='var(--bad)'; }catch(_){}
@@ -2398,7 +2402,9 @@ tick(); setInterval(tick, 2000);
 // logs poll — admin gated, handle 401 gracefully
 async function logsTick(){
   try{
-    const r=await fetch('/api/logs?lines=60',{cache:'no-store'});
+    // /api/logs is admin-gated; without the header it is 401 every poll.
+    const ltok=(localStorage.getItem('zalive_admin_token')||'');
+    const r=await fetch('/api/logs?lines=60',{cache:'no-store', headers: ltok ? {'X-Admin-Token': ltok} : {}});
     if(r.status===401){ if($('logs')) $('logs').textContent='🔒 admin login required — open /admin and unlock (X-Admin-Token)'; return; }
     const j=await r.json(); if($('logs')) $('logs').textContent=j.tail||'no logs';
   }catch(e){ if($('logs')) $('logs').textContent='logs unavailable (admin gated)'; }
