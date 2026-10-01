@@ -4,7 +4,7 @@ Security is part of the default delivery baseline for `albert_server` (local Alb
 
 ## Reporting a vulnerability
 
-Do not disclose exploitable vulnerabilities in public issues, pull requests, discussions, or commit messages. Use GitHub's private vulnerability reporting / security advisory capability when enabled for the repository, or contact the repository owner (`@cvsz`) through an agreed private channel (see `SUPPORT.md`, `GOVERNANCE.md`).
+Do not disclose exploitable vulnerabilities in public issues, pull requests, discussions, or commit messages. Use GitHub's private vulnerability reporting / security advisory capability when enabled for the repository, or contact the repository owner (`@cvsz`) through an agreed private channel (see `.github/SUPPORT.md`, `GOVERNANCE.md`).
 
 Include affected versions or commits, reproduction details, impact, prerequisites, and suggested remediation when available. Do not include credentials, private keys, production secrets, or personal data in the report — redact UDID/IMEI/Serial to the minimum needed.
 
@@ -12,7 +12,9 @@ This private-reporting policy is inherited from the template and retained for `a
 
 ## Supported versions
 
-`albert_server` tracks `main`. Security fixes are applied to `main` and the latest tagged release. Older tags and forks are not supported unless noted in `CHANGELOG.md` or a GitHub release. Python `3.13` (`python:3.13-slim` in `Dockerfile`, `python-version: "3.13"` in CI) is the tested runtime; `3.9+` is the minimum per `README.md`.
+`albert_server` tracks `main`. Security fixes are applied to `main` and the latest tagged release. Older tags and forks are not supported unless noted in `CHANGELOG.md` or a GitHub release. Python `3.14` (`python:3.14-slim` in `Dockerfile`, `python-version: "3.14"` in CI) is the tested runtime; no minimum is declared in `README.md` or `pyproject.toml`; CI only exercises 3.14.
+
+Tested runtime: `python:3.14-slim` in `Dockerfile`, `python-version: "3.14"` in CI. No minimum Python version is declared in `README.md` or `pyproject.toml`, so only 3.14 is actually exercised.
 
 ## Threat model and scope
 
@@ -22,7 +24,7 @@ Out of scope for this policy: Apple infrastructure, Apple-copyrighted IPSW files
 
 ## Key management (0600)
 
-- **FairPlay key material** is persisted at `certs/fairplay.key` and `certs/fairplay.crt` with `0600` (`0o600`). On first start `albert_server.py` generates RSA 2048 + self-signed CA; on subsequent starts it loads the persisted files. Both files are `chmod 0o600` after write (`albert_server.py:952-956`, `FIRMWARE_CACHE` also `0o600`, `certs/server.key` is `0600` on current host; `certs/server.crt` is public `0644`).
+- **FairPlay key material** is persisted at `certs/fairplay.key` and `certs/fairplay.crt` with `0600` (`0o600`). On first start `albert_server.py` generates RSA 2048 + self-signed CA; on subsequent starts it loads the persisted files. Both files are `chmod 0o600` after write (`albert_server.py:952-956`, `FIRMWARE_CACHE` also `0o600`, `certs/server.key` is `0640` on current host; `certs/server.crt` is public `0644`).
 - **Rotation:** `python albert_server.py --rotate-fairplay` removes `certs/fairplay.key` / `.crt` (also `rm certs/fairplay.* && ./start.sh restart` per `docs/RUNBOOK.md`) and regenerates on next start with `0600`.
 - **Git hygiene:** `.gitignore` excludes `*.key`, `*.pem`, `*.crt`, `*.csr`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, `*.srl`, `.env`, `*.log`, `logs/*`, `*.ipsw`, `*.im4p`, `*.trustcache`, `*.mtree`, `*.aea`, `*.shsh`, `firmware/`, `shsh/`, `*.db`, `*.sqlite*`, `.mitmproxy/`; `certs/*.key` and device identifiers are never committed. `logs/restore/` keeps only its `README.md` — re-opening the folder is paired with a blanket `logs/restore/*` so a newly added file type stays ignored by default. `IMPLEMENTATION-CHECKLIST.md` records no secrets committed.
 - Operators are responsible for securing key material and complying with cryptography export controls (see `NOTICE`).
@@ -35,7 +37,7 @@ Production hardening is enforced in `albert_server.py`:
 
 - **Request size limit:** `app.config['MAX_CONTENT_LENGTH'] = 512 * 1024` (env `ALBERT_MAX_CONTENT_LENGTH`, default `512KB`). Oversize requests return `413` JSON `{ "error": "payload too large", "limit": 524288, "request_id": "..." }` (`RequestEntityTooLarge` handler and explicit `413` handlers).
 - **Validation `400`:** Malformed plist / `activation-info` returns `400` (`Empty request`, `Invalid plist`, `Missing activation-info`, `Unsupported content type`, `Invalid activation-info: expected dict`). Field validation for `IMEI` (15 digits), `UDID` (`40` hex or `00008020-` + 16 hex), `SerialNumber` (alphanumeric) returns `400` JSON `{ "error": "validation failed", "details": [...], "request_id": "..." }`.
-- **Rate limiting `429`:** Per-IP `100/min` (`_RATE_LIMIT_MAX`) + per-UDID `10/min` (`ALBERT_RATE_LIMIT_PER_UDID`, default 10) over a `60s` window. Distributed via Redis `INCR+EXPIRE` when `ALBERT_REDIS_URL`/`REDIS_URL` is set, otherwise in-memory. Exceeded requests return `429` JSON `{ "error": "rate limit exceeded", "request_id": "..." }` with `X-RateLimit-Remaining` (and `X-RateLimit-Remaining` per-IP/UDID) and `X-Request-ID`. `before_request` applies the limit to `/deviceservices/*` and `/WebObjects/*`; `after_request` propagates `X-Request-ID` and `X-RateLimit-Remaining`.
+- **Rate limiting `429`:** Per-IP `100/min` (`_RATE_LIMIT_MAX`) + per-UDID `10/min` (`ALBERT_RATE_LIMIT_PER_UDID`, default 10) over a `60s` window. Distributed via Redis `INCR+EXPIRE` when `ALBERT_REDIS_URL`/`REDIS_URL` is set, otherwise in-memory. Exceeded requests return `429` JSON `{ "error": "rate limit exceeded", "request_id": "..." }` with `X-RateLimit-Remaining` (and `X-RateLimit-Remaining` per-IP/UDID) and `X-Request-ID`. `before_request` applies the limit to `/deviceservices/*`, `/WebObjects/*` and every `/api/*` route; `after_request` propagates `X-Request-ID` and `X-RateLimit-Remaining`.
 - **Request tracing:** Every request gets `X-Request-ID` (incoming header or generated UUID `g.request_id`); structured JSON logging includes `request_id`/`remote_addr` with UDID redaction.
 - **OPTIONS:** `/deviceservices/*` and `/WebObjects/*` return `204` with `Allow: GET, POST, OPTIONS`.
 
@@ -58,7 +60,7 @@ Do not add duplicates — the following are already committed:
 - **Dependabot** (`.github/dependabot.yml`): weekly updates for `github-actions` and `docker` (`open-pull-requests-limit: 10`).
 - **CodeQL** (`.github/workflows/codeql.yml` + `.github/codeql-config.yml`): `security-extended` queries; workflow `Analyze GitHub Actions` (`actions` language) on `push`/`pull_request` to `main` and weekly schedule `23 3 * * 1` with `security-events: write`.
 - **Dependency Review** (`.github/workflows/dependency-review.yml`): on `pull_request` to `main`.
-- **CI** (`.github/workflows/ci.yml`): `ruff check`, `bandit -r . --exclude ./venv`, `pytest -q`, `docker compose config` on `push`/`pull_request` (`**`, Python `3.13`).
+- **CI** (`.github/workflows/ci.yml`): `ruff check`, `bandit -r . --exclude ./venv`, `pytest -q --ignore=tests/test_bootstrap.py`, `docker compose config` on `push`/`pull_request` (`**`, Python `3.14`).
 
 Keep these workflows enabled and review Dependabot alerts.
 

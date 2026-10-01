@@ -414,7 +414,7 @@ def _fetch_ipsw(productType: str) -> dict:
                     data = json.loads(FIRMWARE_CACHE.read_text())
                     entry = data.get(productType)
                     if entry:
-                        return {"firmwares": entry["data"].get("firmwares", []), "cached": True, "fetchedAt": entry["fetchedAt"], "stale": True, "warning": str(e), "data": entry["data"]}
+                        return {"firmwares": entry["data"].get("firmwares", []), "cached": True, "fetchedAt": entry["fetchedAt"], "stale": True, "warning": "showing cached data; upstream unreachable", "data": entry["data"]}
             except Exception:
                 pass
         raise
@@ -1111,7 +1111,34 @@ def after_request_add_id(response):
             albert_request_latency.labels(endpoint=request.path).observe(time.time() - g.request_start)
     except Exception:
         pass
+    _set_security_headers(response)
     return response
+
+# Pages embed the admin token in localStorage, so a script injected from a CDN
+# would be able to read it. This CSP is the only thing standing between a
+# compromised or typo-squatted CDN asset and full admin access. jsDelivr is
+# allowlisted because the templates pull Bootstrap/AdminLTE from it.
+_ADMIN_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "font-src 'self' https://cdn.jsdelivr.net data:; "
+    "img-src 'self' data: blob:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+def _set_security_headers(response):
+    """Apply baseline browser hardening headers to every response."""
+    response.headers.setdefault("Content-Security-Policy", _ADMIN_CSP)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
 
 # Explicit OPTIONS route for /deviceservices/* (ensures Flask url_map covers it, returns 204)
 @app.route('/deviceservices/<path:subpath>', methods=['OPTIONS'])
@@ -1601,6 +1628,27 @@ def device_activation():
             except Exception:
                 pass
 
+def _device_identity_from_plist(data) -> tuple:
+    """Pull UDID/IMEI out of a device request and check them before use.
+
+    activity, certifyMe and phoneHome are device-facing and therefore sit
+    behind mTLS rather than the admin token, but nothing stopped them writing
+    whatever the request body contained into sync_state. Format validation is
+    not a substitute for a per-device credential -- a caller holding a valid
+    certificate can still name another device's UDID -- but it stops junk rows
+    and the arbitrary-value writes that came with the old behaviour.
+    """
+    imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
+    udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+    if udid and not _validate_udid(str(udid)):
+        logger.warning(f"rejecting sync_state write: malformed UDID ({len(str(udid))} chars)")
+        return "", "", True
+    if imei and not _validate_imei(str(imei)):
+        logger.warning(f"rejecting sync_state write: malformed IMEI ({len(str(imei))} chars)")
+        return "", "", True
+    return str(udid), str(imei), False
+
+
 @app.route('/deviceservices/activity', methods=['POST','GET'])
 def activity():
     logger.info("Received activity request")
@@ -1611,8 +1659,7 @@ def activity():
     try:
         if request.method == 'POST' and request.get_data():
             data = plistlib.loads(request.get_data())
-            imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
-            udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+            udid, imei, rejected = _device_identity_from_plist(data)
             push_token = data.get("PushToken") or data.get("aps-token") or ""
     except Exception:
         pass
@@ -1645,8 +1692,7 @@ def certify_me():
     try:
         if request.method == 'POST' and request.get_data():
             data = plistlib.loads(request.get_data())
-            imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
-            udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+            udid, imei, rejected = _device_identity_from_plist(data)
     except Exception:
         pass
     
@@ -1681,8 +1727,7 @@ def phone_home():
     try:
         if request.method == 'POST' and request.get_data():
             data = plistlib.loads(request.get_data())
-            imei = data.get("IMEI") or data.get("InternationalMobileEquipmentIdentity") or ""
-            udid = data.get("UDID") or data.get("UniqueDeviceID") or ""
+            udid, imei, rejected = _device_identity_from_plist(data)
             phone_number = data.get("PhoneNumber") or data.get("MSISDN") or ""
     except Exception:
         pass
@@ -2684,8 +2729,8 @@ def api_admin_status():
         payload["ok"] = True
         return jsonify(payload)
     except Exception as e:
-        logger.warning(f"api_admin_status error: {e}")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        logger.exception("api_admin_status error")
+        return jsonify({"ok": False, "error": "internal error"}), 500
 
 @app.route('/api/admin/clear-cache', methods=['POST'])
 def api_admin_clear_cache():
@@ -3063,8 +3108,8 @@ def api_firmwares():
         })
     except Exception as e:
         # try stale fallback already inside _fetch, but handle 502
-        logger.warning(f"firmware fetch failed for {productType}: {e}")
-        return jsonify({"error": "upstream unavailable", "details": str(e), "retryAfter": 60}), 502
+        logger.exception("firmware fetch failed for %s", productType)
+        return jsonify({"error": "upstream unavailable", "retryAfter": 60}), 502
 
 
 def _get_restore_progress():
@@ -3458,8 +3503,9 @@ def api_activations():
             cur=c.execute("SELECT id,udid,serial,created_at FROM activations ORDER BY id DESC LIMIT ?", (limit,))
             for id_,udid,serial,at in cur.fetchall():
                 rows.append({"id":id_,"udid":udid,"serial":serial,"created_at":at})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        logger.exception("activation listing failed")
+        return jsonify({"error": "internal error"}), 500
     return jsonify({"activations": rows, "total": len(rows)})
 
 def _run_tool(cmd, timeout=2):

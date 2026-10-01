@@ -2,21 +2,26 @@
 import os
 import logging as _logging
 # mTLS toggle for proxy→Albert (env ALBERT_MTLS_CA)
-# NOTE: Changing ALBERT_MTLS_CA requires gunicorn restart — TLS config is evaluated at import (cert_reqs=2). See docs/RUNBOOK.md mTLS section.
-# If ALBERT_MTLS_CA is set, require client cert for incoming connections (mitmproxy must present ALBERT_MTLS_CERT/KEY).
-# If not set, warn that proxy→Albert is unauthenticated.
+#
+# This worker serves PLAIN HTTP on ALBERT_HTTP_PORT. It does not terminate TLS,
+# so the `ca_certs`/`cert_reqs` pair that used to live here was a no-op: gunicorn
+# decides whether to open a TLS listener from certfile/keyfile alone
+# (Config.is_ssl is `return self.certfile or self.keyfile`), and neither was
+# ever set. The CA was loaded at import and then ignored.
+#
+# The proxy→Albert gate is enforced in albert_server.py instead, in this order:
+#   1. SSL_CLIENT_VERIFY      — only if something upstream already did the TLS
+#   2. X-MTLS-Token          — shared secret, compare_digest
+#   3. X-Client-Cert (PEM)   — parsed and signature-verified against ALBERT_MTLS_CA
+#   4. bare "present"/"mtls" — spoofable; needs ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1
+#                             AND a localhost peer
+# To terminate TLS here instead, set certfile/keyfile as well — see docs/RUNBOOK.md.
 _mtls_ca = os.environ.get("ALBERT_MTLS_CA", "").strip()
-if _mtls_ca:
-    ca_certs = _mtls_ca
-    cert_reqs = 2  # ssl.CERT_REQUIRED
-else:
-    # No mTLS — will warn at worker startup via hook
-    pass
 
 def on_starting(server):
-    ca = os.environ.get("ALBERT_MTLS_CA", "").strip()
+    ca = _mtls_ca
     if ca:
-        server.log.info(f"mTLS enabled — proxy→Albert requires client cert (CA={ca})")
+        server.log.info(f"mTLS gate active in albert_server.py — client cert verified against CA={ca}")
         # verify CA file exists
         import pathlib
         if not pathlib.Path(ca).exists():
@@ -25,7 +30,7 @@ def on_starting(server):
         server.log.warning("ALBERT_MTLS_CA not set — proxy→Albert mTLS disabled (unauthenticated). Set ALBERT_MTLS_CA to require client cert.")
 
 def post_fork(server, worker):
-    ca = os.environ.get("ALBERT_MTLS_CA", "").strip()
+    ca = _mtls_ca
     if not ca:
         server.log.warning("ALBERT_MTLS_CA not set — proxy→Albert mTLS disabled (unauthenticated).")
 bind = f"{os.environ.get('ALBERT_HOST','0.0.0.0')}:{os.environ.get('ALBERT_HTTP_PORT','18090')}"

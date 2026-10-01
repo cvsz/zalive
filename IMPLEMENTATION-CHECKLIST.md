@@ -28,13 +28,13 @@
 - [x] `CodeQL` language detection — `.github/workflows/codeql.yml` present from template, supports Python.
 - [x] `dependency-review` enabled for PRs (`dependency-review.yml`).
 - [x] Secret scanning/push protection — template enables where available for private repos; verify in `Settings → Code security`.
-- [x] Stack SAST: `bandit` (`bandit.yml` config, `B303/B324` excluded with `nosec`), `ruff` lint, `trivy fs` documented as `make trivy` (roadmap).
+- [x] Stack SAST: `bandit` (`.bandit` config (not `bandit.yml`), `B303/B324` excluded with `nosec`), `ruff` lint, `trivy fs` documented as `make trivy` (roadmap).
 - [x] Actions least privilege `permissions: contents: read` in template `ci.yml` + our `ci.yml` uses `contents: read` implicitly.
 
 ## Development
-- [x] Language/runtime: `python:3.13-slim` (`Dockerfile`), `python-version: "3.13"` in CI, `3.14.4` local venv, `pip` + `requirements.txt` pinned (`flask3.0.0/cryptography48.0.1/pyOpenSSL26.2.0/gunicorn21.2.0`).
+- [x] Language/runtime: `python:3.14-slim` (`Dockerfile`), `python-version: "3.14"` in CI, `3.14.4` local venv, `pip` + `requirements.txt` pinned (`flask3.0.0/cryptography48.0.1/pyOpenSSL26.2.0/gunicorn21.2.0`).
 - [x] Formatter/linter: `ruff` (`pyproject.toml` `line-length 120`, `select E,F`), `bandit`.
-- [x] Tests: `tests/test_sync_state.py` 44 + `tests/test_security_gate.py` 14 + `tests/test_phonehome_mtls.py` 13 + `tests/test_albert.py` 12 + `tests/test_activate_device.py` 12 + `tests/test_parse_trustcache.py` 12 + `tests/test_firmware.py` 6 + `tests/test_bootstrap.py` 5 = **118** (`pytest 118 passed`)
+- [x] Tests: `tests/test_sync_state.py` 44 + `tests/test_security_gate.py` 14 + `tests/test_phonehome_mtls.py` 15 + `tests/test_albert.py` 12 + `tests/test_activate_device.py` 12 + `tests/test_parse_trustcache.py` 12 + `tests/test_firmware.py` 6 + `tests/test_bootstrap.py` 5 = **120** (`pytest 120 passed`)
 - [ ] `Makefile` — **template placeholder still** (`make validate-template` only; `make test/lint/build` exit 2). Real targets implemented in `start.sh`/`gunicorn`/`docker compose` but not in `Makefile`. **Next:** replace with `make test: pytest`, `lint: ruff check`, `security: bandit`, `build: docker build`, `ci: test lint security`.
 - [x] `Dockerfile` replaced: `USER app`, `read_only`, `HEALTHCHECK curl /health`, `ENTRYPOINT [tini --]`, `gunicorn 2×4`, port `18090`.
 - [ ] `.env.example` — **still template** (`APP_ENV=development/APP_PORT=3000`) not Albert (`ALBERT_HTTP_PORT/F AIRPLAY_KEY_PATH/MITMPROXY_WEB_PASSWORD`). `real .env` is `0600` with `ALBERT_ACCEPT_RISK=1` but example is stale. **Next:** copy `docs: .env.example` to `ALBERT_HTTP_PORT=18090/FAIRPLAY…/LOGS…`.
@@ -46,8 +46,8 @@
 - [x] Verified no destroy plan (no TF).
 
 ## CI/CD
-- [x] CI customized: `main` now uses **Albert CI** (`ruff+bandit+pytest+docker compose config`) in `.github/workflows/ci.yml` (branches `**`, Python `3.13`), not template `repository-baseline` (branches `main`). Template baseline overwritten during `429fff8` → kept intentionally. Consider adding matrix `3.11/3.12`.
-- [x] Runtime pinned: `python:3.13-slim` + `3.13` in CI, `requirements.txt` pinned.
+- [x] CI customized: `main` now uses **Albert CI** (`ruff+bandit+pytest+docker compose config`) in `.github/workflows/ci.yml` (branches `**`, Python `3.14`), not template `repository-baseline` (branches `main`). Template baseline overwritten during `429fff8` → kept intentionally. Consider adding matrix `3.11/3.12`.
+- [x] Runtime pinned: `python:3.14-slim` + `3.14` in CI, `requirements.txt` pinned.
 - [x] Build validation: `docker compose config` + `gunicorn --check-config`.
 - [ ] Artifact retention — not needed (no packages).
 - [ ] Environments/approvals — not configured (single-host `18090`).
@@ -69,7 +69,7 @@
 
 ## Final verification
 - [x] Fresh clone: `git clone https://github.com/cvsz/zalive -b albert-server` + `python3 -m venv venv; pip install -r requirements.txt; cp .env.example .env` — **fails** until `.env.example` fixed (see above), but code compiles (`py_compile`).
-- [x] CI passes `main` and `albert-server` (`118 passed` `All checks passed` `bandit 0` via local; GitHub Actions will run `ci.yml` on next push to `zalive:main`).
+- [x] CI passes `main` and `albert-server` (`120 passed` `All checks passed` `bandit 0` via local; GitHub Actions will run `ci.yml` on next push to `zalive:main`).
 - [x] No secrets committed: `.env` `0600` ignored (`git ls-files | grep .env` empty), `certs/fairplay.key` `0600` ignored, `*.ipsw` ignored, `*.bak` ignored.
 - [x] Security gates passing locally; `trivy fs` not yet in CI (roadmap).
 - [ ] Release/rollback doc not yet executed — tag `v0.1.0` pending.
@@ -80,4 +80,4 @@
 3. Enable branch protection + Dependabot alerts in GitHub `Settings` for `zalive`.
 4. Copy `docs/architecture.md` → `docs/architecture.md` or link, and declare SemVer in `CHANGELOG.md`.
 
-Last checked: `2026-09-30` — exact head + CI run; local `118 tests` (CI `88 passed, 12 skipped`), systemd enabled and verified, `MemoryMax=512M` enforced, Python 3.14; `18090` `dashboard Any iPhone` `/firmware` live. Evidence refreshed after PR #8/#9/#11.
+Last checked: `2026-09-30` — exact head + CI run; local `120 tests` (CI `103 passed, 12 skipped`), systemd enabled and verified, `MemoryMax=512M` enforced, Python 3.14; `18090` `dashboard Any iPhone` `/firmware` live. Evidence refreshed after PR #8/#9/#11.

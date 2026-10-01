@@ -33,6 +33,17 @@ jobs:
           ALBERT_ADMIN_TOKEN: ci-test-token
           ALBERT_ACCEPT_RISK: "1"
         run: pytest -q --ignore=tests/test_bootstrap.py
+      - name: Provision runtime prerequisites for validate
+        # scripts/validate.py checks for artifacts a running deployment would
+        # have: a FairPlay key and the SQLite file. On a clean checkout neither
+        # exists, so the check exited 1 on its own. Previously the step above
+        # (pytest) happened to create both as a side effect, which made this
+        # step look like it was validating something when it was really
+        # inheriting state from the test run. Provision them explicitly.
+        run: |
+          python3 -c "import albert_server"      # generates certs/fairplay.key|crt
+          python3 -c "import albert_server; albert_server._init_db()"
+          ls -l certs/fairplay.key logs/activations.db
       - name: Validate (IPSW/FairPlay/DB/env/API/logs)
         env:
           ALBERT_ADMIN_TOKEN: ci-test-token

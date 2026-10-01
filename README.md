@@ -38,7 +38,7 @@ docker compose up -d
 ```
 
 Services:
-- **Albert Server**: `http://127.0.0.1:18090` (HTTP), `https://127.0.0.1:18443` (HTTPS)
+- **Albert Server**: `http://127.0.0.1:18090` (HTTP) — gunicorn does not terminate TLS; the device-facing TLS is terminated by mitmproxy, and the proxy→Albert hop is plain HTTP gated by `X-MTLS-Token` or a forwarded client cert
 - **mitmproxy Web UI**: `http://127.0.0.1:28080` (password from `MITMPROXY_WEB_PASSWORD`)
 - **mitmproxy Proxy**: `127.0.0.1:28081`
 
@@ -90,7 +90,7 @@ Apple directly over USB.
 | `GET /metrics` | Prometheus metrics |
 | `GET /dashboard` | Real-time AdminLTE dashboard |
 | `GET /firmware` | Firmware browser (13 curated models) |
-| `GET /admin` | Admin panel (requires `X-Admin-Token`) |
+| `GET /admin` | Admin panel HTML — the page itself is not header-gated; it reads the token from `localStorage` and sends `X-Admin-Token` on its `/api/*` calls, which are the endpoints that enforce auth |
 | `POST /deviceservices/drmHandshake` | DRM handshake |
 | `POST /deviceservices/deviceActivation` | Device activation |
 | `GET /api/status` | JSON status (public: health/ready/version; admin: full) |
@@ -105,7 +105,7 @@ All config via environment variables (see `.env.example`):
 | `ALBERT_ACCEPT_RISK` | **0** | Legal risk acknowledgement (must set to 1) |
 | `ALBERT_BIND_ADDRESS` | `127.0.0.1` | Host publish address (LAN: `0.0.0.0`) |
 | `ALBERT_HTTP_PORT` | `18090` | HTTP port |
-| `ALBERT_HTTPS_PORT` | `18443` | HTTPS port |
+| `ALBERT_HTTPS_PORT` | `18443` | Published by `docker-compose.yml` but **nothing in the app binds it** — the container is HTTP only. Reserved for an external TLS terminator. |
 | `FAIRPLAY_KEY_PATH` | `certs/fairplay.key` | FairPlay private key |
 | `ALBERT_ADMIN_TOKEN` | **required** | Admin API token |
 | `ALBERT_REDIS_URL` | — | Redis for distributed rate limiting |

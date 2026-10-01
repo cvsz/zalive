@@ -283,8 +283,8 @@ def tss_controller():
         apticket_data = generate_apticket(dict(request.args), comp)
         return Response(apticket_data, mimetype="application/x-plist")
     except Exception as e:
-        logger.error(f"TSS signing failed: {e}")
-        return abort(500, f"Signing failed: {e}")
+        logger.exception("TSS signing failed")
+        return abort(500, "Signing failed")
 
 
 @app.route("/firmware/list")
