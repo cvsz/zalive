@@ -64,8 +64,8 @@ pymobiledevice3 mobileactivation activate --skip-apple-id-query
 
 ## ตัวเลือกของ activate_device.py
 
-`activate_device.py` เป็น **client** จึงไม่มี flag ฝั่ง server — ค่าการเชื่อมต่อมาจาก
-environment และจาก `--albert-url`
+`activate_device.py` เป็น **client** — flag ทุกตัวในตารางนี้มาจาก `parse_args` ที่ `activate_device.py:711-721`
+(flag ฝั่ง server อยู่คนละชุด ดูหัวข้อถัดไป)
 
 | flag | ความหมาย |
 |---|---|
@@ -80,7 +80,7 @@ environment และจาก `--albert-url`
 
 ## ตัวเลือกของ albert_server.py
 
-`albert_server.py` **มี** flag ฝั่ง server จริง (ยืนยันที่ `albert_server.py:3611`):
+`albert_server.py` **มี** flag ฝั่ง server จริง (ยืนยันที่ `albert_server.py:3707-3710`):
 
 | flag | ค่าเริ่มต้น | ความหมาย |
 |---|---|---|
