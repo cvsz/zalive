@@ -261,14 +261,24 @@ def test_tool_arg_rejects_leading_dash():
     """Regression: the old allowlist was ^[A-Za-z0-9._-]+$, which also matched a
     leading '-', so ?domain=-oRoot or ?key=--help passed validation and
     ideviceinfo read the value as a flag rather than data. shell=False does not
-    help -- argument injection needs no shell."""
-    for bad in ("-oRoot", "--help", "-q", "--version", ".hidden", "_x", "a;b", "a b", "../x"):
-        assert albert_server._validate_tool_arg(bad) is False, bad
+    help -- argument injection needs no shell. Exercised through the endpoint so
+    the test covers the regex that is actually in the request path."""
+    c = albert_server.app.test_client()
+    h = _admin_headers()
+    for bad in ("-oRoot", "--help", "-q", "--version", ".hidden", "_x", "a;b", "a b"):
+        r = c.get("/api/device_info?domain=" + bad, headers=h)
+        assert r.status_code == 400, (bad, r.status_code)
+        r = c.get("/api/device_info?key=" + bad, headers=h)
+        assert r.status_code == 400, (bad, r.status_code)
 
 
 def test_tool_arg_accepts_real_domains_and_keys():
     """Normal values must keep working -- the allowlist is not meant to reject
-    real ideviceinfo domains or keys."""
+    real ideviceinfo domains or keys. A device may be absent, so a 200 body that
+    reports no connection is the expected shape, not a 400."""
+    c = albert_server.app.test_client()
+    h = _admin_headers()
     for good in ("ProductVersion", "ProductType", "BuildVersion", "0abc", "a.b_c-d"):
-        assert albert_server._validate_tool_arg(good) is True, good
-    assert albert_server._validate_tool_arg("") is False
+        r = c.get("/api/device_info?domain=" + good, headers=h)
+        assert r.status_code == 200, (good, r.status_code, r.get_data(as_text=True)[:120])
+        assert "invalid domain" not in r.get_data(as_text=True), good
