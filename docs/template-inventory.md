@@ -71,7 +71,7 @@ All 9 pages share `data-bs-theme="dark"` + `bootstrap@5.3.3` + `admin-lte@4.0.0`
 - `templates/health.html` — `GET /health` liveness `{"status":"ok","server":"albert-local","version":"1.1-fixed"}` → HTML with 3 cards Server/Version/Uptime + mTLS `enabled` · JSON via `?format=json` or `Accept: text/html` negotiation.
 - `templates/ready.html` — `GET /ready` readiness `{"status":"ready","fairplay_loaded":true,"notAfter":"2031-09-27",days:1824}` → HTML with FairPlay/mTLS/Status cards + expiry warning, `?format=json` JSON.
 - `templates/metrics.html` — `GET /metrics` Prometheus `albert_up 1` `albert_activation_total 267` → HTML with Up/Activations/Failures cards + `<pre>` exposition, `?format=prom` raw.
-- `templates/validate.html` — `GET /api/validate` `{"ok":true,"checks":{ipsw,fairplay,db,env,api,logs}}` → HTML with 6 cards `✓ ok` + raw JSON, `?format=json` JSON.
+- `templates/validate.html` — `GET /api/validate` `{"ok":true,"detail":<bool>,"checks":{ipsw,fairplay,db,env,api,logs}}` → HTML with 6 cards `✓ ok` + admin-token box (`Show detail`) + raw JSON, `?format=json` JSON. Reachable without a token, but then each check returns a one-line pass/fail message only (`"detail": false`); row counts, certificate dates and env var names are admin-only.
 - `templates/index.html` — `GET /` `{"service":"albert-local","endpoints":[...]}` → HTML with Quick links/Health/Device + endpoint buttons, `?format=json` JSON.
 - `templates/404.html` — `GET /nonexistent → 404` zAlive `∅` card, links Dashboard/Firmware/Admin/Health, `@app.errorhandler(404)` JSON for `/api/*`.
 - `static/zalive-logo.svg` (140×36) + `static/zalive-icon.svg` (32×32) + `static/favicon.svg` — wordmark `zAlive` ALBERT·FIRMWARE·RESTORE.

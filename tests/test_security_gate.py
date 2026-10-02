@@ -1,9 +1,16 @@
 """Gate 11-13: RBAC/CSRF/security for state-changing operations + clean-volume/restart E2E (pre-cable, no device)."""
 import base64
+import json
 import os
 import pathlib
 import plistlib
+import re
+import sqlite3
+import tempfile
 
+import pytest
+
+import activate_device
 import albert_server
 
 # reuse mtls shim from test_albert (already patched app.test_client)
@@ -313,3 +320,282 @@ def test_dashboard_token_key_matches_admin_panel():
     header is sent with an empty value and the endpoints stay gated."""
     assert "'zalive_admin_token'" in albert_server.ADMIN_HTML
     assert "'zalive_admin_token'" in albert_server.DASHBOARD_HTML
+
+
+def _reset_device_live_cache():
+    albert_server._DEVICE_LIVE_CACHE["data"] = None
+    albert_server._DEVICE_LIVE_CACHE["ts"] = 0.0
+
+
+def test_live_device_info_reads_plist_not_capped_text():
+    """ideviceinfo -x must be parsed as a plist. Parsing the text dump instead is
+    what made UniqueDeviceID vanish: _run_tool caps stdout at 4000 bytes and the
+    dump is larger, so the tail was silently truncated and the dashboard fell back
+    to the stale activation snapshot while still looking connected."""
+    src = albert_server.__file__
+    with open(src) as fh:
+        code = fh.read()
+    assert '["ideviceinfo", "-x"]' in code
+    assert "plistlib.loads(proc.stdout)" in code
+
+
+def test_live_device_info_returns_empty_without_device(monkeypatch):
+    """No device attached must yield {}, never a stale or invented identity, so the
+    card can fall back to the last activation snapshot."""
+
+    def boom(*a, **k):
+        raise OSError("no device")
+
+    _reset_device_live_cache()
+    monkeypatch.setattr(albert_server.subprocess, "run", boom)
+    assert albert_server._get_live_device_info() == {}
+
+
+def test_live_device_info_caches_between_polls(monkeypatch):
+    """/api/status is polled every 2s. Without a TTL the device is re-read on every
+    tick, spawning two extra processes per tick."""
+    calls = []
+
+    class FakeProc:
+        returncode = 0
+        stdout = plistlib.dumps({"UniqueDeviceID": "FAKEUDID0000", "ProductType": "iPhone9,3"})
+
+    def fake_run(cmd, *a, **k):
+        calls.append(cmd)
+        return FakeProc()
+
+    _reset_device_live_cache()
+    monkeypatch.setattr(albert_server.subprocess, "run", fake_run)
+    first = albert_server._get_live_device_info()
+    second = albert_server._get_live_device_info()
+    assert first["UniqueDeviceID"] == "FAKEUDID0000"
+    assert first == second
+    assert len(calls) == 2, "second call should be served from cache"
+
+
+def test_live_device_overrides_db_snapshot(monkeypatch):
+    """The attached device must win over the stored activation row, otherwise the
+    card keeps showing the previously activated device after a swap."""
+
+    class FakeProc:
+        returncode = 0
+        stdout = plistlib.dumps(
+            {
+                "UniqueDeviceID": "LIVEUDID00000001",
+                "ProductType": "iPhone9,3",
+                "SerialNumber": "LIVESERIAL1",
+                "HardwareModel": "N71AP",
+                "ProductVersion": "16.7.11",
+                "BuildVersion": "20G115",
+            }
+        )
+
+    _reset_device_live_cache()
+    monkeypatch.setattr(albert_server.subprocess, "run", lambda cmd, *a, **k: FakeProc())
+    payload = albert_server._build_status_payload()
+    dev = payload["device"]
+    assert dev["live"] is True
+    assert dev["UDID"] == "LIVEUDID00000001"
+    assert dev["ProductType"] == "iPhone9,3"
+    assert dev["HardwareModel"] == "N71AP"
+    assert dev["ProductVersion"] == "16.7.11"
+
+
+def test_dashboard_marks_device_card_as_live_or_snapshot():
+    """The card must say which it is showing, otherwise a stale snapshot is
+    indistinguishable from a plugged-in device."""
+    html = albert_server.DASHBOARD_HTML
+    assert '>live</span>' in html
+    assert '>last snapshot</span>' in html
+
+
+def test_dashboard_redacts_live_serial():
+    """SerialNumber now comes from the attached device rather than a placeholder, so
+    it must be redacted on the card the same way the UDID already is."""
+    device_line = next(
+        line for line in albert_server.DASHBOARD_HTML.splitlines() if "$('device')" in line
+    )
+    assert "esc(redact(d.SerialNumber||''))" in device_line
+    assert "' SN '+(d.SerialNumber||'-')" not in device_line
+
+
+def test_validate_never_returns_exception_text():
+    """/api/validate is reachable without a token, so str(e) in any check body
+    hands filesystem paths and library internals to anonymous callers."""
+    with open(albert_server.__file__) as fh:
+        body = fh.read()
+    start = body.index("def api_validate():")
+    end = body.index("@app.errorhandler", start)
+    assert "str(e)" not in body[start:end]
+
+
+def test_validate_detail_is_admin_only():
+    """Row counts, certificate dates and env var names are reconnaissance, so they
+    belong behind the admin token. The endpoint stays open because a first-run
+    setup must be checkable before credentials are known."""
+    albert_server.app.config['TESTING'] = True
+    c = albert_server.app.test_client()
+    admin_token = os.environ.get("ALBERT_ADMIN_TOKEN", "").strip()
+
+    public = c.get("/api/validate").get_json()
+    assert public["detail"] is False
+    assert "rows" not in json.dumps(public)
+    assert "ALBERT_ADMIN_TOKEN" not in json.dumps(public)
+
+    admin = c.get("/api/validate", headers={"X-Admin-Token": admin_token}).get_json()
+    assert admin["detail"] is True
+    assert set(admin["checks"]) == set(public["checks"])
+
+
+def test_validate_html_never_leaks_detail_to_anonymous():
+    """The page renders the same messages as the JSON, so an anonymous browser
+    request must not carry the detail strings either."""
+    albert_server.app.config['TESTING'] = True
+    c = albert_server.app.test_client()
+    html = c.get("/api/validate", headers={"Accept": "text/html"}).get_data(as_text=True)
+    assert "rows" not in html
+    assert "ALBERT_ADMIN_TOKEN" not in html
+    assert "/home/" not in html
+    # The owner can still get detail by pasting the token, same key as /admin.
+    assert "id='vtok'" in html or 'id="vtok"' in html
+    assert "zalive_admin_token" in html
+
+
+def test_activation_client_default_port_matches_deployment():
+    """The client defaulted to 127.0.0.1:8080, the conventional uvicorn port. On a
+    host where another project already listens there, activation traffic was sent
+    to that service instead of Albert."""
+    assert ":8080" not in activate_device.DEFAULT_ALBERT_URL
+    assert activate_device.DEFAULT_ALBERT_URL.endswith(
+        os.environ.get("ALBERT_HTTP_PORT", "18090")
+    )
+
+
+def test_device_info_does_not_return_tool_exception():
+    """_run_tool puts str(e) and the full argv in its result. Every other endpoint
+    in this module logs that instead of returning it; /api/device_info was
+    jsonify()-ing the dict straight through."""
+    with open(albert_server.__file__) as fh:
+        body = fh.read()
+    start = body.index("def api_device_info():")
+    end = body.index("@app.route", start)
+    block = body[start:end]
+    assert "return jsonify(r)\n" in block, "device_info response shape changed; re-check redaction"
+    assert 'r = {"ok": False, "connected": False' in block
+
+
+def test_dashboard_escapes_live_device_values():
+    """Live values arrive over usbmux and were concatenated into innerHTML raw, so a
+    peer answering with crafted strings would run script in the /dashboard origin and
+    read zalive_admin_token out of localStorage."""
+    html = albert_server.DASHBOARD_HTML
+    assert "function esc(" in html
+    device_line = next(
+        line for line in html.splitlines() if "$('device')" in line
+    )
+    # Every value taken from the payload has to go through esc(); only the
+    # server-generated badge markup is concatenated as-is.
+    for field in ("d.ProductType", "d.ModelNumber", "d.HardwareModel", "dOs",
+                  "d.SerialNumber", "d.UDID", "d.EID", "d.IMEI", "d.IMEI2", "d.Storage"):
+        # value may be wrapped in redact()/safeSlice() before escaping
+        assert re.search(r"esc\((redact|safeSlice)?\(?" + re.escape(field), device_line), (
+            f"{field} reaches innerHTML unescaped"
+        )
+    assert "esc('+" not in device_line
+
+
+def test_dashboard_esc_neutralises_markup():
+    """The esc() helper itself: verify it actually neutralises a payload by running it,
+    rather than trusting the source string."""
+    import re
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    html = albert_server.DASHBOARD_HTML
+    esc_src = re.search(r"^.*function esc\(s\).*$", html, re.M)
+    assert esc_src, "esc() not found in DASHBOARD_HTML"
+    # payload carries both a tag and a quote so every branch of esc() is exercised
+    script = (
+        esc_src.group(0)
+        + 'const out = esc(String.fromCharCode(60,105,109,103) + " onerror=alert(1)"'
+        + " + String.fromCharCode(39) + String.fromCharCode(62));"
+        + "console.log(out);"
+    )
+    proc = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout.strip()
+    for ch in ("<", ">", '"', "'"):
+        assert ch not in out, f"{ch!r} survived esc(): {out}"
+    assert "&lt;" in out and "&gt;" in out and "&#39;" in out, out
+
+
+def test_live_device_does_not_inherit_other_device_identifiers(monkeypatch):
+    """EID/IMEI/IMEI2 are not in the ideviceinfo plist. Carrying the snapshot values
+    over made a card marked "live" show another device's identifiers."""
+    albert_server.DB_PATH = pathlib.Path(
+        tempfile.mkdtemp(prefix="albert-live-")
+    ) / "activations.db"
+    with albert_server.sqlite3.connect(str(albert_server.DB_PATH)) as db:
+        db.execute(
+            "CREATE TABLE activations (id INTEGER PRIMARY KEY, udid TEXT, serial TEXT,"
+            " producttype TEXT, record TEXT, created_at TEXT)"
+        )
+        db.execute(
+            "INSERT INTO activations (udid, serial, producttype, record, created_at)"
+            " VALUES ('OLDDEVICE00001','OLDSERIAL1','iPhone11,8','{}','2026-01-01')"
+        )
+
+    class FakeProc:
+        returncode = 0
+        stdout = plistlib.dumps(
+            {
+                "UniqueDeviceID": "NEWDEVICE000001",
+                "ProductType": "iPhone14,5",
+                "HardwareModel": "D74AP",
+                "ProductVersion": "17.5.1",
+                "SerialNumber": "NEWSERIAL1",
+            }
+        )
+
+    _reset_device_live_cache()
+    monkeypatch.setattr(albert_server.subprocess, "run", lambda cmd, *a, **k: FakeProc())
+    dev = albert_server._build_status_payload()["device"]
+
+    assert dev["live"] is True
+    assert dev["UDID"] == "NEWDEVICE000001"
+    assert dev["ProductType"] == "iPhone14,5"
+    # marketing name re-derived from the live product type, not the snapshot's
+    assert dev["ModelNumber"] == "iPhone 13"
+    for stale in ("EID", "IMEI", "IMEI2"):
+        assert stale not in dev, f"{stale} still shows the previous device's value"
+
+
+def test_live_device_keeps_identifiers_for_same_udid(monkeypatch):
+    """Re-attaching the same phone must not blank fields the plist cannot supply."""
+    albert_server.DB_PATH = pathlib.Path(
+        tempfile.mkdtemp(prefix="albert-same-")
+    ) / "activations.db"
+    with albert_server.sqlite3.connect(str(albert_server.DB_PATH)) as db:
+        db.execute(
+            "CREATE TABLE activations (id INTEGER PRIMARY KEY, udid TEXT, serial TEXT,"
+            " producttype TEXT, record TEXT, created_at TEXT)"
+        )
+        db.execute(
+            "INSERT INTO activations (udid, serial, producttype, record, created_at)"
+            " VALUES ('SAMEUDID000001','SAMESERIAL1','iPhone11,8','{}','2026-01-01')"
+        )
+
+    class FakeProc:
+        returncode = 0
+        stdout = plistlib.dumps(
+            {"UniqueDeviceID": "SAMEUDID000001", "ProductType": "iPhone11,8"}
+        )
+
+    _reset_device_live_cache()
+    monkeypatch.setattr(albert_server.subprocess, "run", lambda cmd, *a, **k: FakeProc())
+    dev = albert_server._build_status_payload()["device"]
+    assert dev["live"] is True
+    assert dev["UDID"] == "SAMEUDID000001"

@@ -85,5 +85,15 @@ def test_any_iphone_dynamic_device():
     info={"DeviceClass":"iPhone","ProductType":"iPhone15,2","UniqueDeviceID":"00008020-1111111111111111","SerialNumber":"TEST123","DeviceCertRequest": b""}
     b64 = base64.b64encode(plistlib.dumps(info)).decode()
     c.post('/deviceservices/deviceActivation', data={'activation-info': b64})
-    j2_admin = c.get('/api/status', headers={'X-Admin-Token': admin_token}).get_json()
+    # With nothing attached the card falls back to the stored activation row. The
+    # live read is stubbed out so the result does not depend on whether the machine
+    # running the suite happens to have an iPhone plugged in; a real attached
+    # device deliberately takes precedence (see test_live_device_overrides_db_snapshot).
+    original = albert_server._get_live_device_info
+    albert_server._get_live_device_info = lambda *a, **k: {}
+    try:
+        j2_admin = c.get('/api/status', headers={'X-Admin-Token': admin_token}).get_json()
+    finally:
+        albert_server._get_live_device_info = original
     assert j2_admin['device']['ProductType'] == 'iPhone15,2'
+    assert not j2_admin['device'].get('live')
