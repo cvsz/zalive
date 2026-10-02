@@ -82,7 +82,7 @@ Keys are `0600` persisted; backup `certs/` before rotation.
 ## Rate limiting
 - Defaults `100/min per IP` + `10/min per UDID` (env `ALBERT_REDIS_URL` → Redis `INCR+EXPIRE` distributed, else in-memory per-worker).
 - When `ALBERT_REDIS_URL` is set but Redis is unreachable, server logs `WARNING Redis rate limit failed ... falling back to in-memory (request_id=...)` and falls back to per-process in-memory (2 workers → effective `200/min` per IP). Set `ALBERT_REDIS_FAIL_CLOSED=1` to fail closed with `429` instead of degraded fallback.
-- Inspect: `curl http://127.0.0.1:18090/api/rate_status` or `GET /api/validate`.
+- Inspect: `curl http://127.0.0.1:18090/api/rate_status`, or `GET /api/validate` — the latter answers without a token, but then returns per-check pass/fail only, so add `X-Admin-Token` (or `Authorization: Bearer`) to see row counts, certificate dates and the rest.
 
 ## Logs
 - All logs under `logs/` (host: `logs/albert.log`, `logs/mitmproxy.log`, `logs/restore/restore_*.log`, `logs/validate.log`; docker volume `logs:/app/logs`). Old root `*.log` ignored via `.gitignore`.
