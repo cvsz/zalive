@@ -458,7 +458,7 @@ def test_activation_client_default_port_matches_deployment():
     to that service instead of Albert."""
     assert ":8080" not in activate_device.DEFAULT_ALBERT_URL
     assert activate_device.DEFAULT_ALBERT_URL.endswith(
-        os.environ.get("LOCAL_ALBERT_PORT", "18090")
+        os.environ.get("ALBERT_HTTP_PORT", "18090")
     )
 
 

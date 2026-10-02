@@ -41,6 +41,7 @@ Production hardening is enforced in `albert_server.py`:
 - **Rate limiting `429`:** Per-IP `100/min` (`_RATE_LIMIT_MAX`) + per-UDID `10/min` (`ALBERT_RATE_LIMIT_PER_UDID`, default 10) over a `60s` window. Device paths return a plist body for the same reason as above; `X-RateLimit-Remaining` is still set on both shapes. Distributed via Redis `INCR+EXPIRE` when `ALBERT_REDIS_URL`/`REDIS_URL` is set, otherwise in-memory. Exceeded requests return `429` JSON `{ "error": "rate limit exceeded", "request_id": "..." }` with `X-RateLimit-Remaining` (and `X-RateLimit-Remaining` per-IP/UDID) and `X-Request-ID`. `before_request` applies the limit to `/deviceservices/*`, `/WebObjects/*` and every `/api/*` route; `after_request` propagates `X-Request-ID` and `X-RateLimit-Remaining`.
 - **Request tracing:** Every request gets `X-Request-ID` (incoming header or generated UUID `g.request_id`); structured JSON logging includes `request_id`/`remote_addr` with UDID redaction.
 - **OPTIONS:** `/deviceservices/*` and `/WebObjects/*` return `204` with `Allow: GET, POST, OPTIONS`.
+- **Diagnostic detail is admin-only:** `/api/validate` answers without a token so a first-run setup can be checked before credentials exist, but returns one pass/fail line per check (`"detail": false`). Row counts, certificate dates, log paths and env var names need `X-Admin-Token`. No endpoint returns raw exception text; failures go to `logger.exception`.
 
 See also `gunicorn_conf.py` timeout (`30s`) and `docs/RUNBOOK.md` readiness checks.
 

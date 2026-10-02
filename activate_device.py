@@ -179,10 +179,12 @@ except Exception:
 logger = logging.getLogger(__name__)
 logger.addFilter(_request_id_filter)
 
-# Port 8080 is the conventional Flask/uvicorn default but is commonly taken by an
+# 8080 is the conventional uvicorn/Flask port and is commonly already taken by an
 # unrelated service on the same host, which silently sends activation traffic to
-# the wrong server. Read the port the Albert deployment actually uses.
-DEFAULT_ALBERT_URL = "http://127.0.0.1:" + os.environ.get("LOCAL_ALBERT_PORT", "18090")
+# the wrong server. Match the port the Albert deployment actually binds (see
+# gunicorn_conf.py / ALBERT_HTTP_PORT). Read from the environment rather than .env
+# so the client does not pull the admin token and cert paths into its own process.
+DEFAULT_ALBERT_URL = "http://127.0.0.1:" + os.environ.get("ALBERT_HTTP_PORT", "18090")
 ALBERT_ENDPOINTS = {
     "drm_handshake": "/deviceservices/drmHandshake",
     "device_activation": "/deviceservices/deviceActivation",
