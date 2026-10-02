@@ -1,9 +1,11 @@
 """Gate 11-13: RBAC/CSRF/security for state-changing operations + clean-volume/restart E2E (pre-cable, no device)."""
 import base64
+import json
 import os
 import pathlib
 import plistlib
 
+import activate_device
 import albert_server
 
 # reuse mtls shim from test_albert (already patched app.test_client)
@@ -406,3 +408,68 @@ def test_dashboard_redacts_live_serial():
     )
     assert "SN '+redact(d.SerialNumber||'')" in device_line
     assert "' SN '+(d.SerialNumber||'-')" not in device_line
+
+
+def test_validate_never_returns_exception_text():
+    """/api/validate is reachable without a token, so str(e) in any check body
+    hands filesystem paths and library internals to anonymous callers."""
+    with open(albert_server.__file__) as fh:
+        body = fh.read()
+    start = body.index("def api_validate():")
+    end = body.index("@app.errorhandler", start)
+    assert "str(e)" not in body[start:end]
+
+
+def test_validate_detail_is_admin_only():
+    """Row counts, certificate dates and env var names are reconnaissance, so they
+    belong behind the admin token. The endpoint stays open because a first-run
+    setup must be checkable before credentials are known."""
+    albert_server.app.config['TESTING'] = True
+    c = albert_server.app.test_client()
+    admin_token = os.environ.get("ALBERT_ADMIN_TOKEN", "").strip()
+
+    public = c.get("/api/validate").get_json()
+    assert public["detail"] is False
+    assert "rows" not in json.dumps(public)
+    assert "ALBERT_ADMIN_TOKEN" not in json.dumps(public)
+
+    admin = c.get("/api/validate", headers={"X-Admin-Token": admin_token}).get_json()
+    assert admin["detail"] is True
+    assert set(admin["checks"]) == set(public["checks"])
+
+
+def test_validate_html_never_leaks_detail_to_anonymous():
+    """The page renders the same messages as the JSON, so an anonymous browser
+    request must not carry the detail strings either."""
+    albert_server.app.config['TESTING'] = True
+    c = albert_server.app.test_client()
+    html = c.get("/api/validate", headers={"Accept": "text/html"}).get_data(as_text=True)
+    assert "rows" not in html
+    assert "ALBERT_ADMIN_TOKEN" not in html
+    assert "/home/" not in html
+    # The owner can still get detail by pasting the token, same key as /admin.
+    assert "id='vtok'" in html or 'id="vtok"' in html
+    assert "zalive_admin_token" in html
+
+
+def test_activation_client_default_port_matches_deployment():
+    """The client defaulted to 127.0.0.1:8080, the conventional uvicorn port. On a
+    host where another project already listens there, activation traffic was sent
+    to that service instead of Albert."""
+    assert ":8080" not in activate_device.DEFAULT_ALBERT_URL
+    assert activate_device.DEFAULT_ALBERT_URL.endswith(
+        os.environ.get("LOCAL_ALBERT_PORT", "18090")
+    )
+
+
+def test_device_info_does_not_return_tool_exception():
+    """_run_tool puts str(e) and the full argv in its result. Every other endpoint
+    in this module logs that instead of returning it; /api/device_info was
+    jsonify()-ing the dict straight through."""
+    with open(albert_server.__file__) as fh:
+        body = fh.read()
+    start = body.index("def api_device_info():")
+    end = body.index("@app.route", start)
+    block = body[start:end]
+    assert "return jsonify(r)\n" in block, "device_info response shape changed; re-check redaction"
+    assert 'r = {"ok": False, "connected": False' in block

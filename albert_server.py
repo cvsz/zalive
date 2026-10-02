@@ -3108,11 +3108,18 @@ def api_admin_register_push(udid: str):
 
 @app.route('/api/validate', methods=['GET'])
 def api_validate():
-    """Public validate endpoint — runs same checks as scripts/validate.py but via API (no IPSW hash full read to avoid 8G sync block; returns lightweight)."""
-    import hashlib as _hl
+    """Validate endpoint — same checks as scripts/validate.py but via API.
+
+    The page stays reachable without a token so a first-run setup can be checked
+    before credentials are known, but unauthenticated callers only get pass/fail
+    per check. Counts, certificate dates and env var names are reconnaissance, so
+    the detail messages are returned only to an admin-token holder. Exception text
+    is never returned: it carries filesystem paths and library internals.
+    """
     import sqlite3 as _sql
     import pathlib as _pl
     from datetime import datetime, timezone
+    # detail = shown to an admin-token holder, public = safe for anyone
     checks={}
     # IPSW quick check (existence + size, not full sha256 for speed)
     try:
@@ -3120,11 +3127,12 @@ def api_validate():
         if ipsw.exists():
             sz = ipsw.stat().st_size
             ok = sz > 7_000_000_000
-            checks["ipsw"]={"ok": ok, "msg": f"IPSW {sz/1e9:.1f}GB {'ok' if ok else 'too small'}"}
+            checks["ipsw"]={"ok": ok, "msg": f"IPSW {sz/1e9:.1f}GB {'ok' if ok else 'too small'}", "pub": "IPSW ok" if ok else "IPSW too small"}
         else:
-            checks["ipsw"]={"ok": False, "msg": "IPSW missing"}
-    except Exception as e:
-        checks["ipsw"]={"ok": False, "msg": str(e)}
+            checks["ipsw"]={"ok": False, "msg": "IPSW missing", "pub": "IPSW missing"}
+    except Exception:
+        logger.exception("validate: ipsw check failed")
+        checks["ipsw"]={"ok": False, "msg": "IPSW check failed", "pub": "IPSW check failed"}
     # FairPlay
     try:
         from cryptography import x509 as _x509
@@ -3132,38 +3140,50 @@ def api_validate():
         if crt.exists():
             cert=_x509.load_pem_x509_certificate(crt.read_bytes())
             days=(cert.not_valid_after_utc - datetime.now(timezone.utc)).days
-            checks["fairplay"]={"ok": days>30, "msg": f"NotAfter {cert.not_valid_after_utc.date()} {days}d"}
+            ok = days>30
+            checks["fairplay"]={"ok": ok, "msg": f"NotAfter {cert.not_valid_after_utc.date()} {days}d", "pub": "certificate valid" if ok else "certificate expiring"}
         else:
-            checks["fairplay"]={"ok": False, "msg": "cert missing"}
-    except Exception as e:
-        checks["fairplay"]={"ok": False, "msg": str(e)}
+            checks["fairplay"]={"ok": False, "msg": "cert missing", "pub": "certificate missing"}
+    except Exception:
+        logger.exception("validate: fairplay check failed")
+        checks["fairplay"]={"ok": False, "msg": "certificate check failed", "pub": "certificate check failed"}
     # DB
     try:
         db=_pl.Path("logs/activations.db")
         with _sql.connect(str(db), timeout=5) as c:
             cnt=c.execute("SELECT count(*) FROM activations").fetchone()[0]
-            checks["db"]={"ok": True, "msg": f"{cnt} rows"}
-    except Exception as e:
-        checks["db"]={"ok": False, "msg": str(e)}
+            checks["db"]={"ok": True, "msg": f"{cnt} rows", "pub": "database ok"}
+    except Exception:
+        logger.exception("validate: database check failed")
+        checks["db"]={"ok": False, "msg": "database check failed", "pub": "database check failed"}
     # Env
     try:
         from dotenv import dotenv_values as _dv
         vals=_dv(".env") if _pl.Path(".env").exists() else {}
         ok=bool(vals.get("ALBERT_ADMIN_TOKEN") and not vals["ALBERT_ADMIN_TOKEN"].startswith("change-me"))
-        checks["env"]={"ok": ok, "msg": "ALBERT_ADMIN_TOKEN set" if ok else "ALBERT_ADMIN_TOKEN not set"}
-    except Exception as e:
-        checks["env"]={"ok": False, "msg": str(e)}
+        checks["env"]={"ok": ok, "msg": "ALBERT_ADMIN_TOKEN set" if ok else "ALBERT_ADMIN_TOKEN not set", "pub": "admin token configured" if ok else "admin token not configured"}
+    except Exception:
+        logger.exception("validate: env check failed")
+        checks["env"]={"ok": False, "msg": "environment check failed", "pub": "environment check failed"}
     # API self-check via test_client (reports 200 for core)
     try:
         with app.test_client() as _c:
             ok = _c.get("/health").status_code==200 and _c.get("/dashboard").status_code==200
-            checks["api"]={"ok": ok, "msg": "self-check health+dashboard 200" if ok else "self-check fail"}
-    except Exception as e:
-        checks["api"]={"ok": False, "msg": str(e)}
+            checks["api"]={"ok": ok, "msg": "self-check health+dashboard 200" if ok else "self-check fail", "pub": "self-check ok" if ok else "self-check failed"}
+    except Exception:
+        logger.exception("validate: api self-check failed")
+        checks["api"]={"ok": False, "msg": "self-check failed", "pub": "self-check failed"}
     # Logs
-    checks["logs"]={"ok": (_pl.Path("logs/albert.log").exists() or _pl.Path("/tmp/albert.log").exists()), "msg": "logs/albert.log present"}
+    _logs_ok = (_pl.Path("logs/albert.log").exists() or _pl.Path("/tmp/albert.log").exists())
+    checks["logs"]={"ok": _logs_ok, "msg": "logs/albert.log present" if _logs_ok else "logs/albert.log missing", "pub": "log present" if _logs_ok else "log not found"}
     ok_all = all(v["ok"] for v in checks.values())
-    data = {"ok": ok_all, "checks": checks, "ts": datetime.now(timezone.utc).isoformat()}
+    # Detail messages stay admin-only; drop them before serialising the payload.
+    is_admin, _auth_msg = _check_admin_auth()
+    for _v in checks.values():
+        if not is_admin:
+            _v["msg"] = _v.get("pub", "ok" if _v["ok"] else "failed")
+        _v.pop("pub", None)
+    data = {"ok": ok_all, "checks": checks, "ts": datetime.now(timezone.utc).isoformat(), "detail": is_admin}
     # Content negotiation: browser → pretty HTML template (AdminLTE), API → JSON
     wants_html = "text/html" in (request.headers.get("Accept") or "")
     # Also direct browser navigation to /api/validate should show template
@@ -3201,13 +3221,19 @@ def api_validate():
 <div class="row"><div class="col-sm-6"><h3 class="mb-0">Validate <small class="text-secondary">· {'✓ all 6 ok' if ok_all else '✗ fail'} · {data['ts'][:19]}</small></h3><small class="text-secondary">Template: AdminLTE 4 (dashboard-template #1) · Premium dark · IPSW/FairPlay/DB/env/API/logs</small></div><div class="col-sm-6"><ol class="breadcrumb float-sm-end"><li class="breadcrumb-item"><a href="/">Home</a></li><li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li><li class="breadcrumb-item active">Validate</li></ol></div></div>
 </div></div>
 <div class="app-content"><div class="container-fluid">
+<div class="card mb-3"><div class="card-body">
+<div class="d-flex flex-wrap gap-2 align-items-center">
+<span class="small" style="color:#94a3b8">{'Detail messages (row counts, certificate dates) require the admin token.' if not is_admin else 'Showing detail — admin token accepted.'}</span>
+<input id="vtok" type="password" class="form-control form-control-sm" style="max-width:22rem" placeholder="admin token" autocomplete="off">
+<button id="vbtn" class="btn btn-sm btn-outline-primary">Show detail</button>
+</div></div></div>
 <div class="row g-3">
 """
         for k, v in checks.items():
             badge = "bg-success" if v["ok"] else "bg-danger"
             icon = "✓" if v["ok"] else "✗"
             html += f"""
-<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8;letter-spacing:.7px">{k}</h3><span class="badge {badge} float-end">{icon} {'ok' if v['ok'] else 'fail'}</span></div><div class="card-body"><div class="mono small">{v['msg']}</div></div></div></div>
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8;letter-spacing:.7px">{k}</h3><span class="badge {badge} float-end">{icon} {'ok' if v['ok'] else 'fail'}</span></div><div class="card-body"><div class="mono small" id="msg-{k}">{v['msg']}</div></div></div></div>
 """
         html += f"""
 </div>
@@ -3218,6 +3244,21 @@ def api_validate():
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
+  <script>
+  const _vtok=document.getElementById('vtok'), _vbtn=document.getElementById('vbtn');
+  if(_vtok){{try{{_vtok.value=localStorage.getItem('zalive_admin_token')||''}}catch(e){{}}}}
+  if(_vbtn){{_vbtn.addEventListener('click',async function(){{
+    const tok=_vtok.value.trim();
+    if(tok){{try{{localStorage.setItem('zalive_admin_token',tok)}}catch(e){{}}}}
+    const h=tok?{{'X-Admin-Token':tok}}:{{}};
+    const r=await fetch('/api/validate?format=json',{{cache:'no-store',headers:h}});
+    const d=await r.json();
+    Object.keys(d.checks||{{}}).forEach(function(k){{
+      const el=document.getElementById('msg-'+k);
+      if(el) el.textContent=d.checks[k].msg;
+    }});
+  }});}}
+  </script>
 </body>
 </html>"""
         return Response(html, mimetype='text/html')
@@ -3796,6 +3837,13 @@ def api_device_info():
         r["connected"] = True
     else:
         r["connected"] = "No device" not in r.get("stderr","") and r.get("returncode") == 0
+    if not r.get("ok") and r.get("error"):
+        # _run_tool returns str(e) and the full argv on failure. The rest of this
+        # module logs that detail instead of handing it to the caller, so keep the
+        # response to pass/fail plus whatever the tool actually printed.
+        logger.warning("api_device_info tool failed: %s", r["error"])
+        r = {"ok": False, "connected": False, "stdout": r.get("stdout", ""),
+             "stderr": "tool failed", "returncode": r.get("returncode")}
     return jsonify(r)
 
 @app.route('/api/diagnostics', methods=['GET'])
