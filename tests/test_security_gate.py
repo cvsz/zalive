@@ -4,6 +4,11 @@ import json
 import os
 import pathlib
 import plistlib
+import re
+import sqlite3
+import tempfile
+
+import pytest
 
 import activate_device
 import albert_server
@@ -406,7 +411,7 @@ def test_dashboard_redacts_live_serial():
     device_line = next(
         line for line in albert_server.DASHBOARD_HTML.splitlines() if "$('device')" in line
     )
-    assert "SN '+redact(d.SerialNumber||'')" in device_line
+    assert "esc(redact(d.SerialNumber||''))" in device_line
     assert "' SN '+(d.SerialNumber||'-')" not in device_line
 
 
@@ -473,3 +478,120 @@ def test_device_info_does_not_return_tool_exception():
     block = body[start:end]
     assert "return jsonify(r)\n" in block, "device_info response shape changed; re-check redaction"
     assert 'r = {"ok": False, "connected": False' in block
+
+
+def test_dashboard_escapes_live_device_values():
+    """Live values arrive over usbmux and were concatenated into innerHTML raw, so a
+    peer answering with crafted strings would run script in the /dashboard origin and
+    read zalive_admin_token out of localStorage."""
+    html = albert_server.DASHBOARD_HTML
+    assert "function esc(" in html
+    device_line = next(
+        line for line in html.splitlines() if "$('device')" in line
+    )
+    # Every value taken from the payload has to go through esc(); only the
+    # server-generated badge markup is concatenated as-is.
+    for field in ("d.ProductType", "d.ModelNumber", "d.HardwareModel", "dOs",
+                  "d.SerialNumber", "d.UDID", "d.EID", "d.IMEI", "d.IMEI2", "d.Storage"):
+        # value may be wrapped in redact()/safeSlice() before escaping
+        assert re.search(r"esc\((redact|safeSlice)?\(?" + re.escape(field), device_line), (
+            f"{field} reaches innerHTML unescaped"
+        )
+    assert "esc('+" not in device_line
+
+
+def test_dashboard_esc_neutralises_markup():
+    """The esc() helper itself: verify it actually neutralises a payload by running it,
+    rather than trusting the source string."""
+    import re
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    html = albert_server.DASHBOARD_HTML
+    esc_src = re.search(r"^.*function esc\(s\).*$", html, re.M)
+    assert esc_src, "esc() not found in DASHBOARD_HTML"
+    # payload carries both a tag and a quote so every branch of esc() is exercised
+    script = (
+        esc_src.group(0)
+        + 'const out = esc(String.fromCharCode(60,105,109,103) + " onerror=alert(1)"'
+        + " + String.fromCharCode(39) + String.fromCharCode(62));"
+        + "console.log(out);"
+    )
+    proc = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout.strip()
+    for ch in ("<", ">", '"', "'"):
+        assert ch not in out, f"{ch!r} survived esc(): {out}"
+    assert "&lt;" in out and "&gt;" in out and "&#39;" in out, out
+
+
+def test_live_device_does_not_inherit_other_device_identifiers(monkeypatch):
+    """EID/IMEI/IMEI2 are not in the ideviceinfo plist. Carrying the snapshot values
+    over made a card marked "live" show another device's identifiers."""
+    albert_server.DB_PATH = pathlib.Path(
+        tempfile.mkdtemp(prefix="albert-live-")
+    ) / "activations.db"
+    with albert_server.sqlite3.connect(str(albert_server.DB_PATH)) as db:
+        db.execute(
+            "CREATE TABLE activations (id INTEGER PRIMARY KEY, udid TEXT, serial TEXT,"
+            " producttype TEXT, record TEXT, created_at TEXT)"
+        )
+        db.execute(
+            "INSERT INTO activations (udid, serial, producttype, record, created_at)"
+            " VALUES ('OLDDEVICE00001','OLDSERIAL1','iPhone11,8','{}','2026-01-01')"
+        )
+
+    class FakeProc:
+        returncode = 0
+        stdout = plistlib.dumps(
+            {
+                "UniqueDeviceID": "NEWDEVICE000001",
+                "ProductType": "iPhone14,5",
+                "HardwareModel": "D74AP",
+                "ProductVersion": "17.5.1",
+                "SerialNumber": "NEWSERIAL1",
+            }
+        )
+
+    _reset_device_live_cache()
+    monkeypatch.setattr(albert_server.subprocess, "run", lambda cmd, *a, **k: FakeProc())
+    dev = albert_server._build_status_payload()["device"]
+
+    assert dev["live"] is True
+    assert dev["UDID"] == "NEWDEVICE000001"
+    assert dev["ProductType"] == "iPhone14,5"
+    # marketing name re-derived from the live product type, not the snapshot's
+    assert dev["ModelNumber"] == "iPhone 13"
+    for stale in ("EID", "IMEI", "IMEI2"):
+        assert stale not in dev, f"{stale} still shows the previous device's value"
+
+
+def test_live_device_keeps_identifiers_for_same_udid(monkeypatch):
+    """Re-attaching the same phone must not blank fields the plist cannot supply."""
+    albert_server.DB_PATH = pathlib.Path(
+        tempfile.mkdtemp(prefix="albert-same-")
+    ) / "activations.db"
+    with albert_server.sqlite3.connect(str(albert_server.DB_PATH)) as db:
+        db.execute(
+            "CREATE TABLE activations (id INTEGER PRIMARY KEY, udid TEXT, serial TEXT,"
+            " producttype TEXT, record TEXT, created_at TEXT)"
+        )
+        db.execute(
+            "INSERT INTO activations (udid, serial, producttype, record, created_at)"
+            " VALUES ('SAMEUDID000001','SAMESERIAL1','iPhone11,8','{}','2026-01-01')"
+        )
+
+    class FakeProc:
+        returncode = 0
+        stdout = plistlib.dumps(
+            {"UniqueDeviceID": "SAMEUDID000001", "ProductType": "iPhone11,8"}
+        )
+
+    _reset_device_live_cache()
+    monkeypatch.setattr(albert_server.subprocess, "run", lambda cmd, *a, **k: FakeProc())
+    dev = albert_server._build_status_payload()["device"]
+    assert dev["live"] is True
+    assert dev["UDID"] == "SAMEUDID000001"

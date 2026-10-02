@@ -2300,6 +2300,12 @@ DASHBOARD_HTML = r'''<!doctype html>
 const $ = id => document.getElementById(id);
 const redact = s => s ? s.slice(0,4)+"..."+s.slice(-4) : "-";
 function safeSlice(s, a,b){ try{ return (s||'').slice(a,b); }catch(e){ return (s||'')+''; } }
+  // Values interpolated into innerHTML must go through this. Live device values
+  // come off usbmux, so a peer that answers with crafted strings would otherwise
+  // run script in the /dashboard origin and read zalive_admin_token from
+  // localStorage. Server-generated markup (badge spans) is concatenated after the
+  // escaped text, never through it.
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 async function tick(){
   // always update clock even if fetch fails
   try{ $('clock').textContent = new Date().toLocaleTimeString(); }catch(e){}
@@ -2336,7 +2342,7 @@ async function tick(){
     const d=j.device||{};
     const dLive=d.live?'<span class="badge ok">live</span>':'<span class="badge warn">last snapshot</span>';
     const dOs=d.ProductVersion?(d.ProductVersion+(d.BuildVersion?' ('+d.BuildVersion+')':'')):'';
-    if($('device')) $('device').innerHTML = dLive+' <b>'+(d.ProductType||'-')+'</b> '+(d.ModelNumber||'-')+(d.HardwareModel?' ['+d.HardwareModel+']':'')+' · iOS '+(dOs||'-')+' · SN '+redact(d.SerialNumber||'')+' · UDID '+redact(d.UDID||'')+' · EID '+safeSlice(d.EID,0,8)+'…'+safeSlice(d.EID,-4)+' · IMEI '+safeSlice(d.IMEI,0,3)+'...'+safeSlice(d.IMEI,-3)+' / '+safeSlice(d.IMEI2,0,3)+'...'+safeSlice(d.IMEI2,-3)+' · '+(d.Storage||'');
+    if($('device')) $('device').innerHTML = dLive+' <b>'+esc(d.ProductType||'-')+'</b> '+esc(d.ModelNumber||'-')+(d.HardwareModel?' ['+esc(d.HardwareModel)+']':'')+' · iOS '+esc(dOs||'-')+' · SN '+esc(redact(d.SerialNumber||''))+' · UDID '+esc(redact(d.UDID||''))+' · EID '+esc(safeSlice(d.EID,0,8))+'…'+esc(safeSlice(d.EID,-4))+' · IMEI '+esc(safeSlice(d.IMEI,0,3))+'...'+esc(safeSlice(d.IMEI,-3))+' / '+esc(safeSlice(d.IMEI2,0,3))+'...'+esc(safeSlice(d.IMEI2,-3))+' · '+esc(d.Storage||'');
   }catch(e){}
   try{
     if($('usb')) $('usb').innerHTML = (j.usb?.connected?'<span class="badge ok">USB Apple 05ac</span>':'<span class="badge warn">no Apple USB — VM passthrough needed</span>') + ' · idevice_id: ' + (j.usb?.idevice||'255') + ' · restore: ' + (j.usb?.restore||'-');
@@ -3572,13 +3578,20 @@ def _build_status_payload():
     # attached, so the card is never blank.
     live_dev = _get_live_device_info()
     if live_dev.get("UniqueDeviceID"):
+        _live_udid = live_dev["UniqueDeviceID"]
+        _same_device = _live_udid == device.get("UDID")
         device.update({
             "ProductType": live_dev.get("ProductType") or device["ProductType"],
             "SerialNumber": live_dev.get("SerialNumber") or device["SerialNumber"],
-            "UDID": live_dev.get("UniqueDeviceID") or device["UDID"],
-            # ModelNumber stays the marketing name from CURATED_DEVICES; the live
-            # HardwareModel is the board codename (e.g. N841AP) and belongs beside
-            # it rather than replacing it.
+            "UDID": _live_udid,
+            # ModelNumber is the marketing name; the live HardwareModel is the
+            # board codename (e.g. N841AP) and belongs beside it. Re-derive the
+            # name from the live product type, since the lookup above ran against
+            # whatever the last activation was.
+            "ModelNumber": next(
+                (d["name"] for d in CURATED_DEVICES
+                 if d["identifier"] == live_dev.get("ProductType")),
+                live_dev.get("HardwareModel") or device["ModelNumber"]),
             "HardwareModel": live_dev.get("HardwareModel") or "",
             "ProductVersion": live_dev.get("ProductVersion") or "",
             "BuildVersion": live_dev.get("BuildVersion") or "",
@@ -3586,6 +3599,12 @@ def _build_status_payload():
             "Storage": _format_device_storage(live_dev),
             "live": True,
         })
+        if not _same_device:
+            # EID/IMEI/IMEI2 are not in the ideviceinfo plist, so the snapshot
+            # values describe a different phone. Carrying them over would make a
+            # card marked "live" show another device's identifiers.
+            for _k in ("EID", "IMEI", "IMEI2"):
+                device.pop(_k, None)
     # usb
     usb = {"connected": False, "idevice": "255", "restore": "Unable to discover device mode"}
     try:
