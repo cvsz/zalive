@@ -158,3 +158,85 @@ Apple account เฉพาะรายการ **local state query จึงบ
 local server ยังมีประโยชน์สำหรับงานวิจัยโปรโตคอล การทดสอบ logic ของ
 `/deviceActivation` การตรวจ rate limiting และ input validation และ regression test
 แต่ไม่สามารถใช้เพื่อ activate เครื่องได้
+
+## Hop 1 เชิงลึก: โครงสร้างจริงของ `CollectionBlob`
+
+เก็บจากเครื่องจริงอีกครั้งเมื่อ 2026-10-02 ผ่าน `pymobiledevice3` 11.19.4
+(`MobileActivationService.create_activation_session_info()`) โดยไม่ได้แตะเส้นทาง
+FairPlay — เป็นการถอดเฉพาะสิ่งที่ตัวเครื่อง**ส่งออก**เอง
+
+### ชั้นที่ 1 — XML plist 3 key
+
+`CollectionBlob` เป็น XML plist (~27.4 KB) มี 3 key:
+
+| Key | ชนิด | ขนาด |
+|---|---|---|
+| `IngestBody` | `data` | ~19.6 KB |
+| `X-Apple-Sig-Key` | `string` | base64 public key ของ ECDSA-P256 |
+| `X-Apple-Signature` | `string` | DER `SEQUENCE` 96 B (`MEUC…` = ECDSA sig) |
+
+ทั้ง signature และ key เปลี่ยนทุก session — เป็น ephemeral key ที่ตัวเครื่องสร้างใหม่
+เพื่อเซ็น `IngestBody` ในรอบนั้น ไม่ใช่คีย์ Apple คงที่ ดังนั้นการเซ็นนี้พิสูจน์ได้แค่ว่า
+"เนื้อหาไม่ถูกแก้ระหว่างทาง" ไม่ใช่ว่า "มาจาก Apple"
+
+### ชั้นที่ 2 — `IngestBody` เป็น JSON plaintext
+
+ตรงนี้เป็นจุดที่เอกสารเดิมบันทึกผิด — เคยสันนิษฐานว่าเป็น binary/protobuf
+จริงๆ คือ **JSON ข้อความล้วน** entropy 6.04 bits/byte (ไม่ใช่ 8.0 แบบข้อมูลเข้ารหัส)
+มี 11 field:
+
+| Field | ค่า/ชนิด |
+|---|---|
+| `serial-number` | SN ของเครื่อง |
+| `udid` | UDID |
+| `imei`, `ime2`, `meid` | IMEI / IMEI2 / MEID |
+| `productType` | `iPhone11,8` |
+| `os-version`, `os-build` | `18.7.10`, `22H374` |
+| `pcrt` | base64 → 5829 B |
+| `scrt-part1` | base64 → ~7.2 KB |
+| `scrt-part2` | base64 → ~1.2 KB |
+
+จุดที่ต้องระวัง: ฟิลด์ IMEI/MEID/serial/UDID อยู่ใน plaintext ที่ตัวเครื่องส่งออกมาตั้งแต่
+hop 1 ไม่ต้องรอ drmHandshake ดังนั้น log ของ host ที่เก็บ request ดิบคือที่เก็บข้อมูลระบุตัว
+ตัวเครื่องไว้เต็ม ๆ และต้อง redact ตามที่ SECURITY.md กำหนด
+
+### ชั้นที่ 3 — `pcrt` / `scrt-*`
+
+ทั้งสามเป็น binary container ของ Apple ไม่ใช่ DER ที่ parse ตรงๆ ได้
+
+- `pcrt` — 5829 B **เหมือนเดิมทุก session** (byte-for-byte) entropy 7.97
+  โครงสร้างเปิดด้วย `04 00` แล้วเป็น byte ที่ไม่ใช่ ASN.1 tag → สรุปว่าเป็น
+  provisioning record ที่ผูกกับเครื่อง ไม่ใช่ per-session material
+- `scrt-part1` / `scrt-part2` — ASN.1 `SEQUENCE { INTEGER 2, SEQUENCE { OCT… } }`
+  เปลี่ยนทุก session และ **ขนาดเปลี่ยนด้วย** ภายในมี OCTET STRING 5 ก้อน:
+  32 B / 65 B / 16 B / 16 B / ก้อนใหญ่ (~1–7 KB) entropy ก้อนใหญ่ ~7.8–7.98
+  ต่างจาก 32 B แรก (entropy ~4.9) ชัดเจน → ก้อนเล็กเป็นค่าคงที่/โครงสร้าง ส่วนก้อนใหญ่ถูก
+  ปกปิ้วหรือเข้ารหัส ไม่พบ LZ4/LZFSE/zlib magic → คาดว่าเป็น payload ที่ Apple
+  เซ็นและฝัง key material สำหรับ SEP ไม่ใช่ certificate ที่แยกออกมาได้ตรงๆ
+
+`scrt` น่าจะย่อมาจาก **SEP CRT** (Secure Enclave certificate) — สอดคล้องกับข้อสรุป
+เดิมใน `FIRMWARE-ANALYSIS-FINDINGS.md` ว่า AEA เป็น encrypted ทั้งไฟล์และต้องใช้ key
+จาก Apple
+
+### ขนาดที่วัดจริงเทียบเอกสารเดิม
+
+| รายการ | เอกสารเดิม | วัดจริง 2026-10-02 |
+|---|---|---|
+| `CollectionBlob` | 27438 B | 27410–27454 B (เปลี่ยนทุก session) |
+| `HandshakeRequestMessage` | 21 B | 21 B (ตรงเสมอ) |
+| `IngestBody` | ไม่ได้บันทึก | 19592–19641 B |
+
+`CollectionBlob` ไม่คงที่เพราะ JSON ภายในมีค่าที่เปลี่ยนตามรอบ (nonce/salt) ตัวเลข
+27438 ในเอกสารควรถือเป็นค่าตัวอย่างจาก session นั้น ไม่ใช่ค่าคงที่ของโปรโตคอล
+
+### ขอบเขตที่ยังทำไม่ได้
+
+- ถอด `scrt-*` ก้อนใหญ่ไม่ได้ — ไม่มี key จาก Apple และไม่มี SEP blob ที่ถอดแล้ว
+- `pcrt` ระบุ key อะไรผูกอยู่ยังไม่ทราบ ไม่พบ certificate ที่ parse ได้ฝังอยู่
+- ยืนยันไม่ได้ว่า `X-Apple-Sig-Key` เป็นของ Apple จริง — เป็น key ที่ตัวเครื่องแนบมาใน
+  ข้อความเดียวกัน ผู้รับต้องได้ key จากช่องทางอื่นที่เชื่อถือได้ถึงจะตรวจได้
+
+### สคริปต์ที่ใช้
+
+`pymobiledevice3` 11.19.4 ผ่าน `venv/bin/python` โค้ดวิเคราะห์อยู่ที่
+`scripts/inspect_collection_blob.py` (ดูหัวข้อถัดไป)
