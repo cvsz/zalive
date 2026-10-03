@@ -25,7 +25,9 @@ maintain แยกอยู่ที่เดียวก็พอ
 - [`skills/zeaz-re-firmware/SKILL.md`](https://github.com/cvsz/zrepro/blob/main/skills/zeaz-re-firmware/SKILL.md)
 
 ระบบ evidence-state ของ ZEAZ (`VERIFIED` / `PARTIALLY VERIFIED` / `UNVERIFIED` /
-`BLOCKED` / `NOT APPLICABLE`) ใช้ในรายงานนี้แล้ว
+`BLOCKED` / `NOT APPLICABLE`) **ยังไม่ได้ใช้** ในรายงานนี้ — ตารางผลลัพธ์ใน §1
+และงานค้างใน §9 ยังไม่ได้จัดประเภทด้วย state เหล่านี้ ถ้าจะอ้างว่าใช้แล้ว
+ต้องเติม state ให้แต่ละผลลัพธ์ก่อน
 
 ---
 
