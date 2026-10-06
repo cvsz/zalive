@@ -91,7 +91,7 @@ Apple directly over USB.
 | `GET /metrics` | Prometheus metrics |
 | `GET /dashboard` | Real-time AdminLTE dashboard |
 | `GET /firmware` | Firmware browser (13 curated models) |
-| `GET /admin` | Admin panel HTML — the page itself is not header-gated; it reads the token from `localStorage` and sends `X-Admin-Token` on its `/api/*` calls, which are the endpoints that enforce auth |
+| `GET /admin` | Admin panel HTML — the page itself is public; it reads a tab-scoped token from `sessionStorage` and sends `X-Admin-Token` to protected `/api/*` endpoints |
 | `POST /deviceservices/drmHandshake` | DRM handshake |
 | `POST /deviceservices/deviceActivation` | Device activation |
 | `GET /api/status` | JSON status (public: health/ready/version; admin: full) |
@@ -121,7 +121,7 @@ All config via environment variables (see `.env.example`):
 ```bash
 pip install -r requirements.txt
 export ALBERT_ACCEPT_RISK=1
-python3 albert_server.py --host 0.0.0.0 --port 18090
+python3 albert_server.py --host 127.0.0.1 --port 18090
 ```
 
 ### Run Tests

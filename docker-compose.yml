@@ -3,7 +3,7 @@ services:
     build: .
     container_name: albert-activation-server
     ports:
-      # Secure-by-default: localhost-only host publish. For LAN, override via .env with ALBERT_BIND_ADDRESS=0.0.0.0
+      # Secure-by-default: loopback-only host publish. Non-loopback binds are rejected at startup.
       - "${ALBERT_BIND_ADDRESS:-127.0.0.1}:${ALBERT_HTTP_PORT:-18090}:${ALBERT_HTTP_PORT:-18090}"
       - "${ALBERT_BIND_ADDRESS:-127.0.0.1}:${ALBERT_HTTPS_PORT:-18443}:${ALBERT_HTTPS_PORT:-18443}"
     volumes:

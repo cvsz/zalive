@@ -86,7 +86,7 @@ Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) �
 |-----------|------|------|-------------|
 | Albert server | `albert_server.py` | Flask app: `/deviceservices/drmHandshake`, `/deviceActivation`, `/WebObjects/ALUnbrick…`, `/health`, `/ready`, `/metrics`, `/certifyMe`, `/activity`, `/phoneHome`, `/dashboard`, `/firmware`, `/api/*` | `ALBERT_HOST:ALBERT_HTTP_PORT` (`127.0.0.1:18090` default; container listener is internal, with host publish loopback-only) |
 | Gunicorn | `gunicorn_conf.py` | Prod WSGI: `gthread`, `workers=1 threads=4` by default; multiple workers require Redis fail-closed, `timeout 30`, `graceful 10`, `keepalive 5`, `limit_request_*`, JSON access log with `X-Request-ID` | `bind = $ALBERT_HOST:$ALBERT_HTTP_PORT` |
-| Proxy | `firmware_restore_proxy.py` | mitmproxy addon: only `albert.apple.com` → local; `gs.apple.com` pass-through; adds `X-Forwarded-*` | `LOCAL_ALBERT_HOST:LOCAL_ALBERT_PORT` → `127.0.0.1:18090` (or `albert-server:18090`) |
+| Proxy | `firmware_restore_proxy.py` | mitmproxy addon: only `albert.apple.com` → local; `gs.apple.com` pass-through; adds forwarding metadata and the configured shared token | `LOCAL_ALBERT_HOST:LOCAL_ALBERT_PORT` → `127.0.0.1:18090` (or `albert-server:18090`) |
 | Activation client | `activate_device.py` | Direct `POST` to Albert without proxy (alternative to Wi-Fi proxy), `--albert-url http://127.0.0.1:18090`, retries `10s`×`3` exponential, `X-Request-ID` | `DEFAULT_ALBERT_URL 127.0.0.1:8080` (the constant in `activate_device.py:182` is still 8080; the server moved to 18090, so pass `--albert-url http://127.0.0.1:18090`) |
 | IPSW | `iPhone11,8_18.7.10_22H374_Restore.ipsw` (8.1 GB) | External restore image, `scripts/sha256_manifest.sh` → `*.sha256`/`ipsw.sha256`, `.gitignore *.ipsw` | filesystem + `api.ipsw.me` |
 | Firmware service | `albert_server.py:_fetch_ipsw` | `ipsw.me` live fetch with `logs/firmware_cache.json` TTL `3600`, curated `CURATED_SET`, stale fallback, allow any `iPhone\d+,\d+` | `IPSW_API https://api.ipsw.me/v4/device/{productType}` |
@@ -128,7 +128,7 @@ Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) �
 
 ## Authentication and Authorization
 
-- No Apple `Authorization` reused; local Albert is unauthenticated LAN service (trusted proxy network `albert-network` bridge, `mitmproxy` bound `127.0.0.1`).
+- No Apple `Authorization` is reused. Device routes require the Compose shared token; the services share the private `albert-network` bridge, and host ports plus mitmproxy are loopback-bound.
 - `mitmproxy` web UI `28080` auth via `MITMPROXY_WEB_PASSWORD` env (`web_password=$MITMPROXY_WEB_PASSWORD`).
 - Device identity validated synthetically: `IMEI` 15 digits (`_validate_imei`), `UDID` 40 hex or `00008020-<16 hex>` (`_validate_udid`), `Serial` alnum (`_validate_serial`); activation client mirrors same `re` checks before POST.
 

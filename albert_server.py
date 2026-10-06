@@ -65,11 +65,13 @@ def _is_loopback_host(host):
 
 def _require_safe_bind(host, tls_configured=False):
     """Keep direct listeners local unless remote access is encrypted and authenticated."""
+    token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+    if token and len(token) < 32:
+        raise RuntimeError("ALBERT_MTLS_TOKEN must contain at least 32 characters.")
     if _is_loopback_host(host):
         return
     if not tls_configured:
         raise RuntimeError("Refusing non-loopback HTTP bind; use loopback or configure HTTPS.")
-    token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
     if len(token) < 32:
         raise RuntimeError("Non-loopback HTTPS bind requires ALBERT_MTLS_TOKEN with at least 32 characters.")
     os.environ["ALBERT_REQUIRE_DEVICE_TOKEN"] = "1"
@@ -1899,8 +1901,8 @@ def health():
 <div class="app-content"><div class="container-fluid">
 <div class="row g-3">
 <div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Server</h3><span class="badge bg-success float-end">✓ ok</span></div><div class="card-body"><div class="mono small">albert-local · 1.1-fixed</div><div class="mono small text-secondary">status ok · liveness</div></div></div></div>
-<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Version</h3></div><div class="card-body"><div class="mono small">1.1-fixed</div><div class="mono small text-secondary">build 1.1-fixed · 0.0.0.0:18090</div></div></div></div>
-<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Uptime</h3></div><div class="card-body"><div class="mono small">live on 127.0.0.1:18090 + 192.168.1.123:18090</div><div class="mono small text-secondary">mTLS {'enabled' if _get_mtls_ca() else 'disabled'} · rate 100/min + 10/min per-UDID</div></div></div></div>
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Version</h3></div><div class="card-body"><div class="mono small">1.1-fixed</div><div class="mono small text-secondary">build 1.1-fixed · loopback host publish</div></div></div></div>
+<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Uptime</h3></div><div class="card-body"><div class="mono small">Host ports loopback-only</div><div class="mono small text-secondary">device auth {'token' if os.environ.get('ALBERT_MTLS_TOKEN','').strip() else 'mTLS' if _get_mtls_ca() else 'loopback only'} · rate 100/min + 10/min per-UDID</div></div></div></div>
 </div>
 <div class="card mt-3"><div class="card-header"><h3 class="card-title small" style="color:#94a3b8">Raw JSON</h3><a href="/health?format=json" class="btn btn-sm btn-outline-primary float-end">View JSON</a></div><div class="card-body"><pre class="mono small bg-dark p-3 rounded" style="white-space:pre-wrap">{json.dumps(data, indent=2)}</pre></div></div>
 </div></div>

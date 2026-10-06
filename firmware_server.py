@@ -350,11 +350,13 @@ if __name__ == "__main__":
     except RuntimeError as exc:
         logger.error("%s", exc)
         sys.exit(2)
-    if os.environ.get("ALBERT_IN_DOCKER") == "1":
-        token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
-        if len(token) < 32:
-            logger.error("Compose firmware service requires ALBERT_MTLS_TOKEN with at least 32 characters.")
-            sys.exit(2)
+    token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+    if token and len(token) < 32:
+        logger.error("ALBERT_MTLS_TOKEN must contain at least 32 characters.")
+        sys.exit(2)
+    if os.environ.get("ALBERT_IN_DOCKER") == "1" and not token:
+        logger.error("Compose firmware service requires ALBERT_MTLS_TOKEN with at least 32 characters.")
+        sys.exit(2)
     load_fairplay_keys()
     logger.info(f"Starting firmware server on {BIND_HOST}:{port}")
     app.run(host=BIND_HOST, port=port, threaded=True)
