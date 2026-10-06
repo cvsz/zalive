@@ -1076,13 +1076,12 @@ def after_request_add_id(response):
     _set_security_headers(response)
     return response
 
-# Pages embed the admin token in sessionStorage, so a script injected from a CDN
-# would be able to read it. This CSP is the only thing standing between a
-# compromised or typo-squatted CDN asset and full admin access. jsDelivr is
-# allowlisted because the templates pull Bootstrap/AdminLTE from it.
+# Admin pages keep their token in tab-scoped sessionStorage. Inline page code
+# receives a per-response nonce; JavaScript does not allow unsafe-inline.
+# External UI scripts have SRI hashes and are loaded from the pinned CDN.
 _ADMIN_CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "script-src 'self' https://cdn.jsdelivr.net; "
     "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
     "font-src 'self' https://cdn.jsdelivr.net data:; "
     "img-src 'self' data: blob:; "
@@ -1095,7 +1094,23 @@ _ADMIN_CSP = (
 
 def _set_security_headers(response):
     """Apply baseline browser hardening headers to every response."""
-    response.headers.setdefault("Content-Security-Policy", _ADMIN_CSP)
+    policy = _ADMIN_CSP
+    if response.mimetype == "text/html" and not response.direct_passthrough:
+        nonce = base64.b64encode(secrets.token_bytes(18)).decode("ascii")
+        body = response.get_data(as_text=True)
+        body = re.sub(
+            r"<script(?=[\s>])",
+            lambda match: match.group(0) + f' nonce="{nonce}"',
+            body,
+            flags=re.IGNORECASE,
+        )
+        response.set_data(body)
+        policy = _ADMIN_CSP.replace(
+            "script-src 'self'",
+            f"script-src 'self' 'nonce-{nonce}'",
+        )
+        response.headers.setdefault("Cache-Control", "no-store")
+    response.headers.setdefault("Content-Security-Policy", policy)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")

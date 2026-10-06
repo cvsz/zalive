@@ -29,7 +29,7 @@ Out of scope for this policy: Apple infrastructure, Apple-copyrighted IPSW files
 - **Git hygiene:** `.gitignore` excludes `*.key`, `*.pem`, `*.crt`, `*.csr`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, `*.srl`, `.env`, `*.log`, `logs/*`, `*.ipsw`, `*.im4p`, `*.trustcache`, `*.mtree`, `*.aea`, `*.shsh`, `firmware/`, `shsh/`, `*.db`, `*.sqlite*`, `.mitmproxy/`; `certs/*.key` and device identifiers are never committed. **Note:** this only covers new commits. A `git-filter-repo` pass on 2026-09-28 cleaned 20 commits, but identifiers re-entered in later commits and remain readable via `git show <commit>:<path>`; see the Git History row in `AUDIT-REPORT.md`. Use `git log -S<identifier>` to audit before assuming history is clean. `logs/restore/` keeps only its `README.md` — re-opening the folder is paired with a blanket `logs/restore/*` so a newly added file type stays ignored by default. `IMPLEMENTATION-CHECKLIST.md` records no secrets committed.
 - Operators are responsible for securing key material and complying with cryptography export controls (see `NOTICE`).
 
-Do not commit or paste key material, `.env` values, or device identifiers. The admin browser UI keeps its token in tab-scoped `sessionStorage`; dynamic device and upstream values are HTML-escaped before rendering.
+Do not commit or paste key material, `.env` values, or device identifiers. The admin browser UI keeps its token in tab-scoped `sessionStorage`; dynamic device and upstream values are HTML-escaped before rendering. HTML responses use per-response CSP nonces for inline scripts, with `unsafe-inline` disabled for JavaScript.
 
 ## Request hardening and error contract
 
