@@ -50,17 +50,17 @@ start_albert_dev() {
     pkill -f "albert_server.py.*$ALBERT_HTTP_PORT" 2>/dev/null || true
     if [[ -f "certs/server.crt" && -f "certs/server.key" ]]; then
         log_info "SSL certs found, starting HTTPS on $ALBERT_HTTPS_PORT as well..."
-        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTP_PORT --no-debug > logs/albert.log 2>&1 &
+        python albert_server.py --host "${ALBERT_HOST:-127.0.0.1}" --port $ALBERT_HTTP_PORT --no-debug > logs/albert.log 2>&1 &
         ALBERT_PID=$!
         echo $ALBERT_PID > .albert.pid
         log_info "Albert HTTP (dev) started (PID: $ALBERT_PID) -> http://127.0.0.1:$ALBERT_HTTP_PORT"
-        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTPS_PORT --ssl-cert certs/server.crt --ssl-key certs/server.key --no-debug > logs/albert-https.log 2>&1 &
+        python albert_server.py --host "${ALBERT_HOST:-127.0.0.1}" --port $ALBERT_HTTPS_PORT --ssl-cert certs/server.crt --ssl-key certs/server.key --no-debug > logs/albert-https.log 2>&1 &
         ALBERT_HTTPS_PID=$!
         echo $ALBERT_HTTPS_PID > .albert-https.pid
         log_info "Albert HTTPS (dev) started (PID: $ALBERT_HTTPS_PID) -> https://127.0.0.1:$ALBERT_HTTPS_PORT"
     else
         log_warn "SSL certificates not found. Starting HTTP server..."
-        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTP_PORT --no-debug > logs/albert.log 2>&1 &
+        python albert_server.py --host "${ALBERT_HOST:-127.0.0.1}" --port $ALBERT_HTTP_PORT --no-debug > logs/albert.log 2>&1 &
         ALBERT_PID=$!
         echo $ALBERT_PID > .albert.pid
         log_info "Albert server (dev) started (PID: $ALBERT_PID) -> http://127.0.0.1:$ALBERT_HTTP_PORT"
@@ -103,7 +103,7 @@ start_mitmproxy() {
     export LOCAL_ALBERT_HOST=127.0.0.1
     export LOCAL_ALBERT_PORT=$ALBERT_HTTP_PORT
     export LOCAL_ALBERT_SCHEME=http
-    mitmweb -s firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port $MITMPROXY_WEB_PORT --listen-port $MITMPROXY_PORT > logs/mitmproxy.log 2>&1 &
+    mitmweb -s firmware_restore_proxy.py --set block_global=false --web-host 127.0.0.1 --web-port $MITMPROXY_WEB_PORT --listen-port $MITMPROXY_PORT > logs/mitmproxy.log 2>&1 &
     MITMPROXY_PID=$!
     echo $MITMPROXY_PID > .mitmproxy.pid
     log_info "mitmproxy started (PID: $MITMPROXY_PID)"

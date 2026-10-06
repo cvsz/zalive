@@ -31,8 +31,8 @@ Production entry is `gunicorn` (`gunicorn_conf.py`); dev fallback is `python alb
 │                            │         ▼                                   │
 │                            │  ┌──────────────────────────┐               │
 │                            │  │ Local Albert (Flask)     │               │
-│                            │  │ gunicorn -w2 -k gthread  │               │
-│                            │  │ --threads 4 -b 0.0.0.0:18090│             │
+│                            │  │ gunicorn -w1 -k gthread  │               │
+│                            │  │ --threads 4 -b 0.0.0.0:18090 (container-only)│             │
 │                            │  │ albert_server:app        │               │
 │                            │  │ gunicorn_conf.py         │               │
 │                            │  │ PORT: 18090 (HTTP)       │               │
@@ -78,21 +78,21 @@ externally; scripts/sha256_manifest.sh produces *.ipsw.sha256 + ipsw.sha256.
 Upstream: api.ipsw.me/v4/device/{productType} live cache 1h (logs/firmware_cache.json, TTL 3600, stale fallback).
 ```
 
-Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) → `Albert :18090` (`Flask` + `gunicorn` 2 workers ×4 threads) → `SQLite WAL logs/activations.db` + `fairplay.key 0600` + `ipsw.me live cache 1h` (curated `CURATED_DEVICES` 13, `FIRMWARE_CACHE`, `FIRMWARE_TTL=3600`). `FairPlay` key/cert `0600` (`certs/fairplay.key` RSA 2048, CA `Apple iPhone Device CA`, 5y SHA256) persisted once. `IPSW` 8.1G external, `local_overlay` scan `*.ipsw`.
+Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) → `Albert :18090` (`Flask` + `gunicorn` 1 worker ×4 threads by default) → `SQLite WAL logs/activations.db` + `fairplay.key 0600` + `ipsw.me live cache 1h` (curated `CURATED_DEVICES` 13, `FIRMWARE_CACHE`, `FIRMWARE_TTL=3600`). `FairPlay` key/cert `0600` (`certs/fairplay.key` RSA 2048, CA `Apple iPhone Device CA`, 5y SHA256) persisted once. `IPSW` 8.1G external, `local_overlay` scan `*.ipsw`.
 
 ## Components and Responsibilities
 
 | Component | File | Role | Port / bind |
 |-----------|------|------|-------------|
-| Albert server | `albert_server.py` | Flask app: `/deviceservices/drmHandshake`, `/deviceActivation`, `/WebObjects/ALUnbrick…`, `/health`, `/ready`, `/metrics`, `/certifyMe`, `/activity`, `/phoneHome`, `/dashboard`, `/firmware`, `/api/*` | `ALBERT_HOST:ALBERT_HTTP_PORT` (`127.0.0.1:18090` default, `0.0.0.0:18090` in container) |
-| Gunicorn | `gunicorn_conf.py` | Prod WSGI: `gthread`, `workers=2 threads=4`, `timeout 30`, `graceful 10`, `keepalive 5`, `limit_request_*`, JSON access log with `X-Request-ID` | `bind = $ALBERT_HOST:$ALBERT_HTTP_PORT` |
+| Albert server | `albert_server.py` | Flask app: `/deviceservices/drmHandshake`, `/deviceActivation`, `/WebObjects/ALUnbrick…`, `/health`, `/ready`, `/metrics`, `/certifyMe`, `/activity`, `/phoneHome`, `/dashboard`, `/firmware`, `/api/*` | `ALBERT_HOST:ALBERT_HTTP_PORT` (`127.0.0.1:18090` default; container listener is internal, with host publish loopback-only) |
+| Gunicorn | `gunicorn_conf.py` | Prod WSGI: `gthread`, `workers=1 threads=4` by default; multiple workers require Redis fail-closed, `timeout 30`, `graceful 10`, `keepalive 5`, `limit_request_*`, JSON access log with `X-Request-ID` | `bind = $ALBERT_HOST:$ALBERT_HTTP_PORT` |
 | Proxy | `firmware_restore_proxy.py` | mitmproxy addon: only `albert.apple.com` → local; `gs.apple.com` pass-through; adds `X-Forwarded-*` | `LOCAL_ALBERT_HOST:LOCAL_ALBERT_PORT` → `127.0.0.1:18090` (or `albert-server:18090`) |
 | Activation client | `activate_device.py` | Direct `POST` to Albert without proxy (alternative to Wi-Fi proxy), `--albert-url http://127.0.0.1:18090`, retries `10s`×`3` exponential, `X-Request-ID` | `DEFAULT_ALBERT_URL 127.0.0.1:8080` (the constant in `activate_device.py:182` is still 8080; the server moved to 18090, so pass `--albert-url http://127.0.0.1:18090`) |
 | IPSW | `iPhone11,8_18.7.10_22H374_Restore.ipsw` (8.1 GB) | External restore image, `scripts/sha256_manifest.sh` → `*.sha256`/`ipsw.sha256`, `.gitignore *.ipsw` | filesystem + `api.ipsw.me` |
 | Firmware service | `albert_server.py:_fetch_ipsw` | `ipsw.me` live fetch with `logs/firmware_cache.json` TTL `3600`, curated `CURATED_SET`, stale fallback, allow any `iPhone\d+,\d+` | `IPSW_API https://api.ipsw.me/v4/device/{productType}` |
 | Compose | `docker-compose.yml` | Three-service stack, `read_only`, `cap_drop ALL`, `no-new-priv`, `healthcheck /health` | `18090`, `18443`, `28080`, `28081` (mitmproxy bound `127.0.0.1`) |
 | Dockerfile | `Dockerfile` | `python:3.14-slim`, `tini`, `useradd app`, `USER app`, `HEALTHCHECK` | `EXPOSE 18090 18443` |
-| systemd | `systemd/albert-server.service` | `User=cvsz`, `WorkingDirectory`, `ExecStart gunicorn`, `Restart=on-failure`, `PrivateTmp`, `NoNewPrivileges` | `0.0.0.0:18090` via `gunicorn_conf.py` |
+| systemd | `systemd/albert-server.service` | `User=cvsz`, `WorkingDirectory`, `ExecStart gunicorn`, `Restart=on-failure`, `PrivateTmp`, `NoNewPrivileges` | `127.0.0.1:18090` via `gunicorn_conf.py` |
 
 ### Activation request flow (session mode)
 
@@ -138,7 +138,7 @@ Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) �
 |----------|---------|--------|
 | `X-Request-ID` | `before_request_hardening` + `after_request_add_id` | UUID `uuid4` per request (`request.headers X-Request-ID` or generated), stored `g.request_id`, echoed `Response.headers X-Request-ID`, JSON log `request_id`, 429/413 JSON `request_id`, gunicorn `access_log_format ... %({X-Request-ID}i)s` |
 | Redacted UDID | `_redact_udid` + logs/dashboard | Only suffix shown (`…2E` / `slice(0,4)+...+slice(-4)`), full UDID SQLite but never in JSON logs/metrics/dashboard table, `RequestIdFilter` includes `remote_addr` not raw UDID |
-| Rate 100/min | `_check_rate_limit` / `_rate_limit_store` | In-memory per-IP `100/min` window `60s`, `Max 1000 IPs` cap (evict oldest 100), applied to `deviceActivation`/`drmHandshake` only (not health), `429 rate limit exceeded` + `Retry-After` handling in `activate_device.py` exponential backoff `1s,2s,4s` |
+| Rate 100/min | `_check_rate_limit` / `_rate_limit_store` | Per-IP `100/min` and per-UDID `10/min`, `60s` window. One Gunicorn worker is the default; multi-worker mode requires Redis plus `ALBERT_REDIS_FAIL_CLOSED=1`. |
 | MAX 512K | `app.config MAX_CONTENT_LENGTH` + gunicorn limits | Env `ALBERT_MAX_CONTENT_LENGTH` default `512*1024`, `RequestEntityTooLarge` → `413 payload too large` with `limit`+`request_id`, gunicorn `limit_request_line 4096`, `limit_request_fields 50`, `limit_request_field_size 8190` |
 | `ALBERT_ACCEPT_RISK` gate | `start.sh:check_risk_gate` + systemd/env | `ALBERT_ACCEPT_RISK=1` required to start (`prod`/`dev`); failure `exit 2` with `SECURITY.md/NOTICE` message; checks `.env` `^ALBERT_ACCEPT_RISK=1`; lab override `--allow-no-risk`; `.env.example` documents gate |
 
@@ -147,13 +147,13 @@ Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) �
 | Mode | Command | Server | TLS | Risk gate |
 |------|---------|--------|-----|-----------|
 | prod (default) | `docker compose up -d` | `gunicorn -c gunicorn_conf.py albert_server:app` | `mitmproxy` terminates TLS; Albert `http` | `ALBERT_ACCEPT_RISK=1` required |
-| dev | `python albert_server.py --host 0.0.0.0 --port 18090` | Flask dev server | Optional `certs/server.crt/key` on `18443` | Same gate |
+| dev | `python albert_server.py --port 18090` | Flask dev server, loopback by default | Use HTTPS and a 32+ character token for a direct non-loopback listener | Same gate |
 | docker | `docker compose up -d --build` | `gunicorn` in container | Same as prod | Env `ALBERT_ACCEPT_RISK=1` |
 
-- **Host**: `0.0.0.0:18090` (`ALBERT_HOST` env, `gunicorn_conf.py:bind`), `18443` HTTPS dev only (`certs/server.crt/key`); container `albert-server:18090` vs `127.0.0.1:18090` vs `LOCAL_ALBERT_HOST` toggle (docker `albert-server`, host `127.0.0.1`).
+- **Host**: direct Albert defaults to `127.0.0.1:18090`; Gunicorn refuses non-loopback plain-HTTP binds. A standalone Flask listener may bind remotely only with HTTPS and a 32+ character `ALBERT_MTLS_TOKEN`. Compose binds host ports to loopback while containers use internal bridge addresses.
 - **Docker Compose** (`docker-compose.yml`): three services `albert-server` (`build: . python:3.14-slim`, `USER app`, `read_only:true` `tmpfs /tmp`, `cap_drop ALL` `cap_add CHOWN/SETUID/SETGID`, `no-new-privileges`, `deploy resources limits cpus 1 memory 512M`, `volumes certs:ro logs`, `env_file .env`, `healthcheck curl /health`) + `mitmproxy` (`image 12.2.3`, `mitmweb -s firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port 28080 --set web_password=$MITMPROXY_WEB_PASSWORD`, ports `127.0.0.1:28080/28081`, `depends_on healthy`, `network albert-network bridge`).
 - **systemd** (`systemd/albert-server.service`): `[Unit] After=network.target`, `[Service] User=cvsz WorkingDirectory=/home/cvsz/albert_server ExecStart=/home/cvsz/albert_server/venv/bin/gunicorn -c gunicorn_conf.py albert_server:app Restart=on-failure RestartSec=5 EnvironmentFile=-.env PrivateTmp NoNewPrivileges`.
-- **Scaling**: `gunicorn` `workers=2 threads=4` (`gthread`), `timeout 30`, `graceful 10`, `keepalive 5`; stateless Flask + SQLite WAL (concurrent reads), rate limiter in-memory per worker (non-distributed).
+- **Scaling**: Gunicorn defaults to `workers=1 threads=4`, `timeout 30`, `graceful 10`, `keepalive 5`. Multiple workers require Redis and `ALBERT_REDIS_FAIL_CLOSED=1`; Redis failure returns a rate-limit response rather than per-worker fallback.
 
 ## Observability
 
@@ -175,7 +175,7 @@ Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) �
 ## Security Considerations
 
 - **SHA1 ARS nosec (Apple-spec)**: `albert_server.py:AlbertServer.sign_activation_info` `private_key.sign(..., hashes.SHA1())  # nosec B303/B324` + `deviceActivation` `hashlib.sha1(response_plist)  # nosec B303/B324` for `ARS` header `base64(sha1(plist))`; Apple activation requires SHA1, not for general hashing — annotated `nosec` + comment `Apple-spec — Apple requires SHA1 for ARS header`. `fallback_key`/`DeviceCertificate` signed `SHA256`.
-- **mTLS toggle**: TLS terminated at `mitmproxy` (`http://mitm.it` CA installed on device, `LOCAL_ALBERT_SCHEME=http` behind TLS, `LOCAL_ALBERT_SCHEME=https` optional when `certs/server.crt` present dev `18443`); proxy→Albert `http` default, `https` toggle via `LOCAL_ALBERT_SCHEME`/`ALBERT_MTLS` env (future `client cert` via gunicorn `certfile/keyfile/ca_certs` if `mTLS=true` — currently `off`, document toggle in `SECURITY.md`).
+- **Proxy authentication**: device TLS terminates at mitmproxy. Compose sends the shared `ALBERT_MTLS_TOKEN` to Albert and the firmware service over the private Docker network; the token must be at least 32 characters. Compose publishes service ports only on loopback. A copied PEM or marker in an HTTP header is not accepted as mTLS proof. Remote access requires a TLS reverse proxy/VPN.
 - **Keys 0600**: `certs/fairplay.key`/`fairplay.crt`/`server.key` `0600` (`chmod 0600` in code + `setup.sh`), `.gitignore` `*.key`/`*.pem`/`logs/`/`*.log`/`*.ipsw`.
 - **Risk gate**: `ALBERT_ACCEPT_RISK=1` env required (`start.sh` + `SECURITY.md` threat model, `NOTICE` Apple ToS disclaimer `for testing owned devices only`); `.env.example` documents `ALBERT_HTTP_PORT`, `FAIRPLAY_*`, `MITMPROXY_WEB_PASSWORD`, `ALBERT_ACCEPT_RISK`.
 - **Validation**: `IMEI`/`UDID`/`Serial` strict regex before `create_activation_record` (`400 validation failed` JSON with `request_id`), `plistlib.loads` with `try/except` → `400 Invalid plist`, `base64 validate False` with padding fix.
@@ -185,7 +185,7 @@ Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) �
 ## Known Constraints
 
 - IPSW `8.1 GB` external — not in repo; CI must use `*.sha256` manifest (`scripts/sha256_manifest.sh --check`).
-- Single host SQLite — not clustered; rate limiter in-memory per worker.
+- Single host SQLite — not clustered. In-memory rate limiting is supported with one worker; multi-worker mode requires Redis and fail-closed behavior.
 - `mitmproxy` CA must be trusted on device (`http://mitm.it`, profile install, `idevice` trust).
 - TSS still Apple-remote — restore SHSH requires Apple `gs.apple.com`.
 - Activation bypass may breach Apple ToS / carrier law; legal `NOTICE` + `ALBERT_ACCEPT_RISK` gate.

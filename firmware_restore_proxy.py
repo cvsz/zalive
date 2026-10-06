@@ -40,9 +40,9 @@ LOCAL_ALBERT_HOST = os.environ.get("LOCAL_ALBERT_HOST", "127.0.0.1")
 LOCAL_ALBERT_PORT = int(os.environ.get("LOCAL_ALBERT_PORT", "18090"))  # Fixed: use free port 18090 instead of conflicted 8080
 LOCAL_ALBERT_SCHEME = os.environ.get("LOCAL_ALBERT_SCHEME", "http")
 
-# --- mTLS toggle for proxy→Albert (env ALBERT_MTLS_CA) ---
-# If ALBERT_MTLS_CA is set (path to CA bundle), proxy should present client cert and Albert will require it.
-# If not set, warn that proxy→Albert is unauthenticated (see albert_server.py _get_mtls_ca, SECURITY.md).
+# --- Proxy→Albert authentication ---
+# Compose sends ALBERT_MTLS_TOKEN over its private Docker network. Optional
+# standalone upstream mTLS uses the configured client cert over HTTPS.
 ALBERT_MTLS_CA = os.environ.get("ALBERT_MTLS_CA", "").strip()
 ALBERT_MTLS_CERT = os.environ.get("ALBERT_MTLS_CERT", "").strip()
 ALBERT_MTLS_KEY = os.environ.get("ALBERT_MTLS_KEY", "").strip()
@@ -53,6 +53,12 @@ def _safe_request_path(path: str) -> str:
     return str(path or "/").split("?", 1)[0][:512]
 
 def _log_mtls_status():
+    token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+    if token:
+        try:
+            ctx.log.info("proxy→Albert shared-token authentication enabled")
+        except Exception:
+            pass
     ca = ALBERT_MTLS_CA or os.environ.get("ALBERT_MTLS_CA", "").strip()
     if ca:
         if not os.path.exists(ca):
@@ -75,9 +81,14 @@ def _log_mtls_status():
                 ctx.log.info(f"mTLS client cert: cert={ALBERT_MTLS_CERT or 'default'} key={'set' if ALBERT_MTLS_KEY else 'default'}")
             except Exception:
                 pass
+    elif os.environ.get("ALBERT_MTLS_TOKEN", "").strip():
+        try:
+            ctx.log.info("proxy→Albert shared-token authentication enabled")
+        except Exception:
+            pass
     else:
         try:
-            ctx.log.warn("ALBERT_MTLS_CA not set — proxy→Albert mTLS disabled (unauthenticated). Set ALBERT_MTLS_CA to a CA bundle to require client cert.")
+            ctx.log.warn("No proxy→Albert token is configured; keep the Albert listener loopback-only.")
         except Exception:
             pass
 
@@ -155,29 +166,11 @@ class FirmwareRestoreProxy:
             flow.request.headers["X-Forwarded-Host"] = host
             flow.request.headers["X-Forwarded-Proto"] = flow.request.scheme
             flow.request.headers["X-Forwarded-By"] = "firmware_restore_proxy"
-            # mTLS: if ALBERT_MTLS_CA is set, forward client cert indicator so Albert can verify
-            # Proxy presents ALBERT_MTLS_CERT/KEY on TLS handshake; also set header for app-layer verification
             try:
-                ca = os.environ.get("ALBERT_MTLS_CA", "").strip()
-                if ca:
-                    cert_path = os.environ.get("ALBERT_MTLS_CERT", "").strip()
-                    token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
-                    # Prefer shared-secret token if configured (stronger than bare header)
-                    if token:
-                        flow.request.headers["X-MTLS-Token"] = token
-                    if cert_path and os.path.exists(cert_path):
-                        # Forward actual PEM (not just "present") so Albert can verify length/PEM vs spoofable string
-                        try:
-                            pem = pathlib.Path(cert_path).read_text().strip()
-                            # mitmproxy will have performed TLS client auth; also forward PEM for app-layer check
-                            if "-----BEGIN" in pem and len(pem) > 100:
-                                flow.request.headers["X-Client-Cert"] = pem[:8000]
-                            else:
-                                flow.request.headers["X-Client-Cert"] = "present"
-                        except Exception:
-                            flow.request.headers["X-Client-Cert"] = "present"
-                    else:
-                        flow.request.headers["X-Client-Cert"] = "mtls"
+                token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+                if token:
+                    flow.request.headers["X-MTLS-Token"] = token
+
             except Exception:
                 pass
             # Rewrite to local
@@ -191,6 +184,9 @@ class FirmwareRestoreProxy:
             flow.request.headers["X-Forwarded-Host"] = host
             flow.request.headers["X-Forwarded-Proto"] = flow.request.scheme
             flow.request.headers["X-Forwarded-By"] = "firmware_restore_proxy"
+            token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+            if token:
+                flow.request.headers["X-MTLS-Token"] = token
             # Local firmware server runs on same host but different port
             FIRMWARE_SERVER_HOST = os.environ.get("FIRMWARE_SERVER_HOST", LOCAL_ALBERT_HOST)
             FIRMWARE_SERVER_PORT = int(os.environ.get("FIRMWARE_SERVER_PORT", "18091"))

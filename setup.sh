@@ -127,7 +127,7 @@ Type=simple
 User=$USER
 WorkingDirectory=$CURRENT_DIR
 Environment=PATH=$CURRENT_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=$CURRENT_DIR/venv/bin/python albert_server.py --host 0.0.0.0 --port 8080 --ssl-cert $CURRENT_DIR/certs/server.crt --ssl-key $CURRENT_DIR/certs/server.key
+ExecStart=$CURRENT_DIR/venv/bin/python albert_server.py --host 127.0.0.1 --port 8080 --ssl-cert $CURRENT_DIR/certs/server.crt --ssl-key $CURRENT_DIR/certs/server.key
 Restart=on-failure
 RestartSec=5
 
@@ -207,7 +207,7 @@ main() {
     echo ""
     echo "To start the server manually:"
     echo "  source venv/bin/activate"
-    echo "  python albert_server.py --host 0.0.0.0 --port 8080 --ssl-cert certs/server.crt --ssl-key certs/server.key"
+    echo "  python albert_server.py --host 127.0.0.1 --port 8080 --ssl-cert certs/server.crt --ssl-key certs/server.key"
     echo ""
     echo "To start the mitmproxy for firmware restore:"
     echo "  mitmproxy -s firmware_restore_proxy.py --set block_global=false"
@@ -216,7 +216,7 @@ main() {
     echo "  python activate_device.py --albert-url https://127.0.0.1:8080"
     echo ""
     echo "Note: For HTTPS, you'll need to trust the self-signed certificate on the device."
-    echo "Or use HTTP with --host 0.0.0.0 --port 8080 (no SSL args)"
+    echo "Or use HTTP with --host 127.0.0.1 --port 8080 (no SSL args)"
 }
 
 main "$@"

@@ -38,12 +38,12 @@ docker compose up -d
 ```
 
 Services:
-  - **Albert Server**: `http://127.0.0.1:18090` (HTTP) — gunicorn does not terminate TLS; the device-facing TLS is terminated by mitmproxy, and the proxy→Albert hop is plain HTTP
-    - ⚠️ **Device endpoints `/deviceservices/*` and `/WebObjects/*` are unauthenticated unless `ALBERT_MTLS_CA` is set.** Without it the gate at `albert_server.py:1031` is skipped entirely and those routes are served with no client-cert check. `.env.example` ships the variable commented out, so a fresh copy is open on this hop. To close it, uncomment `ALBERT_MTLS_CA` and have the proxy present `ALBERT_MTLS_CERT`/`ALBERT_MTLS_KEY`, or send `X-MTLS-Token`.
+  - **Albert Server**: `http://127.0.0.1:18090` (HTTP, host loopback only). The Compose proxy reaches it over the private Docker network.
+    - Compose requires `ALBERT_MTLS_TOKEN` (32+ characters) and sends it to the device and firmware routes. A verified client certificate is supported for standalone TLS. PEM headers do not prove a TLS handshake.
 - **mitmproxy Web UI**: `http://127.0.0.1:28080` (password from `MITMPROXY_WEB_PASSWORD`)
 - **mitmproxy Proxy**: `127.0.0.1:28081`
 
-> **Secure-by-default**: All services bind to `127.0.0.1` on host. For LAN access, set `ALBERT_BIND_ADDRESS=0.0.0.0` in `.env` and configure UFW.
+> **Remote access:** Compose refuses non-loopback binding because app and proxy listeners are plain HTTP and the proxy port has no client authentication. Use a TLS reverse proxy/VPN and keep these service ports loopback-bound.
 
 ### 3. Install mitmproxy CA on Device
 
@@ -104,13 +104,14 @@ All config via environment variables (see `.env.example`):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ALBERT_ACCEPT_RISK` | **0** | Legal risk acknowledgement (must set to 1) |
-| `ALBERT_BIND_ADDRESS` | `127.0.0.1` | Host publish address (LAN: `0.0.0.0`) |
+| `ALBERT_BIND_ADDRESS` | `127.0.0.1` | Loopback-only host publish; Compose services reject non-loopback exposure |
 | `ALBERT_HTTP_PORT` | `18090` | HTTP port |
 | `ALBERT_HTTPS_PORT` | `18443` | Published by `docker-compose.yml` but **nothing in the app binds it** — the container is HTTP only. Reserved for an external TLS terminator. |
 | `FAIRPLAY_KEY_PATH` | `certs/fairplay.key` | FairPlay private key |
 | `ALBERT_ADMIN_TOKEN` | **required** | Admin API token |
-| `ALBERT_REDIS_URL` | — | Redis for distributed rate limiting |
-| `ALBERT_MTLS_CA` | — | CA bundle for proxy→Albert mTLS |
+| `ALBERT_REDIS_URL` | — | Redis required when using multiple Gunicorn workers; pair with `ALBERT_REDIS_FAIL_CLOSED=1` |
+| `ALBERT_MTLS_TOKEN` | **required for Compose** | Shared token (32+ characters) for Albert and firmware proxy requests |
+| `ALBERT_MTLS_CA` | — | CA for verified client certificates in standalone HTTPS deployments |
 | `MITMPROXY_WEB_PASSWORD` | **required** | mitmproxy web UI password |
 
 ## Development

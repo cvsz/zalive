@@ -16,6 +16,8 @@ services:
       - PYTHONUNBUFFERED=1
       - ALBERT_HTTP_PORT=${ALBERT_HTTP_PORT:-18090}
       - ALBERT_HOST=0.0.0.0
+      - ALBERT_IN_DOCKER=1
+      - ALBERT_BIND_ADDRESS=${ALBERT_BIND_ADDRESS:-127.0.0.1}
       - FAIRPLAY_KEY_PATH=/app/certs/fairplay.key
     restart: unless-stopped
     read_only: true
@@ -46,12 +48,14 @@ services:
   mitmproxy:
     image: mitmproxy/mitmproxy:12.2.3
     container_name: albert-mitmproxy
-    command: sh -c "mitmweb -s /app/firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port 28080 --set web_password='${MITMPROXY_WEB_PASSWORD:?MITMPROXY_WEB_PASSWORD must be set}' --listen-port 28081"
+    command: >
+      sh -c 'case "${ALBERT_BIND_ADDRESS:-127.0.0.1}" in 127.*|::1|localhost) ;; *) echo "Refusing LAN bind for mitmproxy: the proxy port has no client authentication" >&2; exit 2;; esac; exec mitmweb -s /app/firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port 28080 --set web_password="${MITMPROXY_WEB_PASSWORD:?MITMPROXY_WEB_PASSWORD must be set}" --listen-port 28081'
     ports:
       - "${ALBERT_BIND_ADDRESS:-127.0.0.1}:${MITMPROXY_WEB_PORT:-28080}:28080"
       - "${ALBERT_BIND_ADDRESS:-127.0.0.1}:${MITMPROXY_PORT:-28081}:28081"
     volumes:
       - ./firmware_restore_proxy.py:/app/firmware_restore_proxy.py:ro
+      - ./certs:/app/certs:ro
     env_file:
       - path: .env
         required: false
@@ -59,6 +63,7 @@ services:
       - LOCAL_ALBERT_HOST=albert-server
       - LOCAL_ALBERT_PORT=${ALBERT_HTTP_PORT:-18090}
       - LOCAL_ALBERT_SCHEME=http
+      - ALBERT_BIND_ADDRESS=${ALBERT_BIND_ADDRESS:-127.0.0.1}
       - MITMPROXY_WEB_PORT=28080
       - MITMPROXY_PORT=28081
     depends_on:
@@ -90,6 +95,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - ALBERT_IN_DOCKER=1
+      - ALBERT_BIND_ADDRESS=${ALBERT_BIND_ADDRESS:-127.0.0.1}
       - FIRMWARE_SERVER_PORT=${FIRMWARE_SERVER_PORT:-18091}
       - IPSW_DIR=/app/firmware
       - FAIRPLAY_KEY_PATH=/app/certs/fairplay.key

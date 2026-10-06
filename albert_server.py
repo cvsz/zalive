@@ -11,6 +11,9 @@ import json
 import base64
 import hmac
 import hashlib
+import html as html_lib
+import ipaddress
+import secrets
 import plistlib
 import logging
 import sqlite3
@@ -40,12 +43,36 @@ app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('ALBERT_MAX_CONTENT_LENGTH
 FAIRPLAY_KEY_PATH = os.environ.get('FAIRPLAY_KEY_PATH', 'certs/fairplay.key')
 FAIRPLAY_CERT_PATH = os.environ.get('FAIRPLAY_CERT_PATH', 'certs/fairplay.crt')
 
-# --- mTLS toggle for proxy→Albert (env ALBERT_MTLS_CA) ---
-# If ALBERT_MTLS_CA is set (path to CA bundle), Albert requires client certificate from mitmproxy.
-# If not set, connection is unauthenticated — warn at startup and per-request (see SECURITY.md, docs/architecture.md).
-# The proxy (firmware_restore_proxy.py) should present ALBERT_MTLS_CERT/KEY when this is set and use https.
+# --- Proxy/device route authentication ---
+# Compose uses a shared token over its private Docker network. Standalone HTTPS
+# can also require a TLS-verified client certificate via ALBERT_MTLS_CA.
+# Never treat a certificate copied into an HTTP header as proof of possession.
 def _get_mtls_ca():
     return os.environ.get("ALBERT_MTLS_CA", "").strip()
+
+
+def _is_loopback_host(host):
+    value = str(host or "").strip().lower()
+    if value in ("localhost", "localhost.localdomain"):
+        return True
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def _require_safe_bind(host, tls_configured=False):
+    """Keep direct listeners local unless remote access is encrypted and authenticated."""
+    if _is_loopback_host(host):
+        return
+    if not tls_configured:
+        raise RuntimeError("Refusing non-loopback HTTP bind; use loopback or configure HTTPS.")
+    token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+    if len(token) < 32:
+        raise RuntimeError("Non-loopback HTTPS bind requires ALBERT_MTLS_TOKEN with at least 32 characters.")
+    os.environ["ALBERT_REQUIRE_DEVICE_TOKEN"] = "1"
 
 def _log_mtls_status():
     ca = _get_mtls_ca()
@@ -54,8 +81,10 @@ def _log_mtls_status():
             logger.warning(f"mTLS enabled but ALBERT_MTLS_CA={ca} not found — client cert verification will fail")
         else:
             logger.info(f"mTLS enabled — proxy→Albert requires client cert (CA={ca})")
+    elif os.environ.get("ALBERT_MTLS_TOKEN", "").strip():
+        logger.info("device-route shared-token authentication enabled")
     else:
-        logger.warning("ALBERT_MTLS_CA not set — proxy→Albert mTLS disabled (unauthenticated). Set ALBERT_MTLS_CA to a CA bundle to require client cert.")
+        logger.warning("No device-route authentication configured — listener must remain loopback-only")
 
 # --- Curated any-iPhone firmware (spec: XR + 12/13/14/15) ---
 CURATED_DEVICES = [
@@ -957,52 +986,6 @@ def _validate_serial(v) -> bool:
 
 # --- Request ID middleware (P1-3) + OPTIONS handling (P2) + rate limiting ---
 
-def _verify_forwarded_cert(cert_hdr: str, mtls_ca, request) -> bool:
-    """Validate a client certificate forwarded by the proxy in a header.
-
-    The previous implementation accepted any string containing "-----BEGIN"
-    that was longer than 100 characters, so a hand-written placeholder
-    satisfied the mTLS gate from any peer. The signature has to check out
-    against the configured CA, or the header proves nothing.
-    """
-    if not mtls_ca:
-        logger.warning(
-            f"forwarded client cert rejected for {request.path} — no CA configured "
-            f"via ALBERT_MTLS_CA (request_id={getattr(g, 'request_id', '-')})"
-        )
-        return False
-    try:
-        pem = cert_hdr.encode()
-        if b"-----BEGIN CERTIFICATE-----" not in pem:
-            return False
-        presented = x509.load_pem_x509_certificate(pem)
-        ca = x509.load_pem_x509_certificate(pathlib.Path(mtls_ca).read_bytes())
-    except Exception as exc:
-        logger.warning(
-            f"forwarded client cert could not be parsed for {request.path}: "
-            f"{type(exc).__name__} (request_id={getattr(g, 'request_id', '-')})"
-        )
-        return False
-
-    now = datetime.now(timezone.utc)
-    if not (presented.not_valid_before_utc <= now <= presented.not_valid_after_utc):
-        logger.warning(f"forwarded client cert outside validity window for {request.path}")
-        return False
-
-    # The CA signs the leaf; verify that signature with the CA's public key.
-    try:
-        ca.public_key().verify(
-            presented.signature,
-            presented.tbs_certificate_bytes,
-            padding.PKCS1v15(),
-            presented.signature_hash_algorithm,
-        )
-    except Exception:
-        logger.warning(f"forwarded client cert is not signed by {mtls_ca} (request_id={getattr(g, 'request_id', '-')})")
-        return False
-    return True
-
-
 @app.before_request
 def before_request_hardening():
     # Cache the unparsed body before any handler touches request.form /
@@ -1036,59 +1019,21 @@ def before_request_hardening():
         resp.headers["X-Request-ID"] = g.request_id
         resp.headers["Allow"] = "GET, POST, OPTIONS"
         return resp
-    # mTLS toggle for proxy→Albert: if ALBERT_MTLS_CA is set, require client cert on protected endpoints
-    # else warn (ALBERT_MTLS_CA not set — unauthenticated). See _get_mtls_ca() / _log_mtls_status().
+    # Device-facing routes are local-only unless mTLS or the shared token is configured.
     mtls_ca = _get_mtls_ca()
-    if mtls_ca and (request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects")):
-        # Check for client cert evidence: proxy should forward cert or gunicorn sets SSL_CLIENT_VERIFY
-        # Hardened: header-only "mtls"/"present" is spoofable over HTTP. Distinguish TLS vs header mode.
-        has_cert = False
+    expected_token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+    protected_device_path = request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects")
+    require_token = os.environ.get("ALBERT_REQUIRE_DEVICE_TOKEN", "0").strip() == "1" or bool(expected_token)
+    if protected_device_path and (mtls_ca or expected_token or require_token):
+        presented_token = request.headers.get("X-MTLS-Token", "").strip()
+        token_ok = bool(expected_token and presented_token and hmac.compare_digest(presented_token, expected_token))
         tls_verified = request.environ.get("SSL_CLIENT_VERIFY") == "SUCCESS" or bool(request.environ.get("SSL_CLIENT_S_DN") or request.environ.get("peercert"))
-        if tls_verified:
-            has_cert = True
-        else:
-            # Check shared-secret header if configured (stronger than bare X-Client-Cert)
-            expected_token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
-            presented_token = request.headers.get("X-MTLS-Token", "").strip()
-            if expected_token and presented_token and hmac.compare_digest(presented_token, expected_token):
-                has_cert = True
-            else:
-                cert_hdr = (request.headers.get("X-Client-Cert") or request.headers.get("X-Forwarded-Client-Cert") or request.headers.get("X-SSL-Client-Cert") or "").strip()
-                if cert_hdr and "-----BEGIN" in cert_hdr:
-                    # A forwarded certificate is only worth as much as the
-                    # signature it carries. This branch used to accept anything
-                    # containing "-----BEGIN" longer than 100 characters, so a
-                    # hand-written string bypassed the gate from any peer. Parse
-                    # it and check it against ALBERT_MTLS_CA.
-                    has_cert = _verify_forwarded_cert(cert_hdr, mtls_ca, request)
-                elif cert_hdr:
-                    # Bare "present"/"mtls" over HTTP is spoofable — default DENY unless explicitly allowed.
-                    # Require ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1 plus localhost; otherwise require token/PEM.
-                    allow_fallback = os.environ.get("ALBERT_MTLS_ALLOW_HEADER_FALLBACK", "0").strip().lower() in ("1", "true", "yes")
-                    trusted = (request.remote_addr in ("127.0.0.1", "::1", "localhost") or request.remote_addr == os.environ.get("LOCAL_ALBERT_HOST", "127.0.0.1"))
-                    if cert_hdr.lower() in ("mtls", "present"):
-                        if not allow_fallback or not trusted:
-                            logger.warning(f"mTLS bare header denied for {request.path} from {request.remote_addr} — set ALBERT_MTLS_TOKEN or PEM or ALBERT_MTLS_ALLOW_HEADER_FALLBACK=1 for localhost dev (request_id={g.request_id})")
-                            has_cert = False
-                        else:
-                            logger.warning(f"mTLS header-only mode used for {request.path} from {request.remote_addr} — spoofable; set ALBERT_MTLS_TOKEN or LOCAL_ALBERT_SCHEME=https + gunicorn cert_reqs=2 for real mTLS (request_id={g.request_id})")
-                            has_cert = True
-                    else:
-                        # non-PEM opaque string but not bare marker — still require fallback allow
-                        if not allow_fallback:
-                            has_cert = False
-                        else:
-                            has_cert = bool(cert_hdr) and trusted
+        # Certificate headers are never accepted as proof: only the TLS stack
+        # can verify possession of the corresponding private key.
+        has_cert = token_ok or (not require_token and bool(mtls_ca) and tls_verified)
         if not has_cert:
-            logger.warning(f"mTLS required but no client cert for {request.path} from {request.remote_addr}", extra={"request_id": g.request_id, "remote_addr": request.remote_addr or '-'})
-            # A plist body, not JSON: iOS parses device-endpoint responses as a
-            # property list and reports a JSON body as NSCocoaErrorDomain 3840
-            # ("Unexpected character {"), which hides the real reason the device
-            # cannot activate.
-            return _activation_error("client certificate required", 401)
-    elif not mtls_ca and (request.path.startswith("/deviceservices") or request.path.startswith("/WebObjects")):
-        # Warn once per process that mTLS is disabled (rate-limited via logger level)
-        pass  # startup already warned; per-request warn would be noisy
+            logger.warning(f"device-route authentication failed for {request.path} from {request.remote_addr}", extra={"request_id": g.request_id, "remote_addr": request.remote_addr or '-'})
+            return _activation_error("client authentication required", 401)
 
     # Per-IP (+ per-UDID via activation payload) rate limit — 100/min per IP + 10/min per UDID
     # Optionally distributed via Redis INCR+EXPIRE when ALBERT_REDIS_URL set, else in-memory prune logic
@@ -1124,13 +1069,14 @@ def after_request_add_id(response):
     # latency histogram (P2 polish)
     try:
         if 'albert_request_latency' in globals() and albert_request_latency is not None and hasattr(g, 'request_start'):
-            albert_request_latency.labels(endpoint=request.path).observe(time.time() - g.request_start)
+            endpoint = request.url_rule.rule if request.url_rule else "unmatched"
+            albert_request_latency.labels(endpoint=endpoint).observe(time.time() - g.request_start)
     except Exception:
         pass
     _set_security_headers(response)
     return response
 
-# Pages embed the admin token in localStorage, so a script injected from a CDN
+# Pages embed the admin token in sessionStorage, so a script injected from a CDN
 # would be able to read it. This CSP is the only thing standing between a
 # compromised or typo-squatted CDN asset and full admin access. jsDelivr is
 # allowlisted because the templates pull Bootstrap/AdminLTE from it.
@@ -2008,8 +1954,9 @@ def ready():
     try:
         mtls_ca = _get_mtls_ca()
         payload["mtls"] = {"enabled": bool(mtls_ca), "ca": mtls_ca if mtls_ca else None}
-        if not mtls_ca:
-            payload["mtls_warning"] = "ALBERT_MTLS_CA not set — proxy→Albert mTLS disabled"
+        if not mtls_ca and not os.environ.get("ALBERT_MTLS_TOKEN", "").strip():
+            payload["mtls_warning"] = "No client certificate CA or shared token configured; keep the listener loopback-only"
+        payload["device_route_auth"] = {"token_enabled": bool(os.environ.get("ALBERT_MTLS_TOKEN", "").strip()), "mtls_ca_configured": bool(mtls_ca)}
     except Exception:
         pass
     # HTML template for browser (AdminLTE 4), JSON for API
@@ -2019,7 +1966,13 @@ def ready():
         ok_icon = "✓ ready" if ok else "✗ not-ready"
         exp_msg = f"NotAfter {not_after_iso[:10]} · {days_until_expiry}d" if not_after_iso else "—"
         warn_html = f"<div class=\"alert alert-warning mt-2\">{warning}</div>" if expiry_warning and warning else ""
-        mtls_html = f"<div class=\"mono small text-secondary\">mTLS enabled · CA={mtls_ca}</div>" if mtls_ca else "<div class=\"mono small text-warning\">mTLS disabled — proxy→Albert unauthenticated</div>"
+        token_enabled = bool(os.environ.get("ALBERT_MTLS_TOKEN", "").strip())
+        if mtls_ca:
+            mtls_html = f"<div class=\"mono small text-secondary\">client CA configured · {html_lib.escape(mtls_ca)}</div>"
+        elif token_enabled:
+            mtls_html = "<div class=\"mono small text-secondary\">shared-token authentication enabled</div>"
+        else:
+            mtls_html = "<div class=\"mono small text-warning\">no device-route authentication configured</div>"
         html = f"""<!doctype html>
 <html lang="en" data-bs-theme="dark">
 <head>
@@ -2160,7 +2113,7 @@ def metrics():
 <div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Activations</h3></div><div class="card-body"><div class="mono" style="font-size:22px;font-weight:750">{total_val}</div><div class="mono small text-secondary">albert_activation_total</div></div></div></div>
 <div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title text-uppercase small" style="color:#94a3b8">Failures</h3></div><div class="card-body"><div class="mono" style="font-size:22px;font-weight:750">{failures_val}</div><div class="mono small text-secondary">albert_activation_failures_total</div></div></div></div>
 </div>
-<div class="card mt-3"><div class="card-header"><h3 class="card-title small" style="color:#94a3b8">Prometheus exposition</h3><a href="/metrics?format=prom" class="btn btn-sm btn-outline-primary float-end">View Prometheus</a></div><div class="card-body"><pre class="mono small bg-dark p-3 rounded" style="white-space:pre-wrap;max-height:500px;overflow:auto">{prom_text[:8000]}</pre></div></div>
+<div class="card mt-3"><div class="card-header"><h3 class="card-title small" style="color:#94a3b8">Prometheus exposition</h3><a href="/metrics?format=prom" class="btn btn-sm btn-outline-primary float-end">View Prometheus</a></div><div class="card-body"><pre class="mono small bg-dark p-3 rounded" style="white-space:pre-wrap;max-height:500px;overflow:auto">{html_lib.escape(prom_text[:8000])}</pre></div></div>
 </div></div>
 </main>
 <footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> · Template dashboard-template (AdminLTE 4)</footer>
@@ -2291,7 +2244,7 @@ DASHBOARD_HTML = r'''<!doctype html>
 </div>
 </div></div>
 </main>
-<footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> <span id="ver">1.1-fixed</span> · gunicorn 2×4 · See RUNBOOK · <a href="/admin">admin</a> · Template <a href="https://github.com/topics/dashboard-template" target="_blank">dashboard-template</a> (AdminLTE 4)</footer>
+<footer class="app-footer"><div class="float-end d-none d-sm-inline">zAlive</div><strong>Local Albert</strong> <span id="ver">1.1-fixed</span> · gunicorn 1×4 · See RUNBOOK · <a href="/admin">admin</a> · Template <a href="https://github.com/topics/dashboard-template" target="_blank">dashboard-template</a> (AdminLTE 4)</footer>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
@@ -2303,7 +2256,7 @@ function safeSlice(s, a,b){ try{ return (s||'').slice(a,b); }catch(e){ return (s
   // Values interpolated into innerHTML must go through this. Live device values
   // come off usbmux, so a peer that answers with crafted strings would otherwise
   // run script in the /dashboard origin and read zalive_admin_token from
-  // localStorage. Server-generated markup (badge spans) is concatenated after the
+  // sessionStorage. Server-generated markup (badge spans) is concatenated after the
   // escaped text, never through it.
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 async function tick(){
@@ -2311,10 +2264,10 @@ async function tick(){
   try{ $('clock').textContent = new Date().toLocaleTimeString(); }catch(e){}
   let j=null;
   try{
-    // Send the token from localStorage. Without it /api/status returns only the
+    // Send the token from sessionStorage. Without it /api/status returns only the
     // public payload (health/ready/version), so j.activations and j.rate read
     // below are undefined and the table plus the rate readout stay empty.
-    const tok = (localStorage.getItem('zalive_admin_token') || '');
+    const tok = (sessionStorage.getItem('zalive_admin_token') || '');
     const r = await fetch('/api/status', {cache:'no-store', headers: tok ? {'X-Admin-Token': tok} : {}});
     j = await r.json();
   }catch(e){
@@ -2328,7 +2281,7 @@ async function tick(){
   }catch(e){}
   try{
     const ok = j.health && j.health.status==='ok';
-    if($('serverV')) $('serverV').innerHTML = (ok?'<span class="badge ok">live</span>':'<span class="badge bad">down</span>') + ' <small>:' + (j.env?.ALBERT_HTTP_PORT||18090) + '</small>';
+    if($('serverV')) $('serverV').innerHTML = (ok?'<span class="badge ok">live</span>':'<span class="badge bad">down</span>') + ' <small>:' + esc(j.env?.ALBERT_HTTP_PORT||18090) + '</small>';
     if($('serverD')) $('serverD').textContent = (j.health?.server||'albert-local') + ' ' + (j.health?.version||'') + ' · ' + (j.env?.ALBERT_HOST||'127.0.0.1') + ' · ' + (j.now||'');
   }catch(e){}
   try{
@@ -2345,7 +2298,7 @@ async function tick(){
     if($('device')) $('device').innerHTML = dLive+' <b>'+esc(d.ProductType||'-')+'</b> '+esc(d.ModelNumber||'-')+(d.HardwareModel?' ['+esc(d.HardwareModel)+']':'')+' · iOS '+esc(dOs||'-')+' · SN '+esc(redact(d.SerialNumber||''))+' · UDID '+esc(redact(d.UDID||''))+' · EID '+esc(safeSlice(d.EID,0,8))+'…'+esc(safeSlice(d.EID,-4))+' · IMEI '+esc(safeSlice(d.IMEI,0,3))+'...'+esc(safeSlice(d.IMEI,-3))+' / '+esc(safeSlice(d.IMEI2,0,3))+'...'+esc(safeSlice(d.IMEI2,-3))+' · '+esc(d.Storage||'');
   }catch(e){}
   try{
-    if($('usb')) $('usb').innerHTML = (j.usb?.connected?'<span class="badge ok">USB Apple 05ac</span>':'<span class="badge warn">no Apple USB — VM passthrough needed</span>') + ' · idevice_id: ' + (j.usb?.idevice||'255') + ' · restore: ' + (j.usb?.restore||'-');
+    if($('usb')) $('usb').innerHTML = (j.usb?.connected?'<span class="badge ok">USB Apple 05ac</span>':'<span class="badge warn">no Apple USB — VM passthrough needed</span>') + ' · idevice_id: ' + esc(j.usb?.idevice||'255') + ' · restore: ' + esc(j.usb?.restore||'-');
   }catch(e){}
   try{
     // ipsw
@@ -2395,7 +2348,7 @@ async function tick(){
       tbody.innerHTML='';
       (j.activations||[]).forEach(row=>{
         const tr=document.createElement('tr');
-        tr.innerHTML='<td>'+row.id+'</td><td class="mono">'+redact(row.udid||'')+'</td><td>'+(row.serial||'-')+'</td><td class="mono">'+safeSlice(row.created_at,0,19)+'</td><td class="mono">'+safeSlice(row.record,0,80)+'…</td>';
+        tr.innerHTML='<td>'+esc(row.id)+'</td><td class="mono">'+esc(redact(row.udid||''))+'</td><td>'+esc(row.serial||'-')+'</td><td class="mono">'+esc(safeSlice(row.created_at,0,19))+'</td><td class="mono">'+esc(safeSlice(row.record,0,80))+'…</td>';
         tbody.appendChild(tr);
       });
       if(!(j.activations||[]).length) tbody.innerHTML='<tr><td colspan=5 class="mono" style="color:var(--muted)">no activations yet — run activate_device.py --method direct</td></tr>';
@@ -2411,7 +2364,7 @@ tick(); setInterval(tick, 2000);
 async function logsTick(){
   try{
     // /api/logs is admin-gated; without the header it is 401 every poll.
-    const ltok=(localStorage.getItem('zalive_admin_token')||'');
+    const ltok=(sessionStorage.getItem('zalive_admin_token')||'');
     const r=await fetch('/api/logs?lines=60',{cache:'no-store', headers: ltok ? {'X-Admin-Token': ltok} : {}});
     if(r.status===401){ if($('logs')) $('logs').textContent='🔒 admin login required — open /admin and unlock (X-Admin-Token)'; return; }
     const j=await r.json(); if($('logs')) $('logs').textContent=j.tail||'no logs';
@@ -2540,9 +2493,24 @@ async function loadDevices(){
   sel.value='iPhone11,8';
 }
 function formatSize(b){
-  if(!b) return '-';
-  const gb=(b/1e9).toFixed(1);
-  return gb+' GB';
+  const bytes=Number(b);
+  if(!Number.isFinite(bytes)||bytes<=0) return '-';
+  return (bytes/1e9).toFixed(1)+' GB';
+}
+function addCell(row,value,className=''){
+  const td=document.createElement('td');
+  if(className) td.className=className;
+  td.textContent=String(value==null?'':value);
+  row.appendChild(td);
+}
+function showFirmwareMessage(message,color){
+  const tr=document.createElement('tr');
+  const td=document.createElement('td');
+  td.colSpan=7;
+  if(color) td.style.color=color;
+  td.textContent=String(message==null?'':message);
+  tr.appendChild(td);
+  $('tbody').replaceChildren(tr);
 }
 async function loadFw(){
   const pt=$('product').value;
@@ -2556,21 +2524,51 @@ async function loadFw(){
     if(j.stale) { banner.style.display='block'; banner.style.background='rgba(234,179,8,.15)'; banner.style.border='1px solid rgba(234,179,8,.3)'; banner.textContent='Stale cache — upstream unavailable (showing last cached).'; }
     else if(j.cached) { banner.style.display='block'; banner.style.background='rgba(59,130,246,.15)'; banner.style.border='1px solid rgba(59,130,246,.3)'; banner.textContent='Cached 1h — live fetch skipped.'; }
     else banner.style.display='none';
-    const list=(j.firmwares||[]).filter(f=> !q || (f.version||'').toLowerCase().includes(q) || (f.buildid||'').toLowerCase().includes(q));
+    const list=(j.firmwares||[]).filter(f=>{
+      const version=String(f.version||'').toLowerCase();
+      const buildid=String(f.buildid||'').toLowerCase();
+      return !q || version.includes(q) || buildid.includes(q);
+    });
     const tbody=$('tbody');
-    tbody.innerHTML='';
-    if(!list.length) tbody.innerHTML='<tr><td colspan=7 style="color:var(--muted)">no matches</td></tr>';
+    tbody.replaceChildren();
+    if(!list.length){
+      showFirmwareMessage('no matches','var(--muted)');
+    }
     list.forEach(f=>{
-      const signed = f.signed ? '<span class="badge ok">✓ signed</span>' : '<span class="badge bad">✗ unsigned</span>';
-      const local = (j.local||[]).some(n=> n.includes(f.buildid)|| n.includes(f.version)) ? '✅' : '';
       const tr=document.createElement('tr');
-      tr.innerHTML='<td>'+f.version+'</td><td class="mono">'+f.buildid+'</td><td>'+(f.releasedate||'').slice(0,10)+'</td><td>'+formatSize(f.filesize)+'</td><td>'+signed+'</td><td>'+local+'</td><td>'+(f.url?'<a href="'+f.url+'" target="_blank">⬇</a>':'-')+'</td>';
+      addCell(tr,f.version||'');
+      addCell(tr,f.buildid||'','mono');
+      addCell(tr,String(f.releasedate||'').slice(0,10));
+      addCell(tr,formatSize(f.filesize));
+      const signed=document.createElement('td');
+      const badge=document.createElement('span');
+      badge.className=f.signed?'badge ok':'badge bad';
+      badge.textContent=f.signed?'✓ signed':'✗ unsigned';
+      signed.appendChild(badge);
+      tr.appendChild(signed);
+      const isLocal=(j.local||[]).some(n=>String(n).includes(String(f.buildid||''))||String(n).includes(String(f.version||'')));
+      addCell(tr,isLocal?'✅':'');
+      const download=document.createElement('td');
+      if(f.url){
+        try{
+          const url=new URL(String(f.url));
+          if(url.protocol==='https:'){
+            const link=document.createElement('a');
+            link.href=url.href;
+            link.target='_blank';
+            link.rel='noopener noreferrer';
+            link.textContent='⬇';
+            download.appendChild(link);
+          }else download.textContent='-';
+        }catch(_){ download.textContent='-'; }
+      }else download.textContent='-';
+      tr.appendChild(download);
       tbody.appendChild(tr);
     });
     $('status').textContent = list.length+' firmwares · '+ (j.stale?'stale':'live') + (j.cached?' cached':'');
   } catch(e){
-    $('status').textContent='error: '+e.message;
-    $('tbody').innerHTML='<tr><td colspan=7 style="color:var(--bad)">'+e.message+'</td></tr>';
+    $('status').textContent='error: '+String(e&&e.message||'request failed');
+    showFirmwareMessage(e&&e.message||'request failed','var(--bad)');
   }
 }
 (async()=>{
@@ -2736,9 +2734,10 @@ ADMIN_HTML = r'''<!doctype html>
 
 <script>
 const $ = id => document.getElementById(id);
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const TOKEN_KEY = 'zalive_admin_token';
-function getToken(){ return localStorage.getItem(TOKEN_KEY) || ''; }
-function setToken(v){ if(v) localStorage.setItem(TOKEN_KEY, v); else localStorage.removeItem(TOKEN_KEY); }
+function getToken(){ return sessionStorage.getItem(TOKEN_KEY) || ''; }
+function setToken(v){ if(v) sessionStorage.setItem(TOKEN_KEY, v); else sessionStorage.removeItem(TOKEN_KEY); }
 function authHeaders(){ const t=getToken(); return t ? {'X-Admin-Token': t} : {}; }
 async function checkAuth(){
   const t=getToken();
@@ -2764,12 +2763,12 @@ async function load(){
   try{
     const r=await fetch('/api/admin/status', {headers: authHeaders()});
     const j=await r.json();
-    $('aStatus').innerHTML = '<div><span class="badge ok">live</span> fairplay '+(j.fairplay?.loaded?'loaded':'missing')+' · activations '+j.metrics.activations+' · up '+j.metrics.up+'</div><div class="mono" style="margin-top:6px;color:var(--muted)">ipsw '+j.ipsw.name+' · '+j.ipsw.sizeGB+'GB · '+j.ipsw.sha256.slice(0,16)+'…</div>';
+    $('aStatus').innerHTML = '<div><span class="badge ok">live</span> fairplay '+(j.fairplay?.loaded?'loaded':'missing')+' · activations '+esc(j.metrics.activations)+' · up '+esc(j.metrics.up)+'</div><div class="mono" style="margin-top:6px;color:var(--muted)">ipsw '+esc(j.ipsw?.name||'-')+' · '+esc(j.ipsw?.sizeGB||'-')+'GB · '+esc(String(j.ipsw?.sha256||'').slice(0,16))+'…</div>';
     $('aEnv').textContent = JSON.stringify(j.env, null, 2);
     const acts = j.activations||[];
     const tbody=$('aActs'); tbody.innerHTML='';
     if(!acts.length) tbody.innerHTML='<tr><td colspan=4 style="color:var(--muted)">no activations</td></tr>';
-    else acts.forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML='<td>'+r.id+'</td><td class="mono">'+(r.udid?r.udid.slice(0,4)+'…'+r.udid.slice(-4):'-')+'</td><td>'+(r.serial||'-')+'</td><td class="mono">'+r.created_at.slice(0,19)+'</td>'; tbody.appendChild(tr); });
+    else acts.forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML='<td>'+esc(r.id)+'</td><td class="mono">'+esc(r.udid?r.udid.slice(0,4)+'…'+r.udid.slice(-4):'-')+'</td><td>'+esc(r.serial||'-')+'</td><td class="mono">'+esc(String(r.created_at||'').slice(0,19))+'</td>'; tbody.appendChild(tr); });
     $('aRate').textContent = 'IPs '+j.rate.ips+' · sample '+(j.rate.sample||'-')+' · window 60s · max 100/min + 10/min per-UDID';
   }catch(e){ $('aStatus').textContent='load error: '+e.message; }
   try{
@@ -3252,10 +3251,10 @@ def api_validate():
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@4.0.0/dist/js/adminlte.min.js" integrity="sha384-6yU8d/XMPixNnAJ83V1hSNte2ij+N38tIn1M4J+EiHC/MPgisvtNhJyRPfGWFrDk" crossorigin="anonymous"></script>
   <script>
   const _vtok=document.getElementById('vtok'), _vbtn=document.getElementById('vbtn');
-  if(_vtok){{try{{_vtok.value=localStorage.getItem('zalive_admin_token')||''}}catch(e){{}}}}
+  if(_vtok){{try{{_vtok.value=sessionStorage.getItem('zalive_admin_token')||''}}catch(e){{}}}}
   if(_vbtn){{_vbtn.addEventListener('click',async function(){{
     const tok=_vtok.value.trim();
-    if(tok){{try{{localStorage.setItem('zalive_admin_token',tok)}}catch(e){{}}}}
+    if(tok){{try{{sessionStorage.setItem('zalive_admin_token',tok)}}catch(e){{}}}}
     const h=tok?{{'X-Admin-Token':tok}}:{{}};
     const r=await fetch('/api/validate?format=json',{{cache:'no-store',headers:h}});
     const d=await r.json();
@@ -4024,7 +4023,7 @@ def index():
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Local Albert Activation Server')
-    parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
+    parser.add_argument('--host', default='127.0.0.1', help='Host to bind to; non-loopback requires HTTPS and ALBERT_MTLS_TOKEN')
     parser.add_argument('--port', type=int, default=8080, help='Port to bind to')
     parser.add_argument('--ssl-cert', help='SSL certificate file')
     parser.add_argument('--ssl-key', help='SSL key file')
@@ -4075,7 +4074,11 @@ if __name__ == '__main__':
             sys.exit(1)
         import sys
         sys.exit(0)
-    # mTLS status log for startup (warn if ALBERT_MTLS_CA not set)
+    try:
+        _require_safe_bind(args.host, tls_configured=bool(args.ssl_cert and args.ssl_key))
+    except RuntimeError as exc:
+        parser.error(str(exc))
+    # mTLS status log for startup
     try:
         _log_mtls_status()
     except Exception:
@@ -4098,16 +4101,19 @@ if __name__ == '__main__':
                 ssl_context = (args.ssl_cert, args.ssl_key)
         else:
             ssl_context = (args.ssl_cert, args.ssl_key)
-            logger.warning("ALBERT_MTLS_CA not set — HTTPS without client cert verification (proxy→Albert unauthenticated)")
+            logger.warning("ALBERT_MTLS_CA not set — HTTPS without client certificate verification")
             logger.info(f"Starting HTTPS server on {args.host}:{args.port}")
         if isinstance(ssl_context, tuple):
             logger.info(f"Starting HTTPS server on {args.host}:{args.port}")
     else:
         # HTTP case: mTLS is enforced at application layer via header check (before_request)
         if _get_mtls_ca():
-            logger.info(f"Starting HTTP server on {args.host}:{args.port} (mTLS enforced via X-Client-Cert header, CA={_get_mtls_ca()})")
+            logger.info(f"Starting HTTP server on {args.host}:{args.port} (CA configured; HTTP requests require the shared token, not certificate headers)")
         else:
-            logger.warning(f"Starting HTTP server on {args.host}:{args.port} (ALBERT_MTLS_CA not set — mTLS disabled)")
+            if os.environ.get("ALBERT_MTLS_TOKEN", "").strip():
+                logger.info(f"Starting HTTP server on {args.host}:{args.port} (shared-token device authentication enabled)")
+            else:
+                logger.warning(f"Starting HTTP server on {args.host}:{args.port} (no device-route authentication; loopback only)")
             logger.info(f"Starting HTTP server on {args.host}:{args.port}")
     # also log risk acknowledgement
     if os.environ.get('ALBERT_ACCEPT_RISK') == '1':

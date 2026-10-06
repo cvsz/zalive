@@ -1,7 +1,8 @@
 # Runbook — Local Albert Production
 
 ## Dashboard
-- Open `http://192.168.1.123:18090/dashboard` (LAN) or `http://127.0.0.1:18090/dashboard` — 2s poll shows health/ready/fairplay, iPhone identity (redacted), USB, IPSW, recent activations (SQLite), rate, logs tail. APIs: `/api/status`, `/api/activations?limit=5`, `/api/logs?lines=60`, `/` lists endpoints.
+- Open `http://127.0.0.1:18090/dashboard` — 2s poll shows health/ready/fairplay, iPhone identity (redacted), USB, IPSW, recent activations (SQLite), rate, logs tail. APIs: `/api/status`, `/api/activations?limit=5`, `/api/logs?lines=60`, `/` lists endpoints.
+- Keep Compose ports on loopback. For remote browser access, place a TLS reverse proxy/VPN in front; do not publish these plain-HTTP services directly to a LAN.
 
 ## Health
 - `curl http://127.0.0.1:18090/health` → 200 liveness
@@ -10,7 +11,7 @@
 
 ## Start (host)
 ```bash
-cp .env.example .env  # set MITMPROXY_WEB_PASSWORD, ALBERT_ADMIN_TOKEN, ALBERT_ACCEPT_RISK=1
+cp .env.example .env  # set MITMPROXY_WEB_PASSWORD, ALBERT_ADMIN_TOKEN, ALBERT_MTLS_TOKEN (32+ chars), ALBERT_ACCEPT_RISK=1
 ./start.sh start     # uses gunicorn in prod: ALBERT_HTTP_PORT=18090
 ./start.sh status
 ./start.sh logs
@@ -60,11 +61,11 @@ Keys are `0600` persisted; backup `certs/` before rotation.
 - `413 payload too large` → plist >512KB; device should not send.
 - Legal: for owned devices only; `ALBERT_ACCEPT_RISK=1` required to start prod.
 
-## mTLS (proxy → Albert)
-- Toggle via `.env` `ALBERT_MTLS_CA=/path/to/ca.pem` (CA bundle that signed `ALBERT_MTLS_CERT`).
-- Proxy must present client cert: `ALBERT_MTLS_CERT`/`ALBERT_MTLS_KEY` in `firmware_restore_proxy.py` env.
-- HTTP-mode header-only (`X-Client-Cert: present/mtls`) is spoofable; proxy now forwards real PEM or `X-MTLS-Token` (`ALBERT_MTLS_TOKEN`) when set. For production use `LOCAL_ALBERT_SCHEME=https` + gunicorn TLS so `SSL_CLIENT_VERIFY=SUCCESS` (real mTLS). Header fallback is gated by `ALBERT_MTLS_ALLOW_HEADER_FALLBACK` (`1` allows localhost header, `0` rejects spoofable path).
-- `ALBERT_MTLS_CA` is read by `albert_server.py` on every request, but changing it still needs a restart to pick up a new `.env`. Note the worker itself serves **plain HTTP** — `gunicorn_conf.py` has no `certfile`/`keyfile`, so it never opens a TLS listener. To terminate TLS in gunicorn you must set `certfile` and `keyfile` as well; see the comment at the top of `gunicorn_conf.py`.
+## Device-route authentication
+- Compose refuses to start unless `ALBERT_MTLS_TOKEN` is set to a random value of at least 32 characters. The proxy sends it to both Albert and the firmware server over private Docker-network HTTP.
+- The proxy forwards that token without logging it. If `ALBERT_MTLS_CA` is configured, the certificate directory is mounted read-only into both containers.
+- Do not treat a forwarded PEM header as proof of a TLS handshake. For real mTLS, terminate TLS on a configured listener and verify client certificates there; the Compose default is token auth over the private Docker network.
+- Compose rejects non-loopback publishing. For remote access, keep service ports loopback-bound and use a separately configured TLS reverse proxy/VPN.
   ```bash
   sudo systemctl restart albert-server  # systemd
   # or
@@ -80,8 +81,7 @@ Keys are `0600` persisted; backup `certs/` before rotation.
   There is no listener on `18443` — `ALBERT_HTTPS_PORT` is published by `docker-compose.yml` but nothing in the app binds it, and the device-facing TLS is terminated by mitmproxy..
 
 ## Rate limiting
-- Defaults `100/min per IP` + `10/min per UDID` (env `ALBERT_REDIS_URL` → Redis `INCR+EXPIRE` distributed, else in-memory per-worker).
-- When `ALBERT_REDIS_URL` is set but Redis is unreachable, server logs `WARNING Redis rate limit failed ... falling back to in-memory (request_id=...)` and falls back to per-process in-memory (2 workers → effective `200/min` per IP). Set `ALBERT_REDIS_FAIL_CLOSED=1` to fail closed with `429` instead of degraded fallback.
+- Defaults to one Gunicorn worker, so the `100/min per IP` + `10/min per UDID` in-memory limiter is shared by its threads. Multiple workers require `ALBERT_REDIS_URL` and `ALBERT_REDIS_FAIL_CLOSED=1`; Redis failure returns `429` rather than falling back to separate per-worker counters.
 - Inspect: `curl http://127.0.0.1:18090/api/rate_status`, or `GET /api/validate` — the latter answers without a token, but then returns per-check pass/fail only, so add `X-Admin-Token` (or `Authorization: Bearer`) to see row counts, certificate dates and the rest.
 
 ## Logs

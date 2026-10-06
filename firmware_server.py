@@ -8,6 +8,8 @@ import sys
 import plistlib
 import base64
 import hashlib
+import hmac
+import ipaddress
 import uuid
 import logging
 from pathlib import Path
@@ -42,6 +44,41 @@ FAIRPLAY_CERT_PATH = os.environ.get("FAIRPLAY_CERT_PATH", "certs/fairplay.crt")
 # server directly on a host, 127.0.0.1 is the safe default.
 DEFAULT_BIND_HOST = "127.0.0.1" if os.environ.get("ALBERT_IN_DOCKER") != "1" else "0.0.0.0"
 BIND_HOST = os.environ.get("FIRMWARE_SERVER_BIND", DEFAULT_BIND_HOST).strip() or DEFAULT_BIND_HOST
+
+
+def _is_loopback_host(host):
+    value = str(host or "").strip().lower()
+    if value in ("localhost", "localhost.localdomain"):
+        return True
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def _public_bind_host():
+    if os.environ.get("ALBERT_IN_DOCKER") == "1":
+        return os.environ.get("ALBERT_BIND_ADDRESS", "127.0.0.1")
+    return BIND_HOST
+
+
+def _require_loopback_publish():
+    if not _is_loopback_host(_public_bind_host()):
+        raise RuntimeError("Firmware server only supports loopback publishing; put it behind a TLS-authenticated reverse proxy for remote access.")
+
+
+@app.before_request
+def _authorize_firmware_proxy():
+    if request.path == "/health":
+        return None
+    expected = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+    if expected:
+        provided = request.headers.get("X-MTLS-Token", "").strip()
+        if not provided or not hmac.compare_digest(provided, expected):
+            return abort(401, "proxy authentication required")
+
 
 _fairplay_private_key = None
 _fairplay_cert_chain = None
@@ -272,9 +309,8 @@ def tss_controller():
     if action != "2":
         return abort(400, "Only action=2 (SHSH request) supported")
 
-    logger.info(f"TSS request: {dict(request.args)}")
-
     component_name = request.args.get("component", "OS")
+    logger.info("TSS request action=%s query_fields=%d", action, len(request.args))
     comp = manifest_parser.get_component(component_name)
     if not comp:
         return abort(404, f"Component {component_name} not in manifest")
@@ -309,6 +345,16 @@ def health():
 
 if __name__ == "__main__":
     port = int(os.environ.get("FIRMWARE_SERVER_PORT", "18091"))
+    try:
+        _require_loopback_publish()
+    except RuntimeError as exc:
+        logger.error("%s", exc)
+        sys.exit(2)
+    if os.environ.get("ALBERT_IN_DOCKER") == "1":
+        token = os.environ.get("ALBERT_MTLS_TOKEN", "").strip()
+        if len(token) < 32:
+            logger.error("Compose firmware service requires ALBERT_MTLS_TOKEN with at least 32 characters.")
+            sys.exit(2)
     load_fairplay_keys()
     logger.info(f"Starting firmware server on {BIND_HOST}:{port}")
     app.run(host=BIND_HOST, port=port, threaded=True)
