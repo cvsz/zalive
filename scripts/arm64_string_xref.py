@@ -9,7 +9,9 @@ encodings a prelinked kernelcache kext actually uses.
 Supported reference forms:
   ADRP + ADD immediate          two-instruction pair, the common case
   ADRP + LDR (unsigned imm)     literal load through the base register
-  ADRP + LDR (pre/post index)   load with a signed imm9 writeback offset
+  ADRP + LDUR                  unscaled signed imm9 load
+  ADRP + LDR (pre-index)       signed imm9 applied before the load
+  ADRP + LDR (post-index)      load from base, then signed imm9 writeback
   ADR                          single-instruction PC-relative
   pointer slot                 8-byte aligned absolute pointer in any segment
 
@@ -211,12 +213,24 @@ def decode_pair(image, code_end, pc, rd=None):
         if w & 0xFFE00C00 == 0xF8600800:
             yield "adrp+ldr_reg", None
 
-        # LDR (immediate, pre/post index) and LDUR variants. imm9 is signed: a
-        # read of bits[20:12] without sign extension turns `[x0, #-16]!` into
-        # +496, which silently loses every backward reference.
-        if (w & 0xFFE00C00 == 0xF8400000
+        # LDR (immediate) family, 64-bit. bits[11:10] select the addressing mode:
+        #   00 LDUR (unscaled)     address = base + signed imm9
+        #   01 post-index          address = base, then base += signed imm9
+        #   10 LDTR (unprivileged) not paired here
+        #   11 pre-index           base += signed imm9, then address = base
+        #
+        # Keep the modes separate. Masking bits[11:10] to 00 only matches LDUR
+        # and silently misses real pre/post-index instructions.
+        if (w & 0xFFE00000 == 0xF8400000
                 and (rd is None or (w >> 5) & 0x1F) == rd):
-            yield "adrp+ldr_prepost", sign_extend((w >> 12) & 0x1FF, 9)
+            mode = (w >> 10) & 0x3
+            imm9 = sign_extend((w >> 12) & 0x1FF, 9)
+            if mode == 0:
+                yield "adrp+ldur", imm9
+            elif mode == 1:
+                yield "adrp+ldr_post", 0
+            elif mode == 3:
+                yield "adrp+ldr_pre", imm9
 
 
 def find_pointer_slots(image: Image):
