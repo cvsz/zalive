@@ -74,9 +74,24 @@ htmlcov/
 
 # Documentation
 docs/
+!docs/
+docs/*
+!docs/re/
+docs/re/*
+!docs/re/ACTIVATION-PROTOCOL.md
+!docs/re/FIRMWARE-ANALYSIS-FINDINGS.md
+!docs/re/IPSW-18.7.10-STRUCTURE.md
+!docs/re/WORK-REPORT.md
+!docs/re/activation_trace.json
+!docs/re/handshake_decode.json
+!docs/re/handshake_framing.json
 *.md
 !README.md
 !logs/restore/README.md
+!docs/re/ACTIVATION-PROTOCOL.md
+!docs/re/FIRMWARE-ANALYSIS-FINDINGS.md
+!docs/re/IPSW-18.7.10-STRUCTURE.md
+!docs/re/WORK-REPORT.md
 
 # Scripts
 scripts/
