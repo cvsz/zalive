@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0",
+  "name": "zAlive Investigation Tool Catalog",
+  "tools": [
+    {
+      "name": "artifact_inventory",
+      "mode": "read-only",
+      "purpose": "Inventory explicitly authorized firmware, trace, and report artifacts.",
+      "inputs": [
+        "artifact metadata",
+        "hash",
+        "authorized scope"
+      ],
+      "outputs": [
+        "inventory record",
+        "evidence references"
+      ],
+      "risk": "low"
+    },
+    {
+      "name": "firmware_structure_review",
+      "mode": "read-only",
+      "purpose": "Review IPSW/component structure and previously extracted metadata.",
+      "inputs": [
+        "authorized firmware metadata",
+        "existing analysis outputs"
+      ],
+      "outputs": [
+        "component map",
+        "evidence references"
+      ],
+      "risk": "medium"
+    },
+    {
+      "name": "protocol_trace_review",
+      "mode": "read-only",
+      "purpose": "Correlate recorded activation and handshake traces without replaying credentials or bypassing trust controls.",
+      "inputs": [
+        "redacted trace artifacts"
+      ],
+      "outputs": [
+        "sequence summary",
+        "field relationships",
+        "confidence"
+      ],
+      "risk": "medium"
+    },
+    {
+      "name": "evidence_report",
+      "mode": "read-only",
+      "purpose": "Generate evidence-backed findings with confidence, impact, and next diagnostic action.",
+      "inputs": [
+        "existing evidence references"
+      ],
+      "outputs": [
+        "structured findings"
+      ],
+      "risk": "low"
+    }
+  ],
+  "excluded_capabilities": [
+    "Activation Lock bypass",
+    "Apple ID or credential extraction",
+    "FairPlay/DRM bypass",
+    "attestation bypass",
+    "destructive flashing",
+    "arbitrary shell execution against devices"
+  ]
+}
