@@ -10,9 +10,14 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
-  # tornado is pinned to 6.5.5 by mitmproxy 12.2.3 (see requirements.in). Dependabot
-  # has no pip ecosystem configured, so these advisories arrive as repo-level alerts
-  # rather than upgrade PRs. Do not bump tornado on its own -- mitmproxy declares
+  # Dependabot's Python updater reads the repository .python-version support file.
+  # Keep it aligned with CI and the Docker runtime so packages that require the
+  # production interpreter (including mitmproxy 12.2.3) remain in the pip update
+  # graph instead of being incorrectly treated as unavailable.
+  #
+  # tornado is pinned to 6.5.5 by mitmproxy 12.2.3 (see requirements.in). Keep
+  # the explicit ignore below until the proxy version moves to a release that
+  # permits a newer tornado; do not bump tornado independently.
   # tornado>=6.5.0,<=6.5.5, and a newer mitmproxy must land first.
   #
   # Open advisories accepted here (tornado 6.5.5, checked 2026-10-01):
