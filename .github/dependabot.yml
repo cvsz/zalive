@@ -11,13 +11,16 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
   # mitmproxy 12.2.3 requires Python >=3.12. Keep that environment marker in
-  # requirements.in/requirements.txt so Dependabot resolvers running an older
-  # interpreter can still process the remaining dependency graph. Production
-  # uses Python 3.14 and the proxy service uses mitmproxy/mitmproxy:12.2.3.
+  # requirements.in/requirements.txt so a Dependabot pip resolver running an
+  # older interpreter can skip this direct requirement and continue processing
+  # the rest of the Python dependency graph. In that resolver environment,
+  # mitmproxy itself is intentionally not updateable through the pip ecosystem.
+  # The production proxy is the separate mitmproxy/mitmproxy:12.2.3 Compose
+  # service, whose version remains tracked by the Docker ecosystem above.
   #
-  # tornado is pinned to 6.5.5 by mitmproxy 12.2.3 (see requirements.in). Dependabot
-  # has no pip ecosystem configured, so these advisories arrive as repo-level alerts
-  # rather than upgrade PRs. Do not bump tornado on its own -- mitmproxy declares
+  # tornado is pinned to 6.5.5 by mitmproxy 12.2.3 (see requirements.in). Keep
+  # the explicit ignore below until the proxy version moves to a release that
+  # permits a newer tornado; do not bump tornado independently.
   # tornado>=6.5.0,<=6.5.5, and a newer mitmproxy must land first.
   #
   # Open advisories accepted here (tornado 6.5.5, checked 2026-10-01):
