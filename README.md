@@ -74,6 +74,20 @@ Apple directly over USB.
 > `albert.apple.com`. If the account is disabled or iCloud-locked, only the account owner can
 > clear it.
 
+## Investigation Center
+
+zAlive now includes an evidence-backed **Investigation Center** inspired by agent-oriented reverse-engineering workflows while preserving the project's ownership and safety boundaries.
+
+- `/investigation` — task/evidence/findings UI
+- `/api/investigation` — admin-gated machine-readable state
+- `catalog/investigation-tools.json` — read-only tool catalog for future MCP/AI integration
+- findings include impact, confidence, evidence references, and safe next diagnostic action
+- task progress is derived from real repository evidence; the UI does not simulate background agents
+
+The investigation surface intentionally excludes Activation Lock/Apple ID bypass, FairPlay/DRM bypass, credential extraction, attestation bypass, destructive flashing, and arbitrary device shell execution.
+
+See [Investigation Center](docs/re/INVESTIGATION-CENTER.md).
+
 ## Reverse engineering notes
 
 `docs/re/` holds the write-ups from inspecting a real iPhone11,8 restore:
@@ -90,6 +104,8 @@ Apple directly over USB.
 | `GET /ready` | Readiness (FairPlay loaded + cert expiry) |
 | `GET /metrics` | Prometheus metrics |
 | `GET /dashboard` | Real-time AdminLTE dashboard |
+| `GET /investigation` | Evidence-backed investigation workspace |
+| `GET /api/investigation` | Admin-gated investigation state/tool catalog |
 | `GET /firmware` | Firmware browser (13 curated models) |
 | `GET /admin` | Admin panel HTML — the page itself is not header-gated; it reads the token from `localStorage` and sends `X-Admin-Token` on its `/api/*` calls, which are the endpoints that enforce auth |
 | `POST /deviceservices/drmHandshake` | DRM handshake |

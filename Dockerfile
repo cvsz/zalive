@@ -45,8 +45,17 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 
 # Copy only runtime code — never copy certs/*.key or .env (secrets are mounted / generated at runtime)
-COPY albert_server.py gunicorn_conf.py ./
+COPY albert_server.py gunicorn_conf.py investigation_center.py ./
 COPY static/ ./static/
+COPY templates/ ./templates/
+COPY catalog/ ./catalog/
+COPY docs/re/ACTIVATION-PROTOCOL.md ./docs/re/ACTIVATION-PROTOCOL.md
+COPY docs/re/FIRMWARE-ANALYSIS-FINDINGS.md ./docs/re/FIRMWARE-ANALYSIS-FINDINGS.md
+COPY docs/re/IPSW-18.7.10-STRUCTURE.md ./docs/re/IPSW-18.7.10-STRUCTURE.md
+COPY docs/re/WORK-REPORT.md ./docs/re/WORK-REPORT.md
+COPY docs/re/activation_trace.json ./docs/re/activation_trace.json
+COPY docs/re/handshake_decode.json ./docs/re/handshake_decode.json
+COPY docs/re/handshake_framing.json ./docs/re/handshake_framing.json
 COPY scripts/ ./scripts/
 COPY certs/.gitkeep ./certs/.gitkeep
 COPY logs/.gitkeep ./logs/.gitkeep

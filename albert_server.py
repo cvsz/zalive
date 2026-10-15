@@ -33,6 +33,7 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 from flask import Flask, request, Response, jsonify, g
 from werkzeug.exceptions import RequestEntityTooLarge
+from investigation_center import build_investigation_state
 
 app = Flask(__name__, static_folder="static", static_url_path="/__static_disabled")
 # Production hardening: request size limit (P0-3), env-driven port
@@ -2427,6 +2428,15 @@ logsTick(); setInterval(logsTick, 5000);
 def dashboard():
     return Response(DASHBOARD_HTML, mimetype='text/html')
 
+@app.route('/investigation', methods=['GET'])
+def investigation_page():
+    template_path = pathlib.Path(__file__).resolve().parent / "templates" / "investigation.html"
+    try:
+        return Response(template_path.read_text(encoding="utf-8"), mimetype='text/html')
+    except OSError:
+        logger.exception("investigation template unavailable")
+        return jsonify({"ok": False, "error": "investigation UI unavailable"}), 503
+
 @app.route('/api/logs', methods=['GET'])
 def api_logs():
     err = _admin_required()
@@ -2873,6 +2883,17 @@ def _admin_required():
     if not ok:
         return jsonify({"ok": False, "error": msg}), 401
     return None
+
+@app.route('/api/investigation', methods=['GET'])
+def api_investigation():
+    err = _admin_required()
+    if err:
+        return err
+    try:
+        return jsonify(build_investigation_state())
+    except (OSError, ValueError, json.JSONDecodeError):
+        logger.exception("investigation state unavailable")
+        return jsonify({"ok": False, "error": "investigation state unavailable"}), 503
 
 @app.route('/admin', methods=['GET'])
 def admin_page():
@@ -3959,7 +3980,7 @@ def api_tss():
 
 @app.route('/', methods=['GET'])
 def index():
-    endpoints = ["/dashboard","/firmware","/admin","/health","/ready","/metrics","/api/validate","/api/devices","/api/firmwares","/api/status","/api/rate_status","/api/activations","/api/logs","/api/device_info","/api/diagnostics","/api/recovery","/api/pair","/api/ifuse","/api/tss","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]
+    endpoints = ["/dashboard","/investigation","/firmware","/admin","/health","/ready","/metrics","/api/validate","/api/investigation","/api/devices","/api/firmwares","/api/status","/api/rate_status","/api/activations","/api/logs","/api/device_info","/api/diagnostics","/api/recovery","/api/pair","/api/ifuse","/api/tss","/deviceservices/drmHandshake","/deviceservices/deviceActivation","/WebObjects/ALUnbrick.woa/wa/deviceActivation"]
     data = {"service":"albert-local","endpoints":endpoints}
     wants_html = "text/html" in (request.headers.get("Accept") or "")
     if wants_html and not request.args.get("format") == "json":
