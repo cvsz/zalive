@@ -117,9 +117,11 @@ def _encode_ldr_uimm(byte_offset, rn=0, rt=1):
     return 0xF9400000 | ((byte_offset // 8) << 10) | (rn << 5) | rt
 
 
-def _encode_ldr_prepost(imm9, rn=0, rt=1):
-    """LDR (immediate, pre-index), 64-bit: imm9 is signed, in bytes."""
-    return 0xF8400000 | ((imm9 & 0x1FF) << 12) | (rn << 5) | rt
+def _encode_ldr_imm9(imm9, rn=0, rt=1, mode=0):
+    """LDR immediate family: mode 0=LDUR, 1=post-index, 3=pre-index."""
+    assert mode in (0, 1, 3)
+    return (0xF8400000 | ((imm9 & 0x1FF) << 12)
+            | (mode << 10) | (rn << 5) | rt)
 
 
 def _build_image():
@@ -144,7 +146,7 @@ def _build_image():
     for site, page_target, follow in (
             (b_site, b_str & ~0xFFF, _encode_add_imm(b_str & 0xFFF, rn=0, rd=1)),
             (c_site, c_str & ~0xFFF, _encode_ldr_uimm(c_str & 0xFFF, rn=0, rt=1)),
-            (d_site, d_page, _encode_ldr_prepost(d_str - d_page, rn=0, rt=1))):
+            (d_site, d_page, _encode_ldr_imm9(d_str - d_page, rn=0, rt=1, mode=3))):
         page = (BASE + page_target) - ((BASE + site) & ~0xFFF)
         struct.pack_into("<II", text, site, _encode_adrp(page, rd=0), follow)
     for offset, text_value in ((a_str, b"ZeazAdrString\x00"),
@@ -193,10 +195,44 @@ def test_xref_finds_adrp_ldr_reference(image):
     assert [desc for desc, _ in sites] == [f"adrp+ldr_uimm @ 0x{BASE + 0x180:x}"]
 
 
-def test_xref_finds_backward_prepost_reference(image):
-    """`[x0, #-16]!`: the imm9 has to be sign-extended or this reads as +496."""
+def test_xref_finds_backward_preindex_reference(image):
+    """Real pre-index encoding: `[x0, #-16]!` uses mode bits 11."""
     sites = arm64_string_xref.xref(image, "ZeazPrePostString")
-    assert [desc for desc, _ in sites] == [f"adrp+ldr_prepost @ 0x{BASE + 0x200:x}"]
+    assert [desc for desc, _ in sites] == [f"adrp+ldr_pre @ 0x{BASE + 0x200:x}"]
+
+
+def test_decode_ldr_preindex_matches_real_instruction_word():
+    """0xf85f0c01 is `ldr x1, [x0, #-16]!`."""
+    text = bytearray(TEXT_LEN)
+    site, page_target, target = 0x400, 0x4000, 0x3FF0
+    page = (BASE + page_target) - ((BASE + site) & ~0xFFF)
+    struct.pack_into("<II", text, site, _encode_adrp(page, rd=0), 0xF85F0C01)
+    text[target:target + 18] = b"ZeazRealPreIndex\x00"
+    sites = arm64_string_xref.xref(_image_with_text(text), "ZeazRealPreIndex")
+    assert [desc for desc, _ in sites] == [f"adrp+ldr_pre @ 0x{BASE + site:x}"]
+
+
+def test_decode_ldr_postindex_uses_base_before_writeback():
+    """Post-index loads from the unmodified base; imm9 only updates Rn after."""
+    text = bytearray(TEXT_LEN)
+    site, target = 0x400, 0x4000
+    page = (BASE + target) - ((BASE + site) & ~0xFFF)
+    struct.pack_into("<II", text, site, _encode_adrp(page, rd=0),
+                     _encode_ldr_imm9(-16, rn=0, rt=1, mode=1))
+    text[target:target + 19] = b"ZeazRealPostIndex\x00"
+    sites = arm64_string_xref.xref(_image_with_text(text), "ZeazRealPostIndex")
+    assert [desc for desc, _ in sites] == [f"adrp+ldr_post @ 0x{BASE + site:x}"]
+
+
+def test_decode_ldur_uses_signed_unscaled_imm9():
+    text = bytearray(TEXT_LEN)
+    site, page_target, target = 0x400, 0x4000, 0x3FF0
+    page = (BASE + page_target) - ((BASE + site) & ~0xFFF)
+    struct.pack_into("<II", text, site, _encode_adrp(page, rd=0),
+                     _encode_ldr_imm9(-16, rn=0, rt=1, mode=0))
+    text[target:target + 10] = b"ZeazLDUR\x00"
+    sites = arm64_string_xref.xref(_image_with_text(text), "ZeazLDUR")
+    assert [desc for desc, _ in sites] == [f"adrp+ldur @ 0x{BASE + site:x}"]
 
 
 def test_xref_ignores_a_follow_up_that_reads_a_different_register(image):
