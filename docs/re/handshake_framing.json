@@ -12,9 +12,9 @@
     "framing_prefix_len": 0,
     "framing_prefix_hex": "",
     "first_cert": {
-      "subject": "CN=iPhone.3333AF070402AF0002AF000003,OU=Apple FairPlay,O=Apple Inc.,C=US",
+      "subject": "CN=[redacted device identifier],OU=Apple FairPlay,O=Apple Inc.,C=US",
       "issuer": "CN=Apple FairPlay Certification Authority,OU=Apple Certification Authority,O=Apple Inc.,C=US",
-      "serial": "3333af070402af0002af000003",
+      "serial": "REDACTED",
       "not_after": "2012-03-31T15:17:28+00:00",
       "sig_alg": "sha1WithRSAEncryption",
       "key_size": 1024

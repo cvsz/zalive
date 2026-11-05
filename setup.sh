@@ -83,32 +83,6 @@ generate_ssl_certs() {
     fi
 }
 
-# Create host entries for local Albert server
-setup_hosts() {
-    echo "Setting up /etc/hosts entries..."
-    echo ""
-    echo "Add the following to /etc/hosts (requires sudo):"
-    echo "127.0.0.1    albert.apple.com"
-    echo "127.0.0.1    gs.apple.com"
-    echo "127.0.0.1    osrecovery.apple.com"
-    echo "127.0.0.1    appldnld.apple.com"
-    echo "127.0.0.1    mesu.apple.com"
-    echo ""
-    read -p "Add entries to /etc/hosts now? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        sudo sh -c 'cat >> /etc/hosts << EOF
-# Local Albert Activation Server
-127.0.0.1    albert.apple.com
-127.0.0.1    gs.apple.com
-127.0.0.1    osrecovery.apple.com
-127.0.0.1    appldnld.apple.com
-127.0.0.1    mesu.apple.com
-EOF'
-        echo "Host entries added"
-    fi
-}
-
 # Create systemd service (Linux only)
 create_systemd_service() {
     if [[ "$OS" == "linux" ]]; then
@@ -127,7 +101,7 @@ Type=simple
 User=$USER
 WorkingDirectory=$CURRENT_DIR
 Environment=PATH=$CURRENT_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=$CURRENT_DIR/venv/bin/python albert_server.py --host 0.0.0.0 --port 8080 --ssl-cert $CURRENT_DIR/certs/server.crt --ssl-key $CURRENT_DIR/certs/server.key
+ExecStart=$CURRENT_DIR/venv/bin/python albert_server.py --host 127.0.0.1 --port 18090 --ssl-cert $CURRENT_DIR/certs/server.crt --ssl-key $CURRENT_DIR/certs/server.key
 Restart=on-failure
 RestartSec=5
 
@@ -194,7 +168,6 @@ main() {
     install_system_deps
     setup_venv
     generate_ssl_certs
-    setup_hosts
     
     if [[ "$OS" == "linux" ]]; then
         create_systemd_service
@@ -207,7 +180,7 @@ main() {
     echo ""
     echo "To start the server manually:"
     echo "  source venv/bin/activate"
-    echo "  python albert_server.py --host 0.0.0.0 --port 8080 --ssl-cert certs/server.crt --ssl-key certs/server.key"
+    echo "  python albert_server.py --host 127.0.0.1 --port 18090 --ssl-cert certs/server.crt --ssl-key certs/server.key"
     echo ""
     echo "To start the mitmproxy for firmware restore:"
     echo "  mitmproxy -s firmware_restore_proxy.py --set block_global=false"
@@ -216,7 +189,8 @@ main() {
     echo "  python activate_device.py --albert-url https://127.0.0.1:8080"
     echo ""
     echo "Note: For HTTPS, you'll need to trust the self-signed certificate on the device."
-    echo "Or use HTTP with --host 0.0.0.0 --port 8080 (no SSL args)"
+    echo "The server binds to 127.0.0.1 by default. Set ALBERT_HOST=0.0.0.0 only for intentional LAN access."
+    echo "Do not redirect Apple service domains in /etc/hosts."
 }
 
 main "$@"

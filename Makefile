@@ -91,11 +91,11 @@ logs-mitm:
 run:
 	@if [ ! -f .env ]; then echo "ERROR: .env not found. cp .env.example .env"; exit 1; fi
 	@if ! grep -q "ALBERT_ACCEPT_RISK=1" .env; then echo "ERROR: ALBERT_ACCEPT_RISK=1 required in .env"; exit 1; fi
-	$(PYTHON) albert_server.py --host 0.0.0.0 --port 18090
+	$(PYTHON) albert_server.py --host "$${ALBERT_HOST:-127.0.0.1}" --port 18090
 
 run-https:
 	@if [ ! -f .env ]; then echo "ERROR: .env not found"; exit 1; fi
-	$(PYTHON) albert_server.py --host 0.0.0.0 --port 18443 --ssl-cert certs/server.crt --ssl-key certs/server.key
+	$(PYTHON) albert_server.py --host "$${ALBERT_HOST:-127.0.0.1}" --port 18443 --ssl-cert certs/server.crt --ssl-key certs/server.key
 
 # FairPlay key rotation
 rotate-fairplay:

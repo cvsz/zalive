@@ -1,7 +1,7 @@
 # รายงานงาน — Restore, Activation และการวิจัย Firmware ของ iPhone XR
 
 อุปกรณ์: iPhone XR (`iPhone11,8` / `n841ap`, A12 Bionic), BoardID `0x0C`, ChipID `0x8020`
-Serial: `…EKXKQ`  UDID: `00008020-…2E`  ECID: `0x…78002e`
+Device identifiers: redacted.
 โฮสต์: VMware guest `albert-core` (Ubuntu 26.04), repo `/home/cvsz/albert_server`
 ช่วงเวลา: 2026-09-30
 
@@ -201,7 +201,7 @@ response เหมือนเดิมทุก byte (335 bytes) และไ�
 trust anchor ที่แยกออกมาจาก response ของ Apple:
 
 ```
-subject : CN=iPhone.3333AF070402AF0002AF000003,OU=Apple FairPlay,O=Apple Inc.,C=US
+subject : CN=[redacted device identifier],OU=Apple FairPlay,O=Apple Inc.,C=US
 issuer  : CN=Apple FairPlay Certification Authority,OU=Apple Certification Authority
 key     : 1024-bit RSA, SHA-1
 expires : 2012-03-31
@@ -322,7 +322,10 @@ Mach-O: `0xFEEDFACF`, **`CPU_SUBTYPE_ARM64E` (0x2)**, `MH_EXECUTE`,
 ไม่มี `LC_CODE_SIGNATURE` — คาดหวังได้ เพราะ trust anchor คือ tag `IM4P` ภายนอก
 
 iBoot แยกได้เช่นกัน: `iBoot-11881.140.96.700.4` (ตรงกับ output ของตัวเครื่อง)
-มันถูก **บีบอัดสองชั้น** ครั้งแรกได้ magic `0x90000000` ไม่ใช่ Mach-O
+ผลตรวจเพิ่มเติมแก้ข้อสรุปเดิม: payload มี LZFSE ชั้นเดียว และผล decompress
+เป็น raw ARM64 code ไม่ใช่ Mach-O; `0x90000000` เป็น opcode ARM64 (`ADRP x0, #0`)
+ไม่ใช่ compressed-Mach-O marker ดูรายละเอียดและข้อจำกัดได้ใน
+[`FIRMWARE-ANALYSIS-FINDINGS.md`](FIRMWARE-ANALYSIS-FINDINGS.md)
 
 การ sweep ทั้ง segment: **10,149,607 instructions**, 1043 distinct mnemonics
 
@@ -437,10 +440,10 @@ password ของบัญชีถูกส่งผ่านแชต ตร�
    (สคริปต์จะถาม credentials ไม่ส่งผ่าน command line)
 2. **รูปแบบ entry ของ trustcache** — ยังไม่แก้ ต้องใช้เครื่องมือ img4
    หรือ tooling ของ Apple ที่เผยแพร่เพื่อยืนยัน encoding
-3. **AEA containers** — sealed system 6.5 GB และ cryptex 1.7 GB ยังไม่ได้ตรวจ
-   `root_hash`/mtree ตรวจ integrity ได้แต่ไม่เห็นเนื้อหา
-4. **LZFSE ชั้นที่สองของ iBoot** — layer 0x90000000 แยกออกมาแล้ว
-   แต่ยังไม่ถอดเป็น raw Mach-O
+3. **AEA containers** — ตรวจ header และข้อมูล entropy ของตัวอย่าง 64 MiB แล้ว
+   ยืนยันว่า payload เข้ารหัสและต้องใช้ key จาก Apple; เนื้อหายังถอดไม่ได้
+4. **LZFSE payload ภายใน iBoot** — พบสองก้อนที่ decompress ได้เป็น ARM64 code
+   แต่ยังระบุหน้าที่ไม่ได้ ต้องตรวจ descriptor รอบ payload หรือเทียบ iBoot รุ่นอื่น
 5. **สถานะ restore** — erase restore สำเร็จ แต่เครื่องยังไม่ activated
    ไม่สามารถตรวจสอบการกู้คืนข้อมูลได้
 

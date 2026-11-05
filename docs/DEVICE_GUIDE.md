@@ -107,7 +107,7 @@ pymobiledevice3 mobileactivation activate --skip-apple-id-query
 | `ALBERT_BIND_ADDRESS` | `127.0.0.1` | ฝั่ง host ของ Docker port publish — **อย่า**ใช้กับ process ใน container |
 | `ALBERT_HTTP_PORT` | `18090` | พอร์ต HTTP |
 | `ALBERT_HTTPS_PORT` | `18443` | พอร์ต HTTPS |
-| `ALBERT_HOST` | `0.0.0.0` | bind ของ gunicorn ตาม `gunicorn_conf.py` |
+| `ALBERT_HOST` | `127.0.0.1` | bind ของ gunicorn ตาม `gunicorn_conf.py`; ใช้ `0.0.0.0` เฉพาะเมื่อตั้งใจเปิดให้ LAN เข้าถึง |
 | `ALBERT_MODE` | `prod` | โหมดการทำงาน |
 | `ALBERT_ADMIN_TOKEN` | — | **บังคับ** ถ้าไม่ตั้ง endpoint `/api/*` จะปฏิเสธทุกคำขอ |
 | `ALBERT_ACCEPT_RISK` | `0` | ต้องตั้งเป็น `1` โดย operator อย่างชัดเจนถึงจะทำงาน |

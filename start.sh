@@ -16,6 +16,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 # Use 18090 for HTTP and 18443 for HTTPS which are free per ss scan.
 ALBERT_HTTP_PORT=${ALBERT_HTTP_PORT:-18090}
 ALBERT_HTTPS_PORT=${ALBERT_HTTPS_PORT:-18443}
+ALBERT_HOST=${ALBERT_HOST:-127.0.0.1}
 MITMPROXY_PORT=${MITMPROXY_PORT:-8082}
 MITMPROXY_WEB_PORT=${MITMPROXY_WEB_PORT:-8081}
 # Prod mode uses gunicorn (default), dev uses python dev server
@@ -50,17 +51,17 @@ start_albert_dev() {
     pkill -f "albert_server.py.*$ALBERT_HTTP_PORT" 2>/dev/null || true
     if [[ -f "certs/server.crt" && -f "certs/server.key" ]]; then
         log_info "SSL certs found, starting HTTPS on $ALBERT_HTTPS_PORT as well..."
-        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTP_PORT --no-debug > logs/albert.log 2>&1 &
+        python albert_server.py --host "$ALBERT_HOST" --port "$ALBERT_HTTP_PORT" --no-debug > logs/albert.log 2>&1 &
         ALBERT_PID=$!
         echo $ALBERT_PID > .albert.pid
         log_info "Albert HTTP (dev) started (PID: $ALBERT_PID) -> http://127.0.0.1:$ALBERT_HTTP_PORT"
-        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTPS_PORT --ssl-cert certs/server.crt --ssl-key certs/server.key --no-debug > logs/albert-https.log 2>&1 &
+        python albert_server.py --host "$ALBERT_HOST" --port "$ALBERT_HTTPS_PORT" --ssl-cert certs/server.crt --ssl-key certs/server.key --no-debug > logs/albert-https.log 2>&1 &
         ALBERT_HTTPS_PID=$!
         echo $ALBERT_HTTPS_PID > .albert-https.pid
         log_info "Albert HTTPS (dev) started (PID: $ALBERT_HTTPS_PID) -> https://127.0.0.1:$ALBERT_HTTPS_PORT"
     else
         log_warn "SSL certificates not found. Starting HTTP server..."
-        python albert_server.py --host 0.0.0.0 --port $ALBERT_HTTP_PORT --no-debug > logs/albert.log 2>&1 &
+        python albert_server.py --host "$ALBERT_HOST" --port "$ALBERT_HTTP_PORT" --no-debug > logs/albert.log 2>&1 &
         ALBERT_PID=$!
         echo $ALBERT_PID > .albert.pid
         log_info "Albert server (dev) started (PID: $ALBERT_PID) -> http://127.0.0.1:$ALBERT_HTTP_PORT"

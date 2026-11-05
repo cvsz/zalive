@@ -14,6 +14,7 @@ services:
         required: false
     environment:
       - PYTHONUNBUFFERED=1
+      - ALBERT_ADMIN_TOKEN=${ALBERT_ADMIN_TOKEN:?ALBERT_ADMIN_TOKEN must be set}
       - ALBERT_HTTP_PORT=${ALBERT_HTTP_PORT:-18090}
       - ALBERT_HOST=0.0.0.0
       - FAIRPLAY_KEY_PATH=/app/certs/fairplay.key

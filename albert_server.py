@@ -4045,7 +4045,7 @@ def index():
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Local Albert Activation Server')
-    parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
+    parser.add_argument('--host', default=os.environ.get('ALBERT_HOST', '127.0.0.1'), help='Host to bind to (default: %(default)s)')
     parser.add_argument('--port', type=int, default=8080, help='Port to bind to')
     parser.add_argument('--ssl-cert', help='SSL certificate file')
     parser.add_argument('--ssl-key', help='SSL key file')

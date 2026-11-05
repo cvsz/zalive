@@ -33,7 +33,7 @@ def post_fork(server, worker):
     ca = _mtls_ca
     if not ca:
         server.log.warning("ALBERT_MTLS_CA not set — proxy→Albert mTLS disabled (unauthenticated).")
-bind = f"{os.environ.get('ALBERT_HOST','0.0.0.0')}:{os.environ.get('ALBERT_HTTP_PORT','18090')}"
+bind = f"{os.environ.get('ALBERT_HOST','127.0.0.1')}:{os.environ.get('ALBERT_HTTP_PORT','18090')}"
 workers = int(os.environ.get('GUNICORN_WORKERS','2'))
 threads = int(os.environ.get('GUNICORN_THREADS','4'))
 worker_class = "gthread"
