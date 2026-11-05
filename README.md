@@ -136,8 +136,11 @@ All config via environment variables (see `.env.example`):
 ```bash
 pip install -r requirements.txt
 export ALBERT_ACCEPT_RISK=1
-python3 albert_server.py --host 0.0.0.0 --port 18090
+python3 albert_server.py --port 18090
 ```
+
+The local server binds to `127.0.0.1` by default. Set `ALBERT_HOST=0.0.0.0`
+only when LAN access is needed and the host firewall and authentication are configured.
 
 ### Run Tests
 

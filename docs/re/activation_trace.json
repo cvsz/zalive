@@ -1,13 +1,13 @@
 {
   "identity": {
-    "SerialNumber": "\u2026EKXKQ",
-    "UniqueDeviceID": "00008020-\u20262E",
+    "SerialNumber": "REDACTED",
+    "UniqueDeviceID": "REDACTED",
     "ProductType": "iPhone11,8",
     "ProductVersion": "18.7.10",
     "BuildVersion": "22H374",
     "ActivationState": "Unactivated",
-    "InternationalMobileEquipmentIdentity": "35734\u2026491",
-    "MobileEquipmentIdentifier": "35734\u2026249",
+    "InternationalMobileEquipmentIdentity": "REDACTED",
+    "MobileEquipmentIdentifier": "REDACTED",
     "TelephonyCapability": true
   },
   "trace": [
@@ -21,14 +21,14 @@
       "direction": "value",
       "t": 1790771885.8855731,
       "data": {
-        "SerialNumber": "…EKXKQ",
-        "UniqueDeviceID": "00008020-…2E",
+        "SerialNumber": "REDACTED",
+        "UniqueDeviceID": "REDACTED",
         "ProductType": "iPhone11,8",
         "ProductVersion": "18.7.10",
         "BuildVersion": "22H374",
         "ActivationState": "Unactivated",
-        "InternationalMobileEquipmentIdentity": "35734…491",
-        "MobileEquipmentIdentifier": "35734\u2026249",
+        "InternationalMobileEquipmentIdentity": "REDACTED",
+        "MobileEquipmentIdentifier": "REDACTED",
         "TelephonyCapability": true
       }
     },
@@ -64,7 +64,7 @@
         "UniqueDeviceID": {
           "type": "str",
           "len": 25,
-          "sample": "00008020-…2E"
+          "sample": "REDACTED"
         }
       }
     },
@@ -209,7 +209,7 @@
         },
         {
           "tag": "footer",
-          "text": "This iPhone is linked to an Apple account. Enter the Apple account and password that were used to set up this iPhone. w\u2022\u2022\u2022\u2022\u2022@icloud.com"
+          "text": "This iPhone is linked to an Apple account. Enter the Apple account and password that were used to set up this iPhone. [redacted email]"
         },
         {
           "tag": "footer",

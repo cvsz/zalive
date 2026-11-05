@@ -51,10 +51,12 @@ jobs:
         run: python3 scripts/validate.py
       - name: Docker compose config
         env:
+          ALBERT_ADMIN_TOKEN: ci-test-token
           MITMPROXY_WEB_PASSWORD: ci-test-pass
         run: docker compose config
       - name: Docker build (smoke)
         env:
+          ALBERT_ADMIN_TOKEN: ci-test-token
           MITMPROXY_WEB_PASSWORD: ci-test-pass
         run: docker build -t albert-server:ci .
 

@@ -58,7 +58,7 @@ response เป็น `application/xml` ขนาด 1,672–1,688 bytes มี 
 | `RKCertification` | 975 | รูปร่างคล้าย DER แต่เป็น container ไม่มาตรฐาน |
 | `RKSignature` | 71 | ไม่ใช่ RSA-128; น่าจะเป็น ECDSA P-256 `r‖s` + trailer |
 | `serverKP` | 85 | ส่งคืนค่าเดิมจาก response ของ Apple |
-| `signActRequest` | 16 | `f2c87a7a04f3eee930177232e55c2637` |
+| `signActRequest` | 16 | `[redacted certificate serial]` |
 
 จำนวน key ใน `ActivationInfoXML`:
 
@@ -94,9 +94,9 @@ response เป็น `application/xml` ขนาด 1,672–1,688 bytes มี 
 certificate ใบแรกใน `FairPlayCertChain`:
 
 ```
-subject : CN=iPhone.3333AF070402AF0002AF000003,OU=Apple FairPlay,O=Apple Inc.,C=US
+subject : CN=iPhone.[redacted certificate serial],OU=Apple FairPlay,O=Apple Inc.,C=US
 issuer  : CN=Apple FairPlay Certification Authority,OU=Apple Certification Authority,O=Apple Inc.,C=US
-serial  : 3333af070402af0002af000003
+serial  : [redacted certificate serial]
 key     : 1024-bit RSA
 expires : 2012-03-31
 ```

@@ -117,10 +117,11 @@ SEP จึงไม่ได้ถูกจำกัดตามบอร์ด�
 ## หมายเหตุสำหรับการทำงานต่อ
 
 * `scripts/parse_im4.py` รองรับ DER framing แล้ว
-  การ decompress แบบ LZFSE ของ payload `krnl`/`ibot` จะได้ raw kernel Mach-O
-  และ iBoot binary ตามลำดับ
-* การแตก AEA image ต้องใช้เครื่องมือ Apple encrypted-archive
-  `root_hash` + mtree ตรวจสอบ integrity ได้แต่ไม่เห็นเนื้อหา
+  การ decompress แบบ LZFSE ของ payload `krnl` ได้ raw kernel Mach-O;
+  ส่วน `ibot` ได้ raw ARM64 code ไม่ใช่ Mach-O
+* AEA header ระบุ `AEA1` และ WKMS metadata; payload ที่ตรวจมี entropy สูงตลอด
+  ตัวอย่าง 64 MiB และยังถอดไม่ได้หากไม่มี key จาก Apple
+  ดูผลตรวจและข้อจำกัดที่ [`FIRMWARE-ANALYSIS-FINDINGS.md`](FIRMWARE-ANALYSIS-FINDINGS.md)
 * restore log `restore_001224c81178002e_1790768470.log` (ที่ root ของ repo)
   บันทึกการส่งข้อมูล component ทุกรายการที่อธิบายไว้ข้างบนจนจบด้วย
   `Status: Restore Finished`
@@ -215,18 +216,23 @@ unzip -o iPhone11,8_18.7.10_22H374_Restore.ipsw kernelcache.release.iphone11b -d
 
 ### การแยก iBoot
 
-`iBoot.n841.RELEASE.im4p` decompress ได้เหมือนกัน แต่ payload เป็น
-Mach-O ที่ **บีบอัดสองชั้น**: LZFSE frame ให้ blob ที่คำแรกเป็น
-`0x90000000` (compressed-Mach-O marker ของ Apple) ไม่ใช่ `0xFEEDFACE`/`0xFEEDFACF`
-จึงต้องผ่าน LZFSE อีกหนึ่งครั้งเพื่อไปถึง raw Mach-O
+`iBoot.n841.RELEASE.im4p` มี LZFSE ชั้นเดียว เมื่อ decompress แล้วได้
+raw ARM64 code ไม่ใช่ Mach-O. ค่า `0x90000000` ที่ offset 0 คือคำสั่ง ARM64
+`ADRP x0, #0`; ไม่พบ Mach-O magic ในผลลัพธ์ และไม่มี LZFSE ชั้นที่สอง
+ภายในพบ LZFSE-compressed ARM64 code ที่ decompress ได้อีกสองก้อน
+แต่ยังไม่ทราบหน้าที่ของ payload เหล่านั้น
 
 ```
 iBoot.n841.RELEASE.im4p  1,507,241 bytes
   LZFSE payload at offset 48, 1,507,183 bytes
-  -> first pass: 2,159,736 bytes, magic 0x90000000 (compressed Mach-O)
+  -> decompressed once: 2,159,736 bytes of raw ARM64 code
 SHA-256 (first pass): 8d748ce2190a5889ecd4933bd212f90d1308d44d8cee1880ed92b4bbeb057753
 embedded version:      iBoot-11881.140.96.700.4
 ```
+
+`0x90000000` ถอดเป็นคำสั่ง `ADRP x0, #0` ด้วย Capstone จึงไม่ใช่ container
+header. ภายในมี LZFSE payload เพิ่มสองก้อนที่ decompress ได้ แต่ยังระบุบทบาทไม่ได้
+รายละเอียดและขอบเขตการยืนยันอยู่ใน `FIRMWARE-ANALYSIS-FINDINGS.md`.
 
 string `iBoot-11881.140.96.700.4` ที่อยู่ใน payload ตรงกับทั้ง Image4 name field
 และที่ตัวเครื่องพิมพ์ระหว่าง recovery

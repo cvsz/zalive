@@ -39,6 +39,7 @@ REQUIRED_PATHS = (
 
 LINK_RE = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
 SKIP_PREFIXES = ("http://", "https://", "mailto:", "tel:", "#", "data:")
+SKIP_DIRECTORIES = {".git", ".venv", "venv", "node_modules"}
 
 
 def validate_required_paths() -> list[str]:
@@ -60,7 +61,7 @@ def normalize_link_target(raw: str) -> str:
 def validate_markdown_links() -> list[str]:
     errors: list[str] = []
     for md in sorted(ROOT.rglob("*.md")):
-        if ".git" in md.parts:
+        if SKIP_DIRECTORIES.intersection(md.relative_to(ROOT).parts):
             continue
         text = md.read_text(encoding="utf-8")
         for match in LINK_RE.finditer(text):

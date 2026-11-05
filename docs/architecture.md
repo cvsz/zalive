@@ -147,10 +147,10 @@ Flow: `iOS device` â†’ `mitmproxy :28081` (intercepts only `albert.apple.com`) â
 | Mode | Command | Server | TLS | Risk gate |
 |------|---------|--------|-----|-----------|
 | prod (default) | `docker compose up -d` | `gunicorn -c gunicorn_conf.py albert_server:app` | `mitmproxy` terminates TLS; Albert `http` | `ALBERT_ACCEPT_RISK=1` required |
-| dev | `python albert_server.py --host 0.0.0.0 --port 18090` | Flask dev server | Optional `certs/server.crt/key` on `18443` | Same gate |
+| dev | `python albert_server.py --port 18090` | Flask dev server, loopback by default | Optional `certs/server.crt/key` on `18443` | Same gate |
 | docker | `docker compose up -d --build` | `gunicorn` in container | Same as prod | Env `ALBERT_ACCEPT_RISK=1` |
 
-- **Host**: `0.0.0.0:18090` (`ALBERT_HOST` env, `gunicorn_conf.py:bind`), `18443` HTTPS dev only (`certs/server.crt/key`); container `albert-server:18090` vs `127.0.0.1:18090` vs `LOCAL_ALBERT_HOST` toggle (docker `albert-server`, host `127.0.0.1`).
+- **Host**: `127.0.0.1:18090` by default (`ALBERT_HOST` env, `gunicorn_conf.py:bind`); opt into `0.0.0.0` only for intentional LAN exposure. Port `18443` is HTTPS dev only (`certs/server.crt/key`); Docker binds `albert-server:18090` inside its network and publishes to host loopback by default.
 - **Docker Compose** (`docker-compose.yml`): three services `albert-server` (`build: . python:3.14-slim`, `USER app`, `read_only:true` `tmpfs /tmp`, `cap_drop ALL` `cap_add CHOWN/SETUID/SETGID`, `no-new-privileges`, `deploy resources limits cpus 1 memory 512M`, `volumes certs:ro logs`, `env_file .env`, `healthcheck curl /health`) + `mitmproxy` (`image 12.2.3`, `mitmweb -s firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port 28080 --set web_password=$MITMPROXY_WEB_PASSWORD`, ports `127.0.0.1:28080/28081`, `depends_on healthy`, `network albert-network bridge`).
 - **systemd** (`systemd/albert-server.service`): `[Unit] After=network.target`, `[Service] User=cvsz WorkingDirectory=/home/cvsz/albert_server ExecStart=/home/cvsz/albert_server/venv/bin/gunicorn -c gunicorn_conf.py albert_server:app Restart=on-failure RestartSec=5 EnvironmentFile=-.env PrivateTmp NoNewPrivileges`.
 - **Scaling**: `gunicorn` `workers=2 threads=4` (`gthread`), `timeout 30`, `graceful 10`, `keepalive 5`; stateless Flask + SQLite WAL (concurrent reads), rate limiter in-memory per worker (non-distributed).

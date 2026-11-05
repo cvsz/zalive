@@ -141,6 +141,7 @@ def test_docker_compose_config_valid():
     import os
     env = os.environ.copy()
     env["MITMPROXY_WEB_PASSWORD"] = secrets.token_urlsafe(24)
+    env["ALBERT_ADMIN_TOKEN"] = secrets.token_urlsafe(32)
     # 60s, not 15s: on a CI runner with a cold docker daemon this call can take
     # longer than 15s and fail with TimeoutExpired even though the compose file
     # is valid. It takes ~0.2s locally, and the separate `docker compose config`
@@ -148,6 +149,35 @@ def test_docker_compose_config_valid():
     out = subprocess.run(["docker","compose","config"], capture_output=True, text=True, timeout=60, env=env)
     assert out.returncode == 0, out.stderr
     assert "albert-server" in out.stdout
+
+
+def test_docker_compose_requires_explicit_admin_and_mitmproxy_secrets():
+    import subprocess
+
+    env = os.environ.copy()
+    env.pop("ALBERT_ADMIN_TOKEN", None)
+    env.pop("MITMPROXY_WEB_PASSWORD", None)
+    env["ALBERT_ADMIN_TOKEN"] = ""  # nosec B105 - intentionally empty for the fail-closed check
+    missing_admin = subprocess.run(
+        ["docker", "compose", "config", "-q"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+    assert missing_admin.returncode != 0
+    assert "ALBERT_ADMIN_TOKEN must be set" in missing_admin.stderr
+
+    env["ALBERT_ADMIN_TOKEN"] = "test-admin-token"  # nosec B105 - fixed test-only value
+    missing_web_password = subprocess.run(
+        ["docker", "compose", "config", "-q"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+    assert missing_web_password.returncode != 0
+    assert "MITMPROXY_WEB_PASSWORD must be set" in missing_web_password.stderr
 
 def test_restart_key_persistence_tmpdir():
     # use temp dir with FAIRPLAY_KEY_PATH override to avoid depending on host certs/

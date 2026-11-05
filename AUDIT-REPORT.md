@@ -1,5 +1,13 @@
 # Audit Report: /home/cvsz/albert_server
 
+> **Historical snapshot — not a current release approval.** The findings, CI results,
+> branch-protection state, and deployment claims below refer to the historical commits
+> and CI runs named in this report. They have not been revalidated for the current
+> `main` HEAD. The 2026-10-19 working-tree review changed native bind defaults,
+> required non-empty Compose secrets, redacted identifiers in tracked RE evidence,
+> corrected firmware notes, and excluded virtualenv Markdown from repository link
+> validation. These checks do not certify production readiness.
+
 **Project:** Local Albert Activation Server (albert.apple.com emulator) + mitmproxy Firmware Restore Proxy
 **Date:** 2026-09-30 (re-audit after PR #8 security remediation and PR #9 documentation recovery)
 **Reviewer:** Muse Code (final-release-gate + final-security-review + authorization-architecture)
