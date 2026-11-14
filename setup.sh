@@ -91,7 +91,7 @@ create_systemd_service() {
         CURRENT_DIR=$(pwd)
         USER=$(whoami)
         
-        sudo tee $SERVICE_FILE > /dev/null << EOF
+        sudo tee "$SERVICE_FILE" > /dev/null << EOF
 [Unit]
 Description=Local Albert Activation Server
 After=network.target usbmuxd.service
@@ -123,7 +123,7 @@ create_launchd_plist() {
         PLIST_FILE="$HOME/Library/LaunchAgents/com.local.albert-server.plist"
         CURRENT_DIR=$(pwd)
         
-        cat > $PLIST_FILE << EOF
+        cat > "$PLIST_FILE" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -137,7 +137,7 @@ create_launchd_plist() {
         <string>--host</string>
         <string>0.0.0.0</string>
         <string>--port</string>
-        <string>8080</string>
+        <string>18090</string>
         <string>--ssl-cert</string>
         <string>$CURRENT_DIR/certs/server.crt</string>
         <string>--ssl-key</string>
@@ -186,7 +186,7 @@ main() {
     echo "  mitmproxy -s firmware_restore_proxy.py --set block_global=false"
     echo ""
     echo "To activate a device:"
-    echo "  python activate_device.py --albert-url https://127.0.0.1:8080"
+    echo "  python activate_device.py --albert-url http://127.0.0.1:18090"
     echo ""
     echo "Note: For HTTPS, you'll need to trust the self-signed certificate on the device."
     echo "The server binds to 127.0.0.1 by default. Set ALBERT_HOST=0.0.0.0 only for intentional LAN access."
