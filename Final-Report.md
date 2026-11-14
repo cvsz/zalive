@@ -44,6 +44,7 @@
 |---|-------------|-----------|------|
 | 1 | `NameError: name '_RATE_LIMIT_STORE_MAX' is not defined` และ `_RATE_LIMIT_UDID_STORE_MAX` ทำให้ทุก endpoint ที่ผ่าน `_check_rate_limit()` คืน HTTP 500 และทดสอบล้มเหลวยกชุด (25 test fail) | เพิ่มค่าคงที่ `_RATE_LIMIT_STORE_MAX = 100` และ `_RATE_LIMIT_UDID_STORE_MAX = 100` ควบคู่กับค่าคงที่อัตรา limitéเดิม | `albert_server.py` |
 | 2 | `.env` ใช้พอร์ต PostgreSQL `5433` ซึ่งไม่สอดคล้องกับ `ZALIVE_POSTGRES_PORT="5432"` และ hardcode รหัสผ่าน `zalive:zalive` จริงใน `DATABASE_URL`/`TEST_DATABASE_URL` | เปลี่ยนพอร์ตเป็น `5432` และแทนที่รหัสผ่านจริงด้วย `REPLACE_WITH_PASSWORD` (อ่านจาก `/run/secrets/zalive_postgres_password` ตอนรัน) | `.env` |
+| 3 | `_get_redis_client()` พยายามเชื่อมต่อ Redis ที่ไม่ได้รันในทุก request ถึง device endpoint (connect timeout 2 วินาทีต่อครั้ง) ทำให้ชุดทดสอบค้างเกิน 120 วินาที และหน่วยความจำอิน-เมโมรีทำงานซ้ำซ้อน | เพิ่ม backoff cache (`_REDIS_BACKOFF_SECONDS = 30`, `_redis_last_fail_ts`) ใน `_get_redis_client()` เมื่อ Redis เชื่อมต่อไม่สำเร็จ จะไม่ลองใหม่ภายในระยะเวลาดังกล่าว และใช้อัตรา limitéแบบอิน-เมโมรีแทน ทดสอบเหลือ 13.32s | `albert_server.py` |
 
 ### 2.3 การอัปเกรดสถาปัตยกรรม (ที่มีอยู่แล้วและยังคงใช้งานต่อ)
 
