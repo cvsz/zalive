@@ -161,3 +161,6 @@ kernel.decompressed
 *.sweep.json
 iboot.decompressed
 
+# --- Research artifacts (protocol analysis, not committed) ---
+XR_USB_PROTOCOL_ANALYSIS.md
+
