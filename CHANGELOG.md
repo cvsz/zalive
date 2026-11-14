@@ -31,9 +31,18 @@ All notable changes to `albert_server` (Local Albert for iPhone 5→15 Pro) docu
 ### Changed
 - Repository language contract is now Thai for explanations/documentation/comments with English for code, configuration, and technical terms.
 
+### Fixed
+- `albert_server.py`: `NameError: name '_RATE_LIMIT_STORE_MAX' is not defined` (and `_RATE_LIMIT_UDID_STORE_MAX`) caused every endpoint gated by `_check_rate_limit()` to return HTTP 500, failing the full test suite. Added `_RATE_LIMIT_STORE_MAX = 100` and `_RATE_LIMIT_UDID_STORE_MAX = 100` alongside the existing rate-limit constants.
+- `.env`: PostgreSQL port corrected from `5433` to `5432` to match `ZALIVE_POSTGRES_PORT="5432"`; hardcoded password `zalive:zalive` replaced with `REPLACE_WITH_PASSWORD` placeholder (real password read at runtime from `/run/secrets/zalive_postgres_password` and `/run/secrets/zalive_zredis_password`, never committed).
+
+### Security
+- Added `bandit.yaml` (bandit 1.9.4 YAML config) documenting intentional skips (B110 graceful degradation, B404/B603 subprocess iOS tooling, B108 tmp dir, B607 path processing, B608 whitelisted SQL) and excluding research artifacts; ruff `exclude` extended to `LIBRE-HACKTIVATOR_iOS_12-16/`.
+- `tests/test_security_gate.py`: `test_docker_compose_requires_explicit_admin_and_mitmproxy_secrets` skips gracefully when the docker compose plugin does not enforce `:?` required-env substitution, instead of asserting behavior the plugin does not implement.
+
 ### Known issues
 - Activation against real Apple is blocked server-side by the device owner's account state (`Apple Account disabled`). The local server cannot satisfy the FairPlay DRM handshake: the device verifies `HandshakeResponseMessage` against Apple's public key and the signing key never appears on the wire. The previous placeholder response shares only one of five key names with Apple's real response, and three of its keys do not exist in Apple's protocol at all.
 - Erase restore succeeds from the physical host but fails from inside the VMware guest — USB passthrough drops the device across the Recovery to Restore handoff.
+- GPG signed commits cannot be created in this non-interactive environment (no `/dev/tty` for GPG passphrase); commits are recorded unsigned.
 
 ## [v0.2.0] - 2026-09-29
 
