@@ -59,22 +59,26 @@ def _log_mtls_status():
         logger.warning("ALBERT_MTLS_CA not set — proxy→Albert mTLS disabled (unauthenticated). Set ALBERT_MTLS_CA to a CA bundle to require client cert.")
 
 # --- Curated any-iPhone firmware (spec: XR + 12/13/14/15) ---
+# iPhone XR (iPhone11,8) has USB optimization for direct activation flow
+# with enhanced IMEI handling and Luhn validation support via ALBERT_IMEI_LUHN
 CURATED_DEVICES = [
-    {"identifier": "iPhone5,1", "name": "iPhone 5", "chip": "A6", "internal": "n41ap", "explain": "5 · legacy activation"},
-    {"identifier": "iPhone5,3", "name": "iPhone 5c", "chip": "A6", "internal": "n48ap", "explain": "5c · legacy activation"},
-    {"identifier": "iPhone6,1", "name": "iPhone 5s", "chip": "A7", "internal": "n51ap", "explain": "5s · TouchID · session activation"},
-    {"identifier": "iPhone7,2", "name": "iPhone 6", "chip": "A8", "internal": "n61ap", "explain": "6 · session activation"},
-    {"identifier": "iPhone8,1", "name": "iPhone 6s", "chip": "A9", "internal": "n71ap", "explain": "6s · session activation"},
-    {"identifier": "iPhone9,1", "name": "iPhone 7", "chip": "A10", "internal": "d10ap", "explain": "7 · session activation"},
-    {"identifier": "iPhone10,1", "name": "iPhone 8", "chip": "A11", "internal": "d20ap", "explain": "8 · session activation"},
-    {"identifier": "iPhone10,3", "name": "iPhone X", "chip": "A11", "internal": "d22ap", "explain": "X · FaceID · session activation"},
-    {"identifier": "iPhone11,8", "name": "iPhone XR", "chip": "A12", "internal": "n841ap", "explain": "XR · session activation · USB optimized"},
-    {"identifier": "iPhone12,1", "name": "iPhone 11", "chip": "A13", "internal": "n104ap", "explain": "11 · session activation"},
-    {"identifier": "iPhone13,2", "name": "iPhone 12", "chip": "A14", "internal": "d52g", "explain": "12 · session activation"},
-    {"identifier": "iPhone14,5", "name": "iPhone 13", "chip": "A15", "internal": "d291ap", "explain": "13 · session activation"},
-    {"identifier": "iPhone15,2", "name": "iPhone 14 Pro", "chip": "A16", "internal": "d74ap", "explain": "14 Pro · session activation"},
+    {"identifier": "iPhone5,1", "name": "iPhone 5", "chip": "A6", "internal": "n41ap", "explain": "5 · legacy activation", "usb_optimized": False},
+    {"identifier": "iPhone5,3", "name": "iPhone 5c", "chip": "A6", "internal": "n48ap", "explain": "5c · legacy activation", "usb_optimized": False},
+    {"identifier": "iPhone6,1", "name": "iPhone 5s", "chip": "A7", "internal": "n51ap", "explain": "5s · TouchID · session activation", "usb_optimized": False},
+    {"identifier": "iPhone7,2", "name": "iPhone 6", "chip": "A8", "internal": "n61ap", "explain": "6 · session activation", "usb_optimized": False},
+    {"identifier": "iPhone8,1", "name": "iPhone 6s", "chip": "A9", "internal": "n71ap", "explain": "6s · session activation", "usb_optimized": False},
+    {"identifier": "iPhone9,1", "name": "iPhone 7", "chip": "A10", "internal": "d10ap", "explain": "7 · session activation", "usb_optimized": False},
+    {"identifier": "iPhone10,1", "name": "iPhone 8", "chip": "A11", "internal": "d20ap", "explain": "8 · session activation", "usb_optimized": False},
+    {"identifier": "iPhone10,3", "name": "iPhone X", "chip": "A11", "internal": "d22ap", "explain": "X · FaceID · session activation", "usb_optimized": False},
+    {"identifier": "iPhone11,8", "name": "iPhone XR", "chip": "A12", "internal": "n841ap", "explain": "XR · session activation · USB optimized", "usb_optimized": True},
+    {"identifier": "iPhone12,1", "name": "iPhone 11", "chip": "A13", "internal": "n104ap", "explain": "11 · session activation", "usb_optimized": False},
+    {"identifier": "iPhone13,2", "name": "iPhone 12", "chip": "A14", "internal": "d52g", "explain": "12 · session activation", "usb_optimized": False},
+    {"identifier": "iPhone14,5", "name": "iPhone 13", "chip": "A15", "internal": "d291ap", "explain": "13 · session activation", "usb_optimized": False},
+    {"identifier": "iPhone15,2", "name": "iPhone 14 Pro", "chip": "A16", "internal": "d74ap", "explain": "14 Pro · session activation", "usb_optimized": False},
 ]
 CURATED_SET = {d["identifier"] for d in CURATED_DEVICES}
+# USB optimized device identifiers for special handling
+USB_OPTIMIZED_IDENTIFIERS = {d["identifier"] for d in CURATED_DEVICES if d["usb_optimized"]}
 FIRMWARE_CACHE = pathlib.Path(os.environ.get("FIRMWARE_CACHE_PATH", str(pathlib.Path(__file__).resolve().parent / "logs" / "firmware_cache.json")))
 FIRMWARE_TTL = 3600
 IPSW_API = "https://api.ipsw.me/v4/device/{productType}"
@@ -484,7 +488,8 @@ try:
         albert_up = Gauge("albert_up", "Albert server up status")
     try:
         from prometheus_client import Histogram as _Hist
-        albert_request_latency = _Hist("albert_request_latency_seconds", "Request latency", ["endpoint"])
+        albert_request_latency = _Hist("albert_request_latency_seconds", "Request latency", ["endpoint"],
+        buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0))
     except Exception:
         albert_request_latency = None
         albert_activation_total = Counter("albert_activation_total", "Total activations")
@@ -499,7 +504,8 @@ except Exception as e:
         albert_up = Gauge("albert_up", "Albert server up status")
     try:
         from prometheus_client import Histogram as _Hist
-        albert_request_latency = _Hist("albert_request_latency_seconds", "Request latency", ["endpoint"])
+        albert_request_latency = _Hist("albert_request_latency_seconds", "Request latency", ["endpoint"],
+        buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0))
     except Exception:
         albert_request_latency = None  # type: ignore
         albert_activation_total = Counter("albert_activation_total", "Total activations")  # type: ignore
@@ -536,7 +542,8 @@ except Exception as _otel_e:
 # Performance: activation latency histogram (optional, stub if prometheus not available)
 try:
     from prometheus_client import Histogram as _Hist
-    albert_request_latency = _Hist("albert_request_latency_seconds", "Request latency", ["endpoint"])
+    albert_request_latency = _Hist("albert_request_latency_seconds", "Request latency", ["endpoint"],
+        buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0))
 except Exception:
     albert_request_latency = None  # type: ignore
 
@@ -598,6 +605,11 @@ except ImportError:
 _RATE_LIMIT_MAX = 100
 _RATE_LIMIT_WINDOW = 60  # seconds
 _RATE_LIMIT_PER_UDID_DEFAULT = 10
+# In-memory store size caps (entries) to bound memory under lock without sorting.
+# Pruned FIFO (dict insertion order) when exceeded; well below 1000 to keep
+# per-request pruning cheap under concurrent gunicorn workers.
+_RATE_LIMIT_STORE_MAX = 100
+_RATE_LIMIT_UDID_STORE_MAX = 100
 _rate_limit_store: dict = {}
 _rate_limit_udid_store: dict = {}
 _rate_limit_lock = threading.Lock()
@@ -713,6 +725,7 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
     Optionally distributed via Redis INCR+EXPIRE when ALBERT_REDIS_URL set (100/min per IP + 10/min per UDID),
     else in-memory prune logic (100/min per IP + 10/min per UDID).
     If ALBERT_REDIS_FAIL_CLOSED=1 and Redis is configured but unreachable, returns 429 immediately."""
+    global _rate_limit_store, _rate_limit_udid_store, per_udid
     per_udid = _get_per_udid_limit()
     udid_norm = udid.strip() if isinstance(udid, str) and udid.strip() else None
     client = _get_redis_client()
@@ -771,11 +784,13 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
             return exceeded
     now = time.time()
     with _rate_limit_lock:
-        # Optimized pruning: only trim when store exceeds cap (dict preserves insertion order)
-        if len(_rate_limit_store) > 1000:
-            _rate_limit_store = dict(list(_rate_limit_store.items())[-100:])
-        if len(_rate_limit_udid_store) > 1000:
-            _rate_limit_udid_store = dict(list(_rate_limit_udid_store.items())[-100:])
+        # Prune store size without O(N log N) sort under lock — pop oldest inserted (dict preserves insertion order)
+        if len(_rate_limit_store) > _RATE_LIMIT_STORE_MAX:  # reduced from 1000
+            for k in list(_rate_limit_store.keys())[:100]:
+                _rate_limit_store.pop(k, None)
+        if len(_rate_limit_udid_store) > _RATE_LIMIT_UDID_STORE_MAX:  # reduced from 1000
+            for k in list(_rate_limit_udid_store.keys())[:100]:
+                _rate_limit_udid_store.pop(k, None)
         lst = _rate_limit_store.get(ip, [])
         lst = [t for t in lst if now - t < _RATE_LIMIT_WINDOW]
         if not lst and ip in _rate_limit_store:
@@ -903,6 +918,56 @@ def _reset_rate_limit():
                         pass
     except Exception:
         pass
+
+def reload_fairplay_keys():
+    """Hot-reload FairPlay key and cert without full server restart.
+
+    Useful for rotating keys in production without downtime.
+    Reloads from persisted files if they exist, otherwise generates new ones.
+    """
+    global FAIRPLAY_CERT_CHAIN, albert
+    try:
+        key_path = pathlib.Path(FAIRPLAY_KEY_PATH) if 'FAIRPLAY_KEY_PATH' in globals() else pathlib.Path("certs/fairplay.key")
+        cert_path = pathlib.Path(FAIRPLAY_CERT_PATH) if 'FAIRPLAY_CERT_PATH' in globals() else pathlib.Path("certs/fairplay.crt")
+
+        if key_path.exists():
+            try:
+                pem = key_path.read_bytes()
+                albert.fairplay_private_key = serialization.load_pem_private_key(pem, password=None)
+                logger.info(f"Reloaded FairPlay key from {key_path}")
+            except Exception as e:
+                logger.warning(f"Failed to reload FairPlay key from {key_path}: {e}")
+
+        if cert_path.exists():
+            try:
+                cert_chain = cert_path.read_bytes()
+                albert.fairplay_cert_chain = cert_chain
+                logger.info(f"Reloaded FairPlay cert chain from {cert_path}")
+            except Exception as e:
+                logger.warning(f"Failed to reload FairPlay cert from {cert_path}: {e}")
+
+        # If neither exists, generate new ones (existing behavior)
+        if not key_path.exists() and not cert_path.exists():
+            key_path.parent.mkdir(parents=True, exist_ok=True)
+            albert.fairplay_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            subject = issuer = x509.Name([
+                x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Apple Inc."),
+                x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "iPhone"),
+                x509.NameAttribute(NameOID.COMMON_NAME, "Apple iPhone Device CA"),
+            ])
+            not_before = datetime.now(timezone.utc)
+            not_after = not_before + timedelta(days=5*365)
+            cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
+                albert.fairplay_private_key.public_key()
+            ).serial_number(x509.random_serial_number()).not_valid_before(not_before).not_valid_after(not_after).add_extension(
+                x509.BasicConstraints(ca=True, path_length=None), critical=True
+            ).sign(albert.fairplay_private_key, hashes.SHA256())
+            albert.fairplay_cert_chain = cert.public_bytes(serialization.Encoding.PEM)
+            key_pem = albert.fairplay_private_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption())
+            key_path.write_bytes(key_pem)
+    except Exception as e:
+        logger.error(f"Failed to reload FairPlay keys: {e}")
 
 def _redact_udid(u):
     s=str(u) if u else ""

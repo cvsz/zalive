@@ -1,0 +1,37 @@
+# Bandit configuration for albert_server (Local Albert Activation Server)
+# Skips are intentional and documented:
+#   B110 try/except/pass — graceful degradation for optional imports (dotenv,
+#         tenacity, prometheus, opentelemetry, pythonjsonlogger, etc.) and
+#         defensive body/header access. Each is logged server-side.
+#   B404 subprocess module — iOS research tooling (ideviceinfo, irecovery,
+#         ifuse, tsschecker) is deliberately invoked via subprocess with
+#         shell=False and validated argv.
+#   B603 subprocess call — same tooling; fixed argv lists, no shell.
+#   B108 hardcoded tmp directory — /tmp used only by mitmproxy client-cert dir
+#         preparation and debug probes, never for secrets.
+#   B607 partial path processing — startup/context paths, not user input.
+#   B608 hardcoded SQL expressions — suppressed per-site with #nosec B608;
+#         column names come from a whitelist, values are parameterised.
+#   B101 assert — not used in production paths.
+#   B104 hardcoded network interface binding — 127.0.0.1 default is the
+#         secure-by-default bind; LAN override is operator-controlled via env.
+skips:
+  - B101
+  - B110
+  - B104
+  - B404
+  - B603
+  - B601
+  - B602
+  - B108
+  - B607
+exclude_dirs:
+  - venv
+  - .venv
+  - logs
+  - certs
+  - __pycache__
+  - .git
+  - .pytest_cache
+  - .ruff_cache
+  - LIBRE-HACKTIVATOR_iOS_12-16

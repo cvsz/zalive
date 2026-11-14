@@ -59,6 +59,17 @@ except ImportError:
     def retry_if_exception_type(exc):
         return None
 
+# --- IMEI Luhn validation support ---
+try:
+    import hashlib
+    LUHN_AVAILABLE = True
+except ImportError:
+    LUHN_AVAILABLE = False
+
+# iPhone XR (iPhone11,8) USB optimization identifiers
+# These devices have enhanced USB activation flow with IMEI handling
+USB_OPTIMIZED_IDENTIFIERS = {"iPhone11,8"}  # iPhone XR
+
 # --- Circuit breaker: in-memory FAIL_COUNT per base_url, open after 5 failures for 30s, return 503 + header X-Circuit-Breaker ---
 FAIL_COUNT: Dict[str, int] = {}
 _CIRCUIT_OPENED_AT: Dict[str, float] = {}
@@ -196,10 +207,32 @@ _IMEI_RE = re.compile(r"^\d{15}$")
 _UDID_40_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 _UDID_25_RE = re.compile(r"^00008020-[0-9a-fA-F]{16}$")
 
+def _luhn_check(imei: str) -> bool:
+    """Validate IMEI using Luhn algorithm (last digit is check digit)."""
+    if not _IMEI_RE.fullmatch(imei):
+        return False
+    digits = [int(d) for d in imei]
+    check_digit = digits[-1]
+    total = 0
+    for i, d in enumerate(digits[:-1]):
+        if i % 2 == 0:
+            total += d
+        else:
+            doubled = d * 2
+            total += doubled if doubled < 10 else doubled - 9
+    return (total * 9) % 10 == check_digit
+
 def _validate_imei(v) -> bool:
     if v is None or v == "":
         return True
-    return bool(_IMEI_RE.fullmatch(str(v).strip()))
+    s = str(v).strip()
+    if not _IMEI_RE.fullmatch(s):
+        return False
+    # Optional: enforce Luhn check (Apple does, but some test IMEIs may not pass)
+    # Set ALBERT_IMEI_LUHN=1 to enforce
+    if os.environ.get("ALBERT_IMEI_LUHN", "0") == "1":
+        return _luhn_check(s)
+    return True
 
 def _validate_udid(v) -> bool:
     if v is None or v == "":
@@ -447,6 +480,20 @@ class LocalAlbertClient:
         # FIX: properly base64 encode the plist bytes
         activation_plist = plistlib.dumps(activation_info)
         activation_b64 = base64.b64encode(activation_plist).decode()
+
+        # iPhone XR (iPhone11,8) USB optimization: ensure IMEI is 15 digits and valid
+        # when ProductType iPhone11,8 is detected
+        product_type = activation_info.get("ProductType", "")
+        if product_type == "iPhone11,8" and imei_val:
+            if len(imei_val) != 15:
+                logger.warning(f"iPhone XR IMEI should be 15 digits, got {len(imei_val)} digits")
+            # Apply Luhn validation if ALBERT_IMEI_LUHN is enabled
+            if os.environ.get("ALBERT_IMEI_LUHN", "0") == "1" and not _luhn_check(imei_val):
+                logger.warning(f"iPhone XR IMEI failed Luhn check: {imei_val}")
+        # Enhanced: also check for USB optimized ProductTypes generically
+        if product_type in USB_OPTIMIZED_IDENTIFIERS and imei_val:
+            if len(imei_val) != 15:
+                logger.warning(f"USB optimized device IMEI should be 15 digits, got {len(imei_val)} digits")
 
         if session_mode and handshake_response:
             if isinstance(handshake_response, bytes):
@@ -720,8 +767,8 @@ async def main():
     parser.add_argument("--skip-apple-id", action="store_true",
                         help="Skip Apple ID prompt (treat as iCloud lock)")
     parser.add_argument("--imei", help="Device IMEI (15 digits, optional, default: XR test IMEI 350000000000006)")
-parser.add_argument("--method", choices=["pymobiledevice3", "ideviceactivation", "direct", "auto"],
-                        default="auto", help="Activation method to use")
+    parser.add_argument("--method", choices=["pymobiledevice3", "ideviceactivation", "direct", "auto"],
+                         default="auto", help="Activation method to use")
     parser.add_argument("--info", action="store_true", help="Show device info only")
     parser.add_argument("--json", action="store_true", dest="json_output", help="Output results as JSON")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help=f"Request timeout seconds (default: {DEFAULT_TIMEOUT})")
