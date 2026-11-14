@@ -31,6 +31,22 @@ cp .env.example .env
 # ALBERT_ACCEPT_RISK=1 is required (operator must explicitly opt-in)
 ```
 
+### Database secrets (PostgreSQL / Redis — optional external backend)
+
+If using an external PostgreSQL/Redis backend, create the password files **before** starting
+(requires root/sudo because `/run/secrets` is owned by root):
+
+```bash
+sudo mkdir -p /run/secrets
+sudo openssl rand -base64 32 | sudo tee /run/secrets/zalive_postgres_password > /dev/null
+sudo openssl rand -base64 32 | sudo tee /run/secrets/zalive_zredis_password > /dev/null
+sudo chmod 600 /run/secrets/zalive_postgres_password /run/secrets/zalive_zredis_password
+```
+
+Then uncomment and set the `DATABASE_URL`, `TEST_DATABASE_URL`, `ZALIVE_*`, and `ALBERT_REDIS_URL`
+variables in `.env` (see the Configuration table below). SQLite remains the default backend
+when these are not set.
+
 ### 2. Start Services
 
 ```bash
@@ -128,6 +144,14 @@ All config via environment variables (see `.env.example`):
 | `ALBERT_REDIS_URL` | — | Redis for distributed rate limiting |
 | `ALBERT_MTLS_CA` | — | CA bundle for proxy→Albert mTLS |
 | `MITMPROXY_WEB_PASSWORD` | **required** | mitmproxy web UI password |
+| `DATABASE_URL` | — | PostgreSQL URL (optional external DB), e.g. `postgresql://zalive:$(cat /run/secrets/zalive_postgres_password)@zpostgressql:5432/zcoder_db` |
+| `TEST_DATABASE_URL` | — | PostgreSQL test URL, e.g. `postgresql://zalive:$(cat /run/secrets/zalive_postgres_password)@zpostgressql:5432/zalive_db` |
+| `ZALIVE_POSTGRES_HOST` | `zpostgressql` | PostgreSQL host |
+| `ZALIVE_POSTGRES_PORT` | `"5432"` | PostgreSQL port |
+| `ZALIVE_POSTGRES_PASSWORD_FILE` | `/run/secrets/zalive_postgres_password` | Path to PostgreSQL password file |
+| `ZALIVE_REDIS_HOST` | `zredis` | Redis host |
+| `ZALIVE_REDIS_PORT` | `"6379"` | Redis port |
+| `ZALIVE_REDIS_PASSWORD_FILE` | `/run/secrets/zalive_zredis_password` | Path to Redis password file |
 
 ## Development
 
