@@ -1387,6 +1387,51 @@ class AlbertServer:
         signature = self.fairplay_private_key.sign(activation_info, padding.PKCS1v15(), hashes.SHA1())  # nosec B303/B324
         return signature
 
+    def generate_handshake_response_message(self, challenge: bytes) -> dict:
+        """Generate a HandshakeResponseMessage signed by the local FairPlay key.
+
+        Mirrors Apple's hop-2 drmHandshake response structure for protocol
+        research. The message is signed with the local FairPlay private key
+        (RSA-PKCS1v15-SHA1, the Apple ARS algorithm) so the response carries
+        a real cryptographic signature rather than a placeholder.
+
+        Note: this is a local research signature. Real iOS devices verify
+        against Apple's FairPlay CA public key, which is never present on
+        the wire here, so a real device will still reject a local response.
+        This endpoint exists for protocol research and request-handling tests
+        only (see docs/re/ACTIVATION-PROTOCOL.md).
+        """
+        server_random = os.urandom(32)
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        # Canonical message to sign: challenge || server_random || timestamp
+        canonical = challenge + server_random + timestamp.encode("utf-8")
+
+        # Sign with FairPlay key using SHA-1 (Apple ARS protocol mandate)
+        signature = self.fairplay_private_key.sign(
+            canonical, padding.PKCS1v15(), hashes.SHA1()  # nosec B303/B324
+        )
+
+        message = {
+            "challenge": base64.b64encode(challenge).decode(),
+            "server_random": base64.b64encode(server_random).decode(),
+            "timestamp": timestamp,
+            "signature": base64.b64encode(signature).decode(),
+            "signature_algorithm": "RSA-PKCS1v15-SHA1",
+        }
+
+        # Serialize as binary plist for compact transport
+        message_plist = plistlib.dumps(message, fmt=plistlib.FMT_BINARY)
+        message_b64 = base64.b64encode(message_plist).decode()
+
+        return {
+            "HandshakeResponseMessage": message_b64,
+            "ServerRandom": base64.b64encode(server_random).decode(),
+            "ServerCertificate": base64.b64encode(self.fairplay_cert_chain).decode(),
+            "ServerSignature": base64.b64encode(signature).decode(),
+            "SessionID": str(uuid.uuid4()),
+        }
+
     def create_activation_record(self, activation_info: dict, session_mode: bool = False) -> dict:
         """Create a valid activation record response. Never returns bytes."""
         device_class = activation_info.get("DeviceClass", "iPhone")
@@ -1628,16 +1673,35 @@ def drm_handshake():
             logger.warning(f"Failed to parse handshake plist: {e}, trying base64 path")
             return _activation_error("invalid plist", 400)
         logger.debug(f"Handshake request keys: {list(handshake_request.keys()) if isinstance(handshake_request, dict) else type(handshake_request)}")
+        # Extract challenge from the device's handshake request
+        challenge = b""
+        if isinstance(handshake_request, dict):
+            hr = handshake_request.get("HandshakeRequestMessage", b"")
+            if isinstance(hr, str):
+                challenge = hr.encode("utf-8")
+            elif isinstance(hr, (bytes, bytearray)):
+                challenge = bytes(hr)
+        if not challenge:
+            # No usable challenge: use server random as a self-challenge so the
+            # response still carries a real signature
+            challenge = os.urandom(32)
+
+        # Generate a signed HandshakeResponseMessage instead of a placeholder
+        hrm = albert.generate_handshake_response_message(challenge)
         response = {
-            # Apple คืน 4 key: serverKP(85B), FDRBlob(32B), SUInfo(366B),
-            # HandshakeResponseMessage(508B มีลายเซ็น)
-            # ส่วน "Server*" ทั้ง 3 key ไม่ได้อยู่ในโปรโตคอลของ Apple
-            # คงไว้เพื่อรักษา shape ของ response ให้ตรงกับ tooling เดิมเท่านั้น
-            "HandshakeResponseMessage": base64.b64encode(b"handshake_response_placeholder").decode(),
-            "ServerRandom": base64.b64encode(os.urandom(32)).decode(),
-            "SessionID": str(uuid.uuid4()),
-            "ServerCertificate": base64.b64encode(FAIRPLAY_CERT_CHAIN).decode(),
-            "ServerSignature": base64.b64encode(b"server_signature_placeholder").decode(),
+            # Keep Apple-compatible field names where they match:
+            #   HandshakeResponseMessage — signed message (research signature)
+            #   ServerCertificate        — local FairPlay CA cert chain
+            #   ServerSignature          — raw signature over canonical message
+            #   ServerRandom             — server random nonce
+            #   SessionID                — unique session identifier
+            # Apple's real response also has serverKP/FDRBlob/SUInfo which are
+            # not reproducible locally; they are intentionally omitted here.
+            "HandshakeResponseMessage": hrm["HandshakeResponseMessage"],
+            "ServerCertificate": hrm["ServerCertificate"],
+            "ServerSignature": hrm["ServerSignature"],
+            "ServerRandom": hrm["ServerRandom"],
+            "SessionID": hrm["SessionID"],
         }
         response_plist = plistlib.dumps(response)
         return Response(response_plist, mimetype='application/xml')

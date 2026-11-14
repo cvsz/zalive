@@ -7,6 +7,9 @@ import sqlite3
 import tempfile
 import uuid
 
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+
 import pytest
 
 # Tests exercise /deviceservices/* endpoints via the test client. The test
@@ -117,6 +120,57 @@ def test_drm_handshake():
     assert r.status_code == 200
     pl = plistlib.loads(r.data)
     assert "ServerCertificate" in pl
+
+
+def test_drm_handshake_returns_signed_response():
+    """drmHandshake must return a signed HandshakeResponseMessage, not a placeholder."""
+    albert_server._reset_rate_limit()
+    c = albert_server.app.test_client()
+    blob = {"CollectionBlob": b"a", "HandshakeRequestMessage": b"b", "UniqueDeviceID": "test"}
+    r = c.post(
+        "/deviceservices/drmHandshake",
+        data=plistlib.dumps(blob),
+        content_type="application/x-apple-plist",
+        **_cert_headers(),
+    )
+    assert r.status_code == 200
+    pl = plistlib.loads(r.data)
+    assert "HandshakeResponseMessage" in pl
+    assert "ServerCertificate" in pl
+    assert "ServerSignature" in pl
+    assert "ServerRandom" in pl
+    assert "SessionID" in pl
+    # Must not be the old placeholder
+    assert pl["HandshakeResponseMessage"] != base64.b64encode(
+        b"handshake_response_placeholder"
+    ).decode()
+    assert pl["ServerSignature"] != base64.b64encode(b"server_signature_placeholder").decode()
+    # Server certificate should match the local FairPlay CA chain
+    assert pl["ServerCertificate"] == base64.b64encode(
+        albert_server.FAIRPLAY_CERT_CHAIN
+    ).decode()
+
+
+def test_generate_handshake_response_message_verifies():
+    """generate_handshake_response_message produces a verifiable RSA-PKCS1v15-SHA1 signature."""
+    challenge = os.urandom(32)
+    hrm = albert_server.albert.generate_handshake_response_message(challenge)
+    # Decode the inner message plist
+    inner = plistlib.loads(base64.b64decode(hrm["HandshakeResponseMessage"]))
+    assert inner["signature_algorithm"] == "RSA-PKCS1v15-SHA1"
+    assert inner["challenge"] == base64.b64encode(challenge).decode()
+    # Verify signature over canonical message: challenge || server_random || timestamp
+    canonical = (
+        challenge
+        + base64.b64decode(inner["server_random"])
+        + inner["timestamp"].encode("utf-8")
+    )
+    albert_server.albert.fairplay_private_key.public_key().verify(
+        base64.b64decode(inner["signature"]),
+        canonical,
+        padding.PKCS1v15(),
+        hashes.SHA1(),  # nosec B303/B324 - Apple ARS protocol mandate
+    )
 
 
 def test_activation_with_csr():
