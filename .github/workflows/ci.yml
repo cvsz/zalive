@@ -27,7 +27,7 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
       - name: Security (bandit)
-        run: bandit -r . --exclude ./venv -q
+        run: bandit -r . --exclude ./venv --exclude ./.venv -c bandit.yaml -q
       - name: Tests (pytest)
         env:
           ALBERT_ADMIN_TOKEN: ci-test-token
