@@ -50,12 +50,15 @@ lint:
 lint-fix:
 	$(RUFF) check . --fix
 
-# Security
+# Security (bandit อ่านคอนฟิกจาก bandit.yaml ซึ่งบันทึก skips ตั้งใจไว้แล้ว:
+# B110 graceful degradation, B404/B603 เครื่องมือวิจัย iOS ใช้ shell=False,
+# B108 tmp dir เตรียม cert mitmproxy, B607 path เฉพาะตอนเริ่มต้นระบบ,
+# B104 bind ค่าเริ่มต้น 127.0.0.1 ปลอดภัยโดยเจตนา — ระบุ -c เพื่อให้ใช้คอนฟิกจริง)
 security:
-	$(BANDIT) -r . --exclude ./venv -q
+	$(BANDIT) -r . --exclude ./venv --exclude ./.venv -c bandit.yaml -q
 
 security-verbose:
-	$(BANDIT) -r . --exclude ./venv
+	$(BANDIT) -r . --exclude ./venv --exclude ./.venv -c bandit.yaml
 
 # Combined checks
 check: lint security test

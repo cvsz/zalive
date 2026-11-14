@@ -1,3 +1,37 @@
-[bandit]
-skips = B101,B110,B104,B404,B603,B601,B602,B108,B607
-exclude_dirs = venv,.venv,logs,certs,__pycache__,.git,.pytest_cache,.ruff_cache
+# Bandit configuration for albert_server (Local Albert Activation Server)
+# Format: YAML (bandit 1.9.x reads .bandit / bandit.yaml / pyproject.toml / setup.cfg).
+# Kept as .bandit so `bandit -r .` (and `make security`) auto-discovers it.
+#
+# Skips are intentional and documented in bandit.yaml:
+#   B110 try/except/pass — graceful degradation for optional imports and
+#                            defensive body/header access; logged server-side.
+#   B404  subprocess module — iOS research tooling invoked via subprocess with
+#                             shell=False and validated argv.
+#   B603  subprocess call — fixed argv lists, no shell expansion.
+#   B108  hardcoded tmp directory — /tmp used only for mitmproxy client-cert dir
+#                                   preparation and debug probes, never secrets.
+#   B607  start process with partial path — startup/context paths, not user input.
+#   B104  hardcoded bind all interfaces — 127.0.0.1 default is secure-by-default;
+#                                         LAN override is operator-controlled via env.
+#   B608  hardcoded SQL expressions — suppressed per-site with #nosec B608; column
+#                                     names come from a whitelist, values parameterised.
+#   B303 / B324 — SHA-1 mandated by Apple's APTicket/ARS protocol (nosec inline).
+skips:
+  - B101
+  - B110
+  - B104
+  - B404
+  - B603
+  - B601
+  - B602
+  - B108
+  - B607
+exclude_dirs:
+  - venv
+  - .venv
+  - logs
+  - certs
+  - __pycache__
+  - .git
+  - .pytest_cache
+  - .ruff_cache

@@ -12,7 +12,9 @@ set -euo pipefail
 
 PR_NUMBER="${1:?missing PR number}"
 AUDIT_RESULT="${2:?missing audit result}"
-AUTO_APPROVE_SAFE="${3:?missing auto-approve safe flag}"
+# อาร์กิวเมนต์ที่ 3 (auto-approve safe flag) ต้องถูกส่งมาตามลายเซ็นผู้เรียก
+# แต่ตั้งใจไม่ใช้ในสคริปต์นี้ — การอนุมัติทำเฉพาะโดยผู้ตรวจสอบโดยจงใจเท่านั้น
+: "${3:?missing auto-approve safe flag}"
 REPO="${4:?missing repo}"
 
 if [ "${AUDIT_RESULT}" = "PASSED" ]; then

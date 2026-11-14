@@ -642,3 +642,41 @@ def test_live_device_keeps_identifiers_for_same_udid(monkeypatch):
     dev = albert_server._build_status_payload()["device"]
     assert dev["live"] is True
     assert dev["UDID"] == "SAMEUDID000001"
+
+
+def _load_bandit_config(path):
+    import yaml
+
+    with open(path, encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
+EXPECTED_SKIPS = {"B101", "B110", "B104", "B404", "B603", "B601", "B602", "B108", "B607"}
+
+
+def test_bandit_config_is_valid_yaml_with_documented_skips():
+    """คอนฟิก bandit ต้องถอดรหัสเป็น YAML ได้ และมีรหัส skip ที่บันทึกไว้ครบถ้วน.
+
+    `.bandit` คือคอนฟิกที่ bandit ค้นพบอัตโนมัติ (`bandit -r .`) จึงต้องอยู่ใน
+    รูปแบบ Yaml ถูกต้องและครอบคลุมรหัสปัญหาที่จงใจผ่อนผันทั้งหมด
+    (B110 การสลายตัวอย่างปลอดภัย, B404/B603 เครื่องมือวิจัย iOS ใช้ shell=False,
+    B108 ไดเรกทอรีชั่วคราวเตรียม cert mitmproxy, B607 path เฉพาะตอนเริ่มต้นระบบ,
+    B104 bind ค่าเริ่มต้น 127.0.0.1 ปลอดภัยโดยเจตนา)
+    """
+    for path in ("bandit.yaml", ".bandit"):
+        cfg = _load_bandit_config(path)
+        assert isinstance(cfg, dict), f"{path} ต้องถอดรหัสเป็น mapping ได้"
+        skips = set(cfg.get("skips", []))
+        missing = EXPECTED_SKIPS - skips
+        assert not missing, f"{path} ขาด skips: {sorted(missing)}"
+        # exclude_dirs ต้องครอบโฟลเดอร์ที่ไม่ใช่โค้ดหลัก (ไม่สแกนเข้า venv/logs/certs)
+        exclude_dirs = set(cfg.get("exclude_dirs", []))
+        for required in ("venv", ".venv", "__pycache__", ".git"):
+            assert required in exclude_dirs, f"{path} ต้อง exclude {required}"
+
+
+def test_bandit_config_consistent_between_files():
+    """`.bandit` (อ่านอัตโนมัติ) กับ `bandit.yaml` ต้องมี skips ชุดเดียวกัน."""
+    cfg_yaml = _load_bandit_config("bandit.yaml")
+    cfg_dot = _load_bandit_config(".bandit")
+    assert set(cfg_yaml.get("skips", [])) == set(cfg_dot.get("skips", []))
