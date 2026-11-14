@@ -104,7 +104,7 @@ start_mitmproxy() {
     export LOCAL_ALBERT_HOST=127.0.0.1
     export LOCAL_ALBERT_PORT=$ALBERT_HTTP_PORT
     export LOCAL_ALBERT_SCHEME=http
-    mitmweb -s firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port $MITMPROXY_WEB_PORT --listen-port $MITMPROXY_PORT > logs/mitmproxy.log 2>&1 &
+    mitmweb -s firmware_restore_proxy.py --set block_global=false --web-host 0.0.0.0 --web-port "$MITMPROXY_WEB_PORT" --listen-port "$MITMPROXY_PORT" > logs/mitmproxy.log 2>&1 &
     MITMPROXY_PID=$!
     echo $MITMPROXY_PID > .mitmproxy.pid
     log_info "mitmproxy started (PID: $MITMPROXY_PID)"
@@ -113,9 +113,9 @@ start_mitmproxy() {
 
 stop_services() {
     log_info "Stopping services..."
-    if [[ -f .albert.pid ]]; then kill $(cat .albert.pid) 2>/dev/null || true; rm -f .albert.pid; fi
-    if [[ -f .albert-https.pid ]]; then kill $(cat .albert-https.pid) 2>/dev/null || true; rm -f .albert-https.pid; fi
-    if [[ -f .mitmproxy.pid ]]; then kill $(cat .mitmproxy.pid) 2>/dev/null || true; rm -f .mitmproxy.pid; fi
+    if [[ -f .albert.pid ]]; then kill "$(cat .albert.pid)" 2>/dev/null || true; rm -f .albert.pid; fi
+    if [[ -f .albert-https.pid ]]; then kill "$(cat .albert-https.pid)" 2>/dev/null || true; rm -f .albert-https.pid; fi
+    if [[ -f .mitmproxy.pid ]]; then kill "$(cat .mitmproxy.pid)" || true; rm -f .mitmproxy.pid; fi
     pkill -f "albert_server.py" 2>/dev/null || true
     pkill -f "gunicorn.*albert_server" 2>/dev/null || true
     pkill -f "mitmweb.*firmware_restore_proxy" 2>/dev/null || true
@@ -125,18 +125,18 @@ stop_services() {
 show_status() {
     echo ""
     log_info "=== Service Status ==="
-    if [[ -f .albert.pid ]] && kill -0 $(cat .albert.pid) 2>/dev/null; then
+    if [[ -f .albert.pid ]] && kill -0 "$(cat .albert.pid)" 2>/dev/null; then
         log_info "Albert HTTP: RUNNING (PID: $(cat .albert.pid)) http://127.0.0.1:$ALBERT_HTTP_PORT"
-        curl -s http://127.0.0.1:$ALBERT_HTTP_PORT/health 2>&1 | head -n 5 || echo "  Health check failed"
-        if [[ -f .albert-https.pid ]] && kill -0 $(cat .albert-https.pid) 2>/dev/null; then
+        curl -s "http://127.0.0.1:$ALBERT_HTTP_PORT/health" 2>&1 | head -n 5 || echo "  Health check failed"
+        if [[ -f .albert-https.pid ]] && kill -0 "$(cat .albert-https.pid)" 2>/dev/null; then
             log_info "Albert HTTPS: RUNNING (PID: $(cat .albert-https.pid)) https://127.0.0.1:$ALBERT_HTTPS_PORT"
-            curl -k -s https://127.0.0.1:$ALBERT_HTTPS_PORT/health 2>&1 | head -n 5 || echo "  HTTPS health failed"
+            curl -k -s "https://127.0.0.1:$ALBERT_HTTPS_PORT/health" 2>&1 | head -n 5 || echo "  HTTPS health failed"
         fi
     else
         log_warn "Albert server: STOPPED"
         [[ -f logs/albert.log ]] && tail -n 20 logs/albert.log || [[ -f albert.log ]] && tail -n 20 albert.log
     fi
-    if [[ -f .mitmproxy.pid ]] && kill -0 $(cat .mitmproxy.pid) 2>/dev/null; then
+    if [[ -f .mitmproxy.pid ]] && kill -0 "$(cat .mitmproxy.pid)" 2>/dev/null; then
         log_info "mitmproxy: RUNNING (PID: $(cat .mitmproxy.pid))"
         log_info "  Web UI: http://localhost:$MITMPROXY_WEB_PORT"
         log_info "  Proxy:  localhost:$MITMPROXY_PORT"
@@ -185,7 +185,7 @@ case "${1:-start}" in
     start)
         # default start respects ALBERT_MODE (prod=gunicorn, dev=python)
         stop_services
-        start_albert
+        start_albert "$@"
         sleep 3
         start_mitmproxy
         sleep 3
@@ -240,7 +240,7 @@ case "${1:-start}" in
         ;;
     activate)
         shift
-        python activate_device.py --albert-url http://127.0.0.1:$ALBERT_HTTP_PORT "$@"
+        python activate_device.py --albert-url "http://127.0.0.1:$ALBERT_HTTP_PORT" "$@"
         ;;
     docker-up)
         log_info "Starting with Docker..."
