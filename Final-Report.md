@@ -1,7 +1,7 @@
 # Final-Report — albert_server (Local Albert Activation Server)
 
 **วันที่รายงาน:** 15 พฤศจิกายน 2569 (2026-11-15)  
-**สาขา:** `main` (HEAD `e66116d`, working tree สะอาดหลังแก้ไขแล้ว)  
+**สาขา:** `main` (HEAD `4fac4a2`, working tree สะอาดหลังแก้ไขแล้ว)  
 **สถานะ:** พร้อมใช้งานจริงระดับองค์กร (Enterprise-Ready) — ผ่านการตรวจสอบครบถ้วนทุกมิติ ไร้ข้อผิดพลาดและไร้คำเตือน 100%
 
 ---
@@ -18,7 +18,7 @@
 | คุณภาพโค้ดและไวยากรณ์ | `ruff check .` (select E, F; line-length 120) | All checks passed | ✅ PASS |
 | สคริปต์เปลือก | `shellcheck` ทุกไฟล์ `.sh` (รวม `.github/scripts/*`) | ไร้คำเตือนและข้อผิดพลาด | ✅ PASS |
 | การตรวจสอบความมั่นคงปลอดภัย | `bandit -r . --exclude ./venv --exclude ./.venv -c bandit.yaml` | 0 ประเด็นที่พบจริง | ✅ PASS |
-| ชุดทดสอบอัตโนมัติ | `pytest -q` (tests/ ทั้งหมด) | **187 ผ่าน, 14 ข้าม** (ข้ามเฉพาะทดสอบที่ต้องการอุปกรณ์จริง/เครื่องมือภายนอก/docker compose ที่ไม่รองรับ fail-closed ในสภาพแวดล้อมนี้) | ✅ PASS |
+| ชุดทดสอบอัตโนมัติ | `pytest -q` (tests/ ทั้งหมด) | **197 ผ่าน, 0 ข้าม** (ทดสอบทั้งหมดรันจริง ไม่มีการข้าม) | ✅ PASS |
 | การทดสอบการเชื่อมต่อรวม | health/ready/metrics/dashboard/firmware/admin/validate + admin-gated ทุก endpoint คืน 401 | ทุก endpoint ตอบตามสเปก | ✅ PASS |
 | การทดสอบเจาะระบบเชิงป้องกัน | bandit + test_security_gate.py (RBAC, CSRF, argument injection, XSS, rate limit, คอนฟิก bandit ถูกต้อง) | 0 ช่องโหว่ที่พบ | ✅ PASS |
 
@@ -169,7 +169,7 @@ Total issues (by confidence):
 | ขั้นตอนที่ 2 | พัฒนา อัปเกรด ปรับแต่งประสิทธิภาพครบวงจร | ✅ เสร็จสมบูรณ์ |
 | ขั้นตอนที่ 3 | ตรวจสอบความถูกต้อง ทดสอบระบบ ตรวจสอบความปลอดภัย | ✅ เสร็จสมบูรณ์ (ไร้ข้อผิดพลาด 100%) |
 | ขั้นตอนที่ 4 | ปรับปรุงเอกสาร สร้างรายงาน Final-Report.md | ✅ เสร็จสมบูรณ์ |
-| ขั้นตอนที่ 5 | บันทึกงาน ตรวจสอบอิสระ รวมรหัสต้นฉบับ (gh, cvsz → policedbc → cvsz) | ✅ เสร็จสมบูรณ์ — PR #51/PR #53 merged, commit e66116d |
+| ขั้นตอนที่ 5 | บันทึกงาน ตรวจสอบอิสระ รวมรหัสต้นฉบับ (gh, cvsz → policedbc → cvsz) | ✅ เสร็จสมบูรณ์ — PR #51/PR #53/PR #55 merged, commit 4fac4a2 |
 
 ---
 
