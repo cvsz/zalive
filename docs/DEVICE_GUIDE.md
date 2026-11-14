@@ -85,7 +85,7 @@ pymobiledevice3 mobileactivation activate --skip-apple-id-query
 | flag | ค่าเริ่มต้น | ความหมาย |
 |---|---|---|
 | `--host HOST` | `0.0.0.0` | bind address — ค่านี้ผูกกับ LAN exposure ดูหัวข้อความปลอดภัย |
-| `--port PORT` | `8080` | **ไม่ใช่ 18090** — production ใช้ gunicorn ตาม `gunicorn_conf.py` ซึ่ง default `18090` |
+| `--port PORT` | `18090` | ตาม `ALBERT_HTTP_PORT` env (default `18090`) production ใช้ gunicorn ตาม `gunicorn_conf.py` |
 | `--ssl-cert FILE` | — | certificate สำหรับ HTTPS |
 | `--ssl-key FILE` | — | private key สำหรับ HTTPS |
 | `--no-debug` | — | ปิด debug mode |
@@ -95,8 +95,8 @@ pymobiledevice3 mobileactivation activate --skip-apple-id-query
 > **หมายเหตุการแก้ไข:** เอกสารรุ่นก่อนหน้าของโปรเจกต์ระบุว่า flag `--host` /
 > `--port` / `--ssl-cert` / `--ssl-key` "ไม่เคยมีในโค้ด" ซึ่ง**ผิด** — flag เหล่านี้มีจริง
 > แต่การค้นหาเดิมใช้ regex ที่จับเฉพาะ double-quote จึงพลาด single-quote
-> ที่ `add_argument` ใช้ ส่วนที่ README รุ่นเดิมระบุผิดจริงคือค่า default ของ `--port`
-> (เขียน `18090` แต่จริงคือ `8080`)
+> ที่ `add_argument` ใช้ ค่า default ของ `--port` ตรงกับ `ALBERT_HTTP_PORT` env
+> (default `18090`) แล้ว ไม่มีความคลาดเคลื่อนระหว่างเอกสารกับโค้ดอีกต่อไป
 
 ## ตัวแปรสภาพแวดล้อม
 

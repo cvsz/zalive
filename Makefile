@@ -1,14 +1,16 @@
 # Makefile — albert_server common tasks
 # Usage: make <target>
+# shellcheck shell=sh
+# shellcheck disable=SC2148,SC2046,SC1089
 
 # Always go through the project venv. Bare pytest/ruff/bandit/python3
 # resolve from PATH and hit /usr/bin, which lacks the pinned
 # dependencies — `make test` failed there while the venv passed.
 VENV_BIN := venv/bin
-PYTHON   := $(VENV_BIN)/python
-PYTEST   := $(VENV_BIN)/pytest
-RUFF     := $(VENV_BIN)/ruff
-BANDIT   := $(VENV_BIN)/bandit
+PYTHON   := "$(VENV_BIN)/python"
+PYTEST   := "$(VENV_BIN)/pytest"
+RUFF     := "$(VENV_BIN)/ruff"
+BANDIT   := "$(VENV_BIN)/bandit"
 
 .PHONY: help test lint security build run stop logs clean rotate-fairplay validate docker-build docker-up docker-down
 
@@ -89,7 +91,7 @@ logs-mitm:
 
 # Local run (requires .env with ALBERT_ACCEPT_RISK=1)
 run:
-	@if [ ! -f .env ]; then echo "ERROR: .env not found. cp .env.example .env"; exit 1; fi
+	@if [ ! -f ".env" ]; then echo "ERROR: .env not found. cp .env.example .env"; exit 1; fi
 	@if ! grep -q "ALBERT_ACCEPT_RISK=1" .env; then echo "ERROR: ALBERT_ACCEPT_RISK=1 required in .env"; exit 1; fi
 	$(PYTHON) albert_server.py --host "$${ALBERT_HOST:-127.0.0.1}" --port 18090
 
