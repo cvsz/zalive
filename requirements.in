@@ -7,7 +7,7 @@ mitmproxy==12.2.3
 pymobiledevice3==11.19.4
 python-json-logger==3.0.0
 prometheus-client==0.22.1
-idna==3.15
+idna==3.20
 tornado
 h2
 msgpack
