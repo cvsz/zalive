@@ -64,7 +64,7 @@ pymobiledevice3 mobileactivation activate --skip-apple-id-query
 
 ## ตัวเลือกของ activate_device.py
 
-`activate_device.py` เป็น **client** — flag ทุกตัวในตารางนี้มาจาก `parse_args` ที่ `activate_device.py:711-721`
+`activate_device.py` เป็น **client** — flag ทุกตัวในตารางนี้มาจาก `parse_args` ที่ `activate_device.py:711-728`
 (flag ฝั่ง server อยู่คนละชุด ดูหัวข้อถัดไป)
 
 | flag | ความหมาย |
@@ -73,6 +73,7 @@ pymobiledevice3 mobileactivation activate --skip-apple-id-query
 | `--albert-url URL` | URL ของ Albert local เช่น `http://127.0.0.1:18090` |
 | `--info` | พิมพ์สถานะเครื่องแล้วออก ไม่ activate |
 | `--json` | ผลลัพธ์เป็น JSON |
+| `--imei IMEI` | ระบุ IMEI 15 หลัก (สนับสนุน iPhone XR USB activation) |
 | `--method METHOD` | เลือกวิธี activation |
 | `--retries N` | จำนวนครั้งที่ลองใหม่ |
 | `--timeout SEC` | timeout ต่อคำขอ |

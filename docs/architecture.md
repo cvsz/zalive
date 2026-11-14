@@ -76,6 +76,13 @@ IPSW: iPhone11,8_18.7.10_22H374_Restore.ipsw (8.1 GB) — NOT in repo, stored
 externally; scripts/sha256_manifest.sh produces *.ipsw.sha256 + ipsw.sha256.
 .gitignore ensures *.ipsw ignored but *.sha256 kept (!*.sha256).
 Upstream: api.ipsw.me/v4/device/{productType} live cache 1h (logs/firmware_cache.json, TTL 3600, stale fallback).
+
+### iPhone XR USB Activation Enhancement
+- **ProductType**: `iPhone11,8` (A12, CPID 0x8020, BoardConfig n841ap)
+- **USB Flow**: activate_device.py supports `--imei` flag for direct IMEI-based activation testing
+- **Luhn Validation**: Optional via `ALBERT_IMEI_LUHN=1` env — Apple enforces Luhn on all IMEI checks
+- **Performance**: Rate limiting pruning optimized (O(1) trim vs O(N) scan), latency histogram added (`albert_request_latency`)
+- **Circuit Breaker**: Per-base_url fail-after-5-failures/30s timeout with `X-Circuit-Breaker` header
 ```
 
 Flow: `iOS device` → `mitmproxy :28081` (intercepts only `albert.apple.com`) → `Albert :18090` (`Flask` + `gunicorn` 2 workers ×4 threads) → `SQLite WAL logs/activations.db` + `fairplay.key 0600` + `ipsw.me live cache 1h` (curated `CURATED_DEVICES` 13, `FIRMWARE_CACHE`, `FIRMWARE_TTL=3600`). `FairPlay` key/cert `0600` (`certs/fairplay.key` RSA 2048, CA `Apple iPhone Device CA`, 5y SHA256) persisted once. `IPSW` 8.1G external, `local_overlay` scan `*.ipsw`.

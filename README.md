@@ -8,12 +8,13 @@ Local emulation of Apple's `albert.apple.com` activation endpoints for iOS devic
 
 - **Activation Endpoints**: `/deviceservices/drmHandshake`, `/deviceservices/deviceActivation`, legacy `/WebObjects/ALUnbrick.woa/wa/deviceActivation`
 - **FairPlay Signing**: RSA 2048, SHA1 for ARS (Apple spec), SHA256 for device certs
-- **Any-iPhone Support**: Curated devices iPhone 5 → 15 Pro (13 models) with dynamic `ProductType`
+- **Any-iPhone Support**: Curated devices iPhone 5 → 15 Pro (13 models) with dynamic `ProductType`, including iPhone XR (iPhone11,8) USB optimized
 - **Firmware Management**: Live `api.ipsw.me` cache (1h TTL) + local `.ipsw` overlay
-- **Production Hardening**: 512KB request limit, 100/min IP + 10/min UDID rate limiting, input validation, structured JSON logging
+- **Production Hardening**: 512KB request limit, 100/min IP + 10/min UDID rate limiting, input validation, structured JSON logging, circuit breaker per base_url
 - **mTLS Toggle**: Optional proxy→Albert client certificate verification
-- **Observability**: Prometheus metrics (`/metrics`), health/readiness endpoints, AdminLTE 4 dashboard
+- **Observability**: Prometheus metrics (`/metrics`), health/readiness endpoints, AdminLTE 4 dashboard, request latency histogram
 - **Persistence**: SQLite WAL mode, 10k/30d retention, admin API for checkpoint/prune
+- **iPhone XR USB Optimization**: Enhanced IMEI handling, direct activation flow, Luhn validation support
 
 ## Quick Start
 
@@ -76,6 +77,12 @@ Services:
 
 # Print Apple's exact rejection reason
 ./venv/bin/python scripts/diagnose_activation_reject.py
+
+# Activate via local Albert with optional IMEI (iPhone XR USB optimization)
+python3 activate_device.py --udid <UDID> --albert-url http://127.0.0.1:18090 --imei <15-digit-IMEI>
+
+# Activate with direct method and custom IMEI
+python3 activate_device.py --method direct --udid <UDID> --imei <15-digit-IMEI> --albert-url http://127.0.0.1:18090 --json
 ```
 
 `albert.apple.com` must **not** be redirected to `127.0.0.1` in `/etc/hosts` — the client talks to

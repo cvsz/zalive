@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-iOS Device Activation Client - FIXED + Production Hardening
+iOS Device Activation Client - FIXED + Production Hardening + iPhone XR USB Optimization
 - Correctly base64-encodes activation-info for form submission
 - Handles session mode handshake properly
 - Fixes headers and error handling
 - Production hardening: timeouts/retries (tenacity with fallback, exponential backoff),
   structured logging with request_id, input validation UDID/IMEI, --json output, X-Request-ID header, 413/429 handling
   circuit breaker per base_url (open after 5 failures for 30s, 503 + X-Circuit-Breaker)
+- iPhone XR (iPhone11,8) USB activation optimization: enhanced IMEI handling, direct activation flow
 """
 import asyncio
 import argparse
@@ -718,7 +719,8 @@ async def main():
                         help=f"Local Albert server URL (default: {DEFAULT_ALBERT_URL})")
     parser.add_argument("--skip-apple-id", action="store_true",
                         help="Skip Apple ID prompt (treat as iCloud lock)")
-    parser.add_argument("--method", choices=["pymobiledevice3", "ideviceactivation", "direct", "auto"],
+    parser.add_argument("--imei", help="Device IMEI (15 digits, optional, default: XR test IMEI 350000000000006)")
+parser.add_argument("--method", choices=["pymobiledevice3", "ideviceactivation", "direct", "auto"],
                         default="auto", help="Activation method to use")
     parser.add_argument("--info", action="store_true", help="Show device info only")
     parser.add_argument("--json", action="store_true", dest="json_output", help="Output results as JSON")
@@ -763,10 +765,9 @@ async def main():
         return
     logger.info(f"Using Albert server: {args.albert_url}", extra={"request_id": "-"})
     if args.method == "direct":
-        # Validate UDID before direct call
-        fake_udid = args.udid or "00008020-AAAAAAAAAAAAAAAA"
+        # Validate UDID before direct call; support optional --imei flag
         try:
-            _validate_inputs(udid=fake_udid, imei="350000000000006")
+            _validate_inputs(udid=args.udid, imei=args.imei)
         except ValueError as e:
             msg = f"Input validation failed: {e}"
             logger.error(msg, extra={"request_id": "-"})
@@ -776,13 +777,15 @@ async def main():
                 print(msg)
             exit(1)
         client = LocalAlbertClient(args.albert_url, timeout=args.timeout, max_retries=args.retries)
+        # Build fake info using provided IMEI or default XR IMEI
+        xr_imei = args.imei or "350000000000006"
         fake_info = {
             "DeviceClass": "iPhone",
-            "UniqueDeviceID": fake_udid,
+            "UniqueDeviceID": args.udid or "00008020-AAAAAAAAAAAAAAAA",
             "SerialNumber": "REDACTEDSERIAL",
             "ProductType": "iPhone11,8",
-            "InternationalMobileEquipmentIdentity": "350000000000006",
-            "MobileEquipmentIdentifier": "35000000000006",
+            "InternationalMobileEquipmentIdentity": xr_imei,
+            "MobileEquipmentIdentifier": xr_imei[:-3] if len(xr_imei) > 3 else xr_imei,
             "ActivationRandomness": str(__import__('uuid').uuid4()),
         }
         try:

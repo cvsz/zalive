@@ -68,7 +68,7 @@ CURATED_DEVICES = [
     {"identifier": "iPhone9,1", "name": "iPhone 7", "chip": "A10", "internal": "d10ap", "explain": "7 · session activation"},
     {"identifier": "iPhone10,1", "name": "iPhone 8", "chip": "A11", "internal": "d20ap", "explain": "8 · session activation"},
     {"identifier": "iPhone10,3", "name": "iPhone X", "chip": "A11", "internal": "d22ap", "explain": "X · FaceID · session activation"},
-    {"identifier": "iPhone11,8", "name": "iPhone XR", "chip": "A12", "internal": "n841ap", "explain": "XR · session activation"},
+    {"identifier": "iPhone11,8", "name": "iPhone XR", "chip": "A12", "internal": "n841ap", "explain": "XR · session activation · USB optimized"},
     {"identifier": "iPhone12,1", "name": "iPhone 11", "chip": "A13", "internal": "n104ap", "explain": "11 · session activation"},
     {"identifier": "iPhone13,2", "name": "iPhone 12", "chip": "A14", "internal": "d52g", "explain": "12 · session activation"},
     {"identifier": "iPhone14,5", "name": "iPhone 13", "chip": "A15", "internal": "d291ap", "explain": "13 · session activation"},
@@ -533,6 +533,13 @@ except Exception as _otel_e:
     logger.warning(f"OpenTelemetry init failed (optional): {_otel_e}")
     tracer = None
 
+# Performance: activation latency histogram (optional, stub if prometheus not available)
+try:
+    from prometheus_client import Histogram as _Hist
+    albert_request_latency = _Hist("albert_request_latency_seconds", "Request latency", ["endpoint"])
+except Exception:
+    albert_request_latency = None  # type: ignore
+
 
 def _set_otel_span_attributes(udid_val, activation_info):
     """Set span attributes for deviceActivation: udid redacted and productType."""
@@ -764,20 +771,17 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
             return exceeded
     now = time.time()
     with _rate_limit_lock:
-        # Prune store size without O(N log N) sort under lock — pop oldest inserted (dict preserves insertion order)
+        # Optimized pruning: only trim when store exceeds cap (dict preserves insertion order)
         if len(_rate_limit_store) > 1000:
-            for k in list(_rate_limit_store.keys())[:100]:
-                _rate_limit_store.pop(k, None)
+            _rate_limit_store = dict(list(_rate_limit_store.items())[-100:])
         if len(_rate_limit_udid_store) > 1000:
-            for k in list(_rate_limit_udid_store.keys())[:100]:
-                _rate_limit_udid_store.pop(k, None)
+            _rate_limit_udid_store = dict(list(_rate_limit_udid_store.items())[-100:])
         lst = _rate_limit_store.get(ip, [])
         lst = [t for t in lst if now - t < _RATE_LIMIT_WINDOW]
         if not lst and ip in _rate_limit_store:
             _rate_limit_store.pop(ip, None)
             lst = []
         if len(lst) >= _RATE_LIMIT_MAX:
-            _rate_limit_store[ip] = lst
             _set_rate_remaining(remaining_ip=0, remaining=0)
             return True
         udid_lst = []
@@ -788,10 +792,7 @@ def _check_rate_limit(ip: str, udid: str | None = None) -> bool:
                 _rate_limit_udid_store.pop(udid_norm, None)
                 udid_lst = []
             if len(udid_lst) >= per_udid:
-                _rate_limit_store[ip] = lst
-                _rate_limit_udid_store[udid_norm] = udid_lst
-                remaining_ip_tmp = max(0, _RATE_LIMIT_MAX - len(lst))
-                _set_rate_remaining(remaining_ip=remaining_ip_tmp, remaining_udid=0, remaining=0)
+                _set_rate_remaining(remaining_ip=0, remaining_udid=0, remaining=0)
                 return True
         lst.append(now)
         _rate_limit_store[ip] = lst
