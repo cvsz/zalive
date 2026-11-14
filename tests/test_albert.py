@@ -9,6 +9,11 @@ import uuid
 
 import pytest
 
+# Tests exercise /deviceservices/* endpoints via the test client. The test
+# shim below sends X-Client-Cert: present from localhost; allow that spoofable
+# header fallback in the test environment only (production default stays 0).
+os.environ.setdefault("ALBERT_MTLS_ALLOW_HEADER_FALLBACK", "1")
+
 # import server as module without running
 import albert_server
 
