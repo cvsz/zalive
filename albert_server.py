@@ -616,6 +616,12 @@ _rate_limit_lock = threading.Lock()
 _redis_client = None
 _redis_client_url = None
 _redis_client_lock = threading.Lock()
+# Backoff cache: when Redis is unreachable, don't retry more than once per
+# _REDIS_BACKOFF_SECONDS so every device request doesn't pay a 2s connect
+# timeout on a service that isn't running. In-memory rate limiting is the
+# correct fallback (see _check_rate_limit / _check_udid_rate_limit).
+_REDIS_BACKOFF_SECONDS = 30
+_redis_last_fail_ts: float | None = None
 
 def _get_per_udid_limit() -> int:
     try:
@@ -632,7 +638,12 @@ def _get_redis_client():
     url = _get_redis_url()
     if not url:
         return None
-    global _redis_client, _redis_client_url
+    global _redis_client, _redis_client_url, _redis_last_fail_ts
+    now = time.time()
+    # Backoff: if Redis recently failed, don't hammer it on every request.
+    # Fall back to in-memory rate limiting instead (correct behavior).
+    if _redis_last_fail_ts is not None and now - _redis_last_fail_ts < _REDIS_BACKOFF_SECONDS:
+        return None
     with _redis_client_lock:
         if _redis_client is not None and _redis_client_url == url:
             try:
@@ -641,6 +652,8 @@ def _get_redis_client():
             except Exception:
                 _redis_client = None
                 _redis_client_url = None
+                _redis_last_fail_ts = now
+                return None
         if _redis_client_url is not None and _redis_client_url != url:
             try:
                 _redis_client = None
@@ -652,9 +665,11 @@ def _get_redis_client():
             client.ping()
             _redis_client = client
             _redis_client_url = url
+            _redis_last_fail_ts = None  # successful connect clears backoff
             return client
         except Exception as e:
-            logger.debug(f"Redis connect failed: {e}")
+            _redis_last_fail_ts = now
+            logger.debug(f"Redis connect failed: {e} — using in-memory rate limit (backoff {_REDIS_BACKOFF_SECONDS}s)")
             return None
 
 def _redis_incr_with_expire(key: str, limit: int, window: int):
