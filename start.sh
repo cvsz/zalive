@@ -28,6 +28,7 @@ if [[ ! -d "venv" ]]; then
 fi
 mkdir -p logs
 ./scripts/cleanup_logs.sh 2>/dev/null || true
+# shellcheck disable=SC1091
 source venv/bin/activate
 
 # Risk gate: no bypass without ALBERT_ACCEPT_RISK=1 (see SECURITY.md, NOTICE)

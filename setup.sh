@@ -64,6 +64,7 @@ install_system_deps() {
 setup_venv() {
     echo "Setting up Python virtual environment..."
     python3 -m venv venv
+    # shellcheck disable=SC1091
     source venv/bin/activate
     pip install --upgrade pip
     pip install -r requirements.txt
