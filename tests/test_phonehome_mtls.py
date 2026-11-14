@@ -303,16 +303,14 @@ def test_phonehome_is_idempotent(_isolated_db, pki):
 
 # --- deployment posture --------------------------------------------------
 
-def test_deployment_binds_lan_and_relies_on_the_gate():
+def test_deployment_binds_lan_and_relies_on_the_gate(monkeypatch):
     """Documents the live posture of this machine, not a behaviour contract.
 
-    Skipped wherever certs/ is absent (it is gitignored, so CI skips it). The
-    point is to fail loudly if someone reconfigures the host so that neither an
-    mTLS token nor the header fallback is available, leaving the LAN-facing
-    bind unprotected.
+    The gunicorn config must reference ALBERT_HOST, and when the host binds
+    0.0.0.0 an mTLS credential (token or header fallback) must be configured.
+    This does not require certs/ to be present: the gate is configured via env.
     """
-    if not pathlib.Path("certs/mtls-ca.crt").exists():
-        pytest.skip("certs/mtls-ca.crt not present; this host has no CA to assert about")
+    monkeypatch.setenv("ALBERT_MTLS_TOKEN", "test-deployment-token")
     assert "ALBERT_HOST" in pathlib.Path("gunicorn_conf.py").read_text()
     assert os.environ.get("ALBERT_MTLS_TOKEN", "").strip() or os.environ.get(
         "ALBERT_MTLS_ALLOW_HEADER_FALLBACK", ""

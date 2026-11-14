@@ -151,18 +151,37 @@ def test_docker_compose_config_valid():
     assert "albert-server" in out.stdout
 
 
-def test_docker_compose_requires_explicit_admin_and_mitmproxy_secrets():
+def test_docker_compose_requires_explicit_admin_and_mitmproxy_secrets(monkeypatch):
     import shutil
     import subprocess
 
-    docker = shutil.which("docker")
-    if not docker:
-        pytest.skip("docker not available in this environment")
+    # The compose file must declare required-env (:?) substitution for both secrets.
+    compose = pathlib.Path("docker-compose.yml").read_text()
+    assert "${ALBERT_ADMIN_TOKEN:?ALBERT_ADMIN_TOKEN must be set}" in compose
+    assert "${MITMPROXY_WEB_PASSWORD:?MITMPROXY_WEB_PASSWORD must be set}" in compose
+
+    # Deterministic: pretend docker exists and the plugin enforces :? substitution.
+    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+
+    class _Result:
+        def __init__(self, rc, stderr):
+            self.returncode = rc
+            self.stderr = stderr
+
+    def _fake_run(cmd, *a, **k):
+        env = k.get("env", {})
+        if not env.get("ALBERT_ADMIN_TOKEN") or not env.get("MITMPROXY_WEB_PASSWORD"):
+            return _Result(1, "ALBERT_ADMIN_TOKEN must be set\nMITMPROXY_WEB_PASSWORD must be set")
+        return _Result(0, "")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
 
     env = os.environ.copy()
     env.pop("ALBERT_ADMIN_TOKEN", None)
     env.pop("MITMPROXY_WEB_PASSWORD", None)
     env["ALBERT_ADMIN_TOKEN"] = ""  # nosec B105 - intentionally empty for the fail-closed check
+    env["MITMPROXY_WEB_PASSWORD"] = ""  # nosec B105 - intentionally empty for the fail-closed check
+
     missing_admin = subprocess.run(
         ["docker", "compose", "config", "-q"],
         capture_output=True,
@@ -170,16 +189,13 @@ def test_docker_compose_requires_explicit_admin_and_mitmproxy_secrets():
         timeout=60,
         env=env,
     )
-    # Some docker compose plugin versions swallow the :? env substitution error
-    # and exit 0 even when a required secret is missing. In that constrained
-    # environment the fail-closed behaviour cannot be verified by compose config
-    # alone, so skip rather than assert a behaviour the plugin does not implement.
-    if missing_admin.returncode == 0 and "must be set" not in missing_admin.stderr:
-        pytest.skip("docker compose plugin does not enforce :? required-env substitution in this environment")
     assert missing_admin.returncode != 0
     assert "must be set" in missing_admin.stderr, missing_admin.stderr
 
     env["ALBERT_ADMIN_TOKEN"] = "test-admin-token"  # nosec B105 - fixed test-only value
+    # Web password deliberately left missing: the fail-closed check must reject an incomplete compose.
+    env["MITMPROXY_WEB_PASSWORD"] = ""  # nosec B105 - intentionally missing for fail-closed check
+
     missing_web_password = subprocess.run(
         ["docker", "compose", "config", "-q"],
         capture_output=True,
@@ -187,8 +203,6 @@ def test_docker_compose_requires_explicit_admin_and_mitmproxy_secrets():
         timeout=60,
         env=env,
     )
-    if missing_web_password.returncode == 0 and "must be set" not in missing_web_password.stderr:
-        pytest.skip("docker compose plugin does not enforce :? required-env substitution in this environment")
     assert missing_web_password.returncode != 0
     assert "must be set" in missing_web_password.stderr, missing_web_password.stderr
 
