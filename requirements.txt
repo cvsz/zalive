@@ -44,6 +44,12 @@ annotated-types==0.8.0 \
     --hash=sha256:13b2beaad985e05e2d6407ee4c4f35590b11f8d693a258a561055cac8f64cab7 \
     --hash=sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0
     # via pydantic
+ansilogs==1.2.0 \
+    --hash=sha256:55da304534b6853a002585d747add65ae6fefa6cd14da30e1349d649de5a883c \
+    --hash=sha256:c1c250c8c5f3d0622208f08fa260682659400276c198362955d3e765a63e7460
+    # via
+    #   ipsw-parser
+    #   pymobiledevice3
 anyio==4.15.1 \
     --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101 \
     --hash=sha256:9f28306018cbd6d329e64a36d58256edff76dd996fe423bc957326e578b82a94
@@ -98,9 +104,7 @@ argon2-cffi-bindings==26.1.0 \
 arrow==1.4.0 \
     --hash=sha256:749f0769958ebdc79c173ff0b0670d59051a535fa26e8eba02953dc19eb43205 \
     --hash=sha256:ed0cc050e98001b8779e84d461b0098c4ac597e88704a655582b21d116e526d7
-    # via
-    #   construct-typing
-    #   opack2
+    # via opack2
 asgimiddlewarestaticfile==0.7.0 \
     --hash=sha256:17796e16400d0b72062d1bfddb3892926d5620348a10bfbaff02304dedd86ca4 \
     --hash=sha256:70935ab3bb9cdde5cf96dcc4eed2fce39c9cf51ec371490265e673df099ddf72
@@ -150,94 +154,6 @@ av==18.1.0 \
     --hash=sha256:e4d48b9f12cad009cc72fe4f4099107de5e819c95f82767f4fd01a01481c0661 \
     --hash=sha256:e7ea063f6690193ea335a1d592d6e0274350d45e2ed6af83ee107cb90cbfd84f \
     --hash=sha256:ea1480b7a8d5405cb5f382b344731bf125fd2c1c6fae3964f6c48595628387ff
-    # via pymobiledevice3
-backports-zstd==1.7.0 ; python_version < "3.14" \
-    --hash=sha256:02c4458f25f884131c59d54549a3bdfd649ca3384f1dd15204762171d9e24739 \
-    --hash=sha256:02f2f6649a342d0901ddb35596ddadb7c3bb1cf6bb54d691e5e0285f1fa0674f \
-    --hash=sha256:09f1ecac082932870df519818e88eb938a03573245f629e34979141583112123 \
-    --hash=sha256:0b7929cbaff68c124d2366d803dc654347f37637a3df73a2a0a8f2dbee4819cc \
-    --hash=sha256:12a9842a2ec2854cbec7f252ab29d44c2b772788a9bbafded743ca4bf73b115f \
-    --hash=sha256:132ba81fad59d44958b7d10da31545e7128c469cfbc2e268d0eaab96daa64175 \
-    --hash=sha256:138154eea8ced84394991bf0e819dba6b690306a178dd528c28eee724b7d4aec \
-    --hash=sha256:15e97edfd173ade365c01bac7d9d297fa906686015cdbcb5f32a0d410887826b \
-    --hash=sha256:165a8898c5514b69533edf4ab1f4f4b4bacc62a137a76f36889b473150ec28a5 \
-    --hash=sha256:1713271e2faea852a1682a6143c19c3506cd2e1b71f60a8924c59a9d2554d2b2 \
-    --hash=sha256:1a868cff3de171b4961acd9fcf9e843cc966783aa0b2bdfdba876ec20023e24f \
-    --hash=sha256:1a967189c1822b6e85a2e550fdfc88a3272c17633ea0a4732dac5911a8034f2b \
-    --hash=sha256:1c55e55e1e9dee312bc5e186386e6aa5207482a6d2242bd7c14709ded254f87f \
-    --hash=sha256:1d85c18170e8cdba339edc67a5021cf79ccc858f5fda6aeae71f9015c5e463f6 \
-    --hash=sha256:25caf23dc36de3b839d16c25893751323cf51a8c986f2d01478c16b25133e2e8 \
-    --hash=sha256:2c4f557bd8579d38316344c205b2a540e84b1014fb3721205eb6c3eb5322e9d9 \
-    --hash=sha256:2ea62ba2f1a6e6c9e6dc108921f9ae881969ca72e073162fa488d0de3eb2713f \
-    --hash=sha256:2feaefcca77c6ac97a46a64f9d41c429caa135a837c54b46398022716abd8184 \
-    --hash=sha256:31ae30d216ffae9243dfa607bcb995f94a70de5765bb8fae1e35ea1ad6497959 \
-    --hash=sha256:32a94cdcf16b44395cd55086ea38877395ca6bf3362cb507b0eb86db2a45a6a4 \
-    --hash=sha256:34154d82fc0246738159084d146401073f9ac9cfd755b66bb8853ca06037810c \
-    --hash=sha256:37ef23c6c522fe935726c8fba6344350973c4a23b06d10194d90d0868b09ff7a \
-    --hash=sha256:3c32951fe1ae22f6f059d3c02cfdc21155cee83be456c424d955bf493ba2a9dc \
-    --hash=sha256:3e0f53a23a40d25236aab6e0e817f2cbbf27e6f8fe976fedaa6b9ee53fc809b9 \
-    --hash=sha256:3e3f760ee9d16378e3cde9d862e1c9ced577a86736763fb486b9f731d5116807 \
-    --hash=sha256:44b687b1c0be5cb279693d2682f91ff84c559d679b2ef2fbe501fe4b2db2c4bb \
-    --hash=sha256:468b636ed365627b364c94be1c35a52858e13b5bc1fa3f068bbc71b1af65f3d7 \
-    --hash=sha256:470895d0bcddc850766e593d1b26764fb138c2feed149f515a2627ef9587d54c \
-    --hash=sha256:47f14a24428a2bc070e26c402f8d6d25676345c32fa116b16b60167a2925df2a \
-    --hash=sha256:4a80bc6a8c9aeaad76cc3ecd58067ec038a764807186b0df970c760df39b89c7 \
-    --hash=sha256:565270b0d6497970fa97a0df59593ae0d225e4176678bbce851d39e5f8aa422b \
-    --hash=sha256:5992143b2a8b71b4d17afed20cce2df50f8718228e31d6e716493b1fe9201712 \
-    --hash=sha256:5d1bdc293267200e31baf35aa142c6d0ac3e8cce650f79c84e6a32980dfbfd5c \
-    --hash=sha256:5d8493f71d9c5c05d18554afc6bb9a319a6674478e8f3042c7e22900c3a06f4d \
-    --hash=sha256:633ceee3ba86f696fc4e992f7bce558c132c26d04d64d0bb8c2f5d487d5b3aee \
-    --hash=sha256:676a37971f676830d4f90cee8fdf4e438781596fb2f2d1984ac76c9b3eb39a69 \
-    --hash=sha256:68ee21f0efa3f06d3d3cbb5f291c177497fc550ebef732b0a38599de8db1ee32 \
-    --hash=sha256:69367726f4075c2574746f5883b0dc045805c5b02a81fdf8c829c26d33969de3 \
-    --hash=sha256:6c8c183027eae38f5b0643d153f7f91e569d22ee8db25639aea0745677a38ed8 \
-    --hash=sha256:700ebb797956767679dbca38e45eaa5c21630e460e31ef53bb4b849125bb5d87 \
-    --hash=sha256:76e205599a60acc0824bf03522fb9ad25449492535e1efba18f047e2ce48e745 \
-    --hash=sha256:7e3999b5141d7f85171822d06112f70f7f317d162f0120530dd2c7a28dbf8add \
-    --hash=sha256:7eaceeec75e1dbdce40b81fb0ed1ffdb7ce492d970db7f8aabd6a95ccd6c3dd3 \
-    --hash=sha256:8086b4a7443bb2863f7ef8edb317b715d5f3ccec6c5512619bd23d57661ba1b7 \
-    --hash=sha256:8344260bed9842c415a93d9bfe23ea834e5f27758827d56933d8c0d06db507a2 \
-    --hash=sha256:86785aef2b4663a97c932d829ddc9565354cc628e2ae61764d9d93c8b186d65f \
-    --hash=sha256:8827a5601c749a986faa163f3b59d59eedc5947812be114f7132c3d4ad153fee \
-    --hash=sha256:8d59b145d379745c4461adbe9a9afc647f90ca164f50ea2566c08d6601531d1c \
-    --hash=sha256:96a6f8d3f4cefb6b11ebfc30fc0d970430ecfb169a6555990734a2a46977ec4b \
-    --hash=sha256:a0469fbe83c85f5a1fb83657242477ed612d4d4d3c000b67f8a67bc839115b09 \
-    --hash=sha256:a2e30ea49c673533d40eb73d0f7abc0ebe9d2e4fc6dbada5ad60b42ff98ffa86 \
-    --hash=sha256:a3e1c6ce0b232ee6703ed24ee126e8186107f5a4e56edbd21cd1aa5a8c6bfd12 \
-    --hash=sha256:a3fbcbf819bee2b06b8666b13742098d0f40663ee34e64a12bc360ec0f5e3d89 \
-    --hash=sha256:a43e03d7769a06b5ccf4cad5fcf4b3e690b1b36476632d3e1bc923e12579963f \
-    --hash=sha256:a64e796c7eee69dfe45827b2e003b7731785ec890c73ea5f5fbc30a1c362fcad \
-    --hash=sha256:ae840be71108f6020567dd389c973e70a4374a6c0b03c02d3242c8a98a9b3cdb \
-    --hash=sha256:b2e505d8923e1e9224cf249b99c92cf728e9eb91fbd1e07a9c2816013621fad3 \
-    --hash=sha256:b3975330159f1efdd1fba76afe1c7b84f66f26e2bf209b32630fb148d647e0d5 \
-    --hash=sha256:b40bc8cd0a86cbbe8263a9c3a2bf2e34897483516c6d799725412a19524c32e3 \
-    --hash=sha256:b5548a857bb0fcc5449cc3687353547396c6b1ecd4bd882f1cd34fa8d29e70ca \
-    --hash=sha256:bab192b934fdf5a03df4752556d9c8af2d058163fdfbafd4a253cdfe25449a6f \
-    --hash=sha256:beb8d6cf5ab3c27cca3a5fdcfeeb228885083d606f0709ffc0a698aabc4f13ee \
-    --hash=sha256:c13f73d0389cdc88b02c05e8175d8ad3030e9e70ee079748763166aa843b647d \
-    --hash=sha256:c2c01cb823ed1b2422905a9791759bdc986e44e7a12b4661e9d712d5c8946016 \
-    --hash=sha256:c358e72e5ff8f23e9f3ec778be4d67ddc5ced3e6d8f03521db29d7357a773fc3 \
-    --hash=sha256:cefb983345c55ccaa20423a4eb96434730e6d640ffa2db9b60e5bedb0fbef94e \
-    --hash=sha256:cf609af3735c7e697ccd13f6b0c88da57c201b6ea63c6afbfe81d6f9b50e298c \
-    --hash=sha256:d312ff5018199e1f889ca470a98361feaf2d194f82091cbbd366bb539e7c3583 \
-    --hash=sha256:d3c3cda113aacabe7fd0594ad2832b7023a5fee84009406fe4d230906d80fb25 \
-    --hash=sha256:d7a7cb964eb8d1bb5d039970b16fe54802ea47dc935ae96d9874844a126bf8ff \
-    --hash=sha256:db2fb308ca3669e2913e66aae9173d9a9d5c448caaa2f1bdd12efbfe480f0fde \
-    --hash=sha256:dcdbd368659f46b570114eeea36b75347716523870d71f6bc5d7801862aefd6e \
-    --hash=sha256:de58be0a3109cfb83b4e61e2b6eb770201cc132ee5a7c677cd8e0140ad2be80c \
-    --hash=sha256:e27916c92272ab4285d8d2e02eebe5f4198da10d82250b6edfa3ce372aff6f79 \
-    --hash=sha256:e4108fa7b126fb4b08853670bb32c4a812aab355b8264aa1a27b7bb724ae6ce0 \
-    --hash=sha256:e590313ce156f1d8986dff3107e8ed1651d6d106a56b3a95f965ff8d845ba979 \
-    --hash=sha256:e833fb85673c0a8c880dc3f759c87726680f953492e9275f666fcbfd127c6e8e \
-    --hash=sha256:e9e7bf426a21772b3ac1fe5c967678063d7bfcb58d2f559b98bf4c9c6c52f95f \
-    --hash=sha256:ecc95fa0e91d92951d74468e7789afdf91d9e702f40af2d0fcbf0ded4d0f650a \
-    --hash=sha256:eda97fa535d4651a4ccdeed4ee7dde3978369046abc8a7456a7117d4271f9333 \
-    --hash=sha256:efee02f18e04c2e9e6d694c5cf9b7457c4bda3ea96f48b1ee69769e06bb9d89f \
-    --hash=sha256:f026fe2e89b7ff01ba6ebec6abaff34c6063919151a32afb68714cf139e17c50 \
-    --hash=sha256:f37e12ef10747f76901b1f20ef70d33221e861de177dba5ba08552242c6fd4bd \
-    --hash=sha256:f3f4887a8a1fd1290017fe5a1d29a7d1dc5c57f9477fbd64f119316a7e3ae769 \
-    --hash=sha256:f8da4758af21788a9a90f56b7f658a35d33034e55d416fd40e8bcfbb347b90c2 \
-    --hash=sha256:ff08fbdf4090c8075bcc0f3ffccf3098e4fd6a0d9a4c5c2078398ea5bb2ddd1f
     # via pymobiledevice3
 bcrypt==5.0.0 \
     --hash=sha256:046ad6db88edb3c5ece4369af997938fb1c19d6a699b9c1b27b0db432faae4c4 \
@@ -416,6 +332,14 @@ brotli==1.2.0 \
     --hash=sha256:fc1530af5c3c275b8524f2e24841cbe2599d74462455e9bae5109e9ff42e9361 \
     --hash=sha256:ff09cd8c5eec3b9d02d2408db41be150d8891c5566addce57513bf546e3d6c6d
     # via mitmproxy
+bytestruct==0.2.0 \
+    --hash=sha256:ecec23ffd5f51b2f188276be83a8cb2a17910b746a0957a3306781e042e3c1cd \
+    --hash=sha256:ef0767fe48c0be9b2e4585565d8b28959fa04c93256ddeb7efbbd1b8f5998011
+    # via
+    #   ipsw-parser
+    #   opack2
+    #   pykdebugparser
+    #   pymobiledevice3
 certifi==2026.7.22 \
     --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775 \
     --hash=sha256:741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55
@@ -760,26 +684,10 @@ click==8.5.0 \
     #   pyiosbackup
     #   pykdebugparser
     #   uvicorn
-coloredlogs==15.0.1 \
-    --hash=sha256:612ee75c546f53e92e70049c9dbfcc18c935a2b9a53b66085ce9ef6a6e5c0934 \
-    --hash=sha256:7c991aa71a4577af2f82600d8f8f3a89f936baeaf9b50a9c197da014e5bf16b0
-    # via
-    #   ipsw-parser
-    #   pymobiledevice3
 construct==2.10.70 \
     --hash=sha256:4d2472f9684731e58cc9c56c463be63baa1447d674e0d66aeb5627b22f512c29 \
     --hash=sha256:c80be81ef595a1a821ec69dc16099550ed22197615f4320b57cc9ce2a672cb30
-    # via
-    #   construct-typing
-    #   ipsw-parser
-    #   opack2
-    #   pyiosbackup
-    #   pykdebugparser
-    #   pymobiledevice3
-construct-typing==0.8.1 \
-    --hash=sha256:9b5845dbaf959c9d960f5105f9ab3533227c4da2b76baa57d1f1c0aa2a088cdb \
-    --hash=sha256:b3c33246b83f187f21fbfa9e229cf7225fe42823f3d598328b973c844071c456
-    # via pymobiledevice3
+    # via pyiosbackup
 cryptography==48.0.1 \
     --hash=sha256:08a597acce1ff37f347400087776599e2348a3a8bc53b44120e463cd274efe4a \
     --hash=sha256:09f73a725d582cef64b91281a322cd798d14a33b2b6f2b7ad9531dc336d84c02 \
@@ -842,7 +750,7 @@ daemonize==2.5.0 \
     --hash=sha256:9b6b91311a9d934ff3f5f766666635ca280d3de8e7137e4cd7d3f052543b989f \
     --hash=sha256:dd026e4ff8d22cb016ed2130bc738b7d4b1da597ef93c074d2adb9e4dea08bc3
     # via pymobiledevice3
-dataclass-wizard==0.39.1 \
+dataclass-wizard[dotenv]==0.39.1 \
     --hash=sha256:1679948ed7c62103f40b34df97d03b35e6b2ad50f58173fdbe30074e2e4730f2 \
     --hash=sha256:3324e59eca705882eb34e2b3989b2beadd8c2b523e6269d4002cf1a4a5bf703b
     # via asgiwebdav
@@ -872,10 +780,6 @@ flask==3.1.3 \
     # via
     #   -r requirements.in
     #   mitmproxy
-gpxpy==1.6.2 \
-    --hash=sha256:289bc2d80f116c988d0a1e763fda22838f83005573ece2bbc6521817b26fb40a \
-    --hash=sha256:a72c484b97ec42b80834353b029cc8ee1b79f0ffca1179b2210bb3baf26c01ae
-    # via pymobiledevice3
 gunicorn==22.0.0 \
     --hash=sha256:350679f91b24062c86e386e198a15438d53a7a8207235a78ba1b53df4c4378d9 \
     --hash=sha256:4a0b436239ff76fb33f11c07a16482c521a7e09c1ce3cc293c2330afe01bec63
@@ -893,17 +797,10 @@ h2==4.3.0 \
     # via
     #   -r requirements.in
     #   mitmproxy
-hexdump==3.3 \
-    --hash=sha256:d781a43b0c16ace3f9366aade73e8ad3a7bd5137d58f0b45ab2d3f54876f20db
-    # via pymobiledevice3
 hpack==4.2.0 \
     --hash=sha256:0895cfa3b5531fc65fe439c05eb65144f123bf7a394fcaa56aa423548d8e45c0 \
     --hash=sha256:858ac0b02280fa582b5080d68db0899c62a80375e0e5413a74970c5e518b6986
     # via h2
-humanfriendly==10.0 \
-    --hash=sha256:1697e1a8a8f550fd43c2865cd84542fc175a61dcb779b6fee18cf6b6ccba1477 \
-    --hash=sha256:6b0b831ce8f15f7300721aa49829fc4e83921a9a301cc7f606be6686a2288ddc
-    # via coloredlogs
 hyperframe==6.1.0 \
     --hash=sha256:b03380493a519fce58ea5af42e4a42317bf9bd425596f7a0835ffce80f1a42e5 \
     --hash=sha256:f630908a00854a7adeabd6382b43923a4c4cd4b821fcb527e6ab9e15382a3b08
@@ -922,9 +819,9 @@ ifaddr==0.2.0 \
     --hash=sha256:085e0305cfe6f16ab12d72e2024030f5d52674afad6911bb1eee207177b8a748 \
     --hash=sha256:cc0cbfcaabf765d44595825fb96a99bb12c79716b73b44330ea38ee2b0c4aed4
     # via pymobiledevice3
-ipsw-parser==1.7.5 \
-    --hash=sha256:6a520e437c3f3980739febe225a0ae9862c0423071036ae87da121645d7b2b3c \
-    --hash=sha256:e49682388731cc9c2a275bf0d2b35746d7619bd352e4a46189efb2f50acc3e1f
+ipsw-parser==1.9.1 \
+    --hash=sha256:339d923eebd44c04b4504554f13b573a6d1cff9bc99d92427b324c63fc67365c \
+    --hash=sha256:77c796043b163ed2268f712ef8b8cdf7e4e4839b5c6722bd714d2b966a53cdef
     # via pymobiledevice3
 ipython==9.17.1 \
     --hash=sha256:6d1645743cfd1a07eb695d85aa2b5fa66721f8cbae9431d4049f7084bbf06509 \
@@ -1209,9 +1106,9 @@ msgpack==1.1.2 \
     # via
     #   -r requirements.in
     #   mitmproxy
-opack2==0.0.1 \
-    --hash=sha256:0deb0b5d7094253f631db201f3493094a5821404f736ab0234ba805ee93d57b2 \
-    --hash=sha256:11fd1ccc3f0370cf913ca51e96173ba4042bd4d131547d34c81b27a3cac3773c
+opack2==0.2.0 \
+    --hash=sha256:7949ba4d36e1949a9637ba766c9094373f2e3f828afb7c8f8848d29717b38182 \
+    --hash=sha256:997ab3fe4540610f10c8072a34fa69246c229b5e2bbf3f383cbe6f2884cbf1a4
     # via pymobiledevice3
 packaging==26.3 \
     --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
@@ -1220,10 +1117,6 @@ packaging==26.3 \
     #   gunicorn
     #   pyiosbackup
     #   pymobiledevice3
-parameter-decorators==0.0.2 \
-    --hash=sha256:499ec96e71394705be9e3eeb28542aab4875694042516c31051d5dcb0488028e \
-    --hash=sha256:8f89280356f7ea983725bf47534c22171fbd10a13d98159f44f3c55ba8ae73e7
-    # via pymobiledevice3
 parso==0.8.7 \
     --hash=sha256:a8926eb2a1b915486941fdbd31e86a4baf88fe8c210f25f2f35ecec5b574ca1c \
     --hash=sha256:eaaac4c9fdd5e9e8852dc778d2d7405897ec510f2a298071453e5e3a07914bb1
@@ -1321,25 +1214,20 @@ pillow==12.3.0 \
     --hash=sha256:fe3cca2e4e8a592be0f269a1ca4835c25199d9f3ce815c8491048f785b0a0198 \
     --hash=sha256:ffd0c5368496f41b0944be820fcb7a838aa6e623d250b01acf2643939c3f99d7
     # via pymobiledevice3
-plumbum==2.0.2 \
-    --hash=sha256:233751d7819c9e6743ec1c2405927eb4fa52a284c7b894bd10e28106a9309a92 \
-    --hash=sha256:a865771826c1d2cce0ca8b2a2c48aa0447ed7a518859e389a95f158e9c369547
-    # via
-    #   ipsw-parser
-    #   pymobiledevice3
 pmd-net-addr==0.0.3 \
     --hash=sha256:1b0fcb3b77f30076237360eb4cf0243483278a2650fd4a194985cc69b1de07e5 \
     --hash=sha256:7d36b2ecf51004635451ccea2a3ea97a9fd564e68f03397e9635c43ff6ea417b
     # via
     #   pmd-net-proto
     #   pmd-pytcp
+    #   pymobiledevice3
 pmd-net-proto==0.0.3 \
     --hash=sha256:8e843358bd85f43bca7358a8b6615418f4e65a94ee4cacfeed4d78e91909a98c \
     --hash=sha256:e23d7d68cd13399ff2bf0613f9756e221ead6fd54010cf85186c2ab650631cd7
     # via pmd-pytcp
-pmd-pytcp==0.3.7 \
-    --hash=sha256:5ea770e611e05ef8cfe889b96816e7e1f4d49f5eab29693d3e2f53c59128df01 \
-    --hash=sha256:8861c091f3fae56f89d10136e2cbcfcb108eaf529d09ab9b9894a2910948b138
+pmd-pytcp==0.3.9 \
+    --hash=sha256:11968973b38aeea6d748c5da91bb23e3a698f9c20f42e503e975296b6818ba06 \
+    --hash=sha256:6429509ac8ba45ba17dee12e14c3d06d7bbadd5c12f0d6d4a961bf4bafe19ca5
     # via pymobiledevice3
 prometheus-client==0.22.1 \
     --hash=sha256:190f1331e783cf21eb60bca559354e0a4d4378facecf78f5428c39b675d20d28 \
@@ -1576,7 +1464,6 @@ pygments==2.21.0 \
     # via
     #   ipython
     #   ipython-pygments-lexers
-    #   pykdebugparser
     #   pymobiledevice3
     #   rich
 pygnuutils==0.1.1 \
@@ -1593,9 +1480,9 @@ pyiosbackup==0.2.4 \
     --hash=sha256:10b4d2a11c9bedc93a5467cad3addbe18bc2dc434156920e7223226ed4d0beb7 \
     --hash=sha256:c71ae67d012c13e01a5139687eb5bfaaa4e7722e6519c3f0a246a87e015f1b9e
     # via pymobiledevice3
-pykdebugparser==1.2.8 \
-    --hash=sha256:7ed4bdb427f3d84fb4ba6ca380de6113769cd93df8d1c88da79036a2c36b6a1e \
-    --hash=sha256:fa692b469874c2bfb830f55f854648e5f5641353e3b7be16573286ef0c05fabc
+pykdebugparser==1.10.0 \
+    --hash=sha256:2b852c12103b56c851d6a71e96c22dbd3d811a381f0c551a3fa16bede3c697bb \
+    --hash=sha256:d21c95d25e36e53b0a0542233bedfec68adf9e8f170bdf3da992e3837664263e
     # via pymobiledevice3
 pylsqpack==0.3.24 \
     --hash=sha256:23b4d8af48836893beac356c10ca268161953de5bf9ed691526a93f5c82433e9 \
@@ -1739,9 +1626,9 @@ pylzss==0.3.4 \
     --hash=sha256:ff71b7384771bbfc9b34a9bbd3228f49a0cc1d6dcba245e631aaa462b45c0eec \
     --hash=sha256:ffd7cdb598a2a67b63c9433eab4293db24a8deb99188503b96de1599a1beed52
     # via pyimg4
-pymobiledevice3==11.19.4 \
-    --hash=sha256:e07f60504379fe1b254a07138185e564ec1d759ff870df43bff45b4f635a8602 \
-    --hash=sha256:faa064233d1eae664b78d095d7920293e1b35f228857a733f7afd82789b62354
+pymobiledevice3==11.55.0 \
+    --hash=sha256:b85b9589778679b43472d06ead7052364a6b06d43383b7d4ccbe390fcbafa5a1 \
+    --hash=sha256:d8ebd03957515991c2cab5ac30ab29e54f6adb56cf98a047bb28bc48cd2e31b4
     # via -r requirements.in
 pyopenssl==26.2.0 \
     --hash=sha256:4f9d971bc5298b8bc1fab282803da04bf000c755d4ad9d99b52de2569ca19a70 \
@@ -1777,10 +1664,6 @@ python-pcapng==2.1.1 \
 pytun-pmd3==3.0.3 \
     --hash=sha256:7fa822092139b4b77e08fad9233dbd4a6fcca2cf2423b0775db962ca5e87a017 \
     --hash=sha256:d3e884bb907d6050ba4f9e680392a67d8590dbee47c7ae0b638b13105ae562e1
-    # via pymobiledevice3
-pyusb==1.3.1 \
-    --hash=sha256:3af070b607467c1c164f49d5b0caabe8ac78dbed9298d703a8dbf9df4052d17e \
-    --hash=sha256:bf9b754557af4717fe80c2b07cc2b923a9151f5c08d17bdb5345dac09d6a0430
     # via pymobiledevice3
 qh3==1.9.4 \
     --hash=sha256:010b132c33719af3df4c1d6f569e52a2a20046c55a31c5532e741019c8c53868 \
@@ -1919,7 +1802,9 @@ requests==2.33.0 \
 rich==15.0.0 \
     --hash=sha256:33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb \
     --hash=sha256:edd07a4824c6b40189fb7ac9bc4c52536e9780fbbfbddf6f1e2502c31b068c36
-    # via typer
+    # via
+    #   pymobiledevice3
+    #   typer
 ruamel-yaml==0.19.1 \
     --hash=sha256:27592957fedf6e0b62f281e96effd28043345e0e66001f97683aa9a40c667c93 \
     --hash=sha256:53eb66cd27849eff968ebf8f0bf61f46cdac2da1d1f3576dd4ccee9b25c31993
@@ -1935,17 +1820,11 @@ shellingham==1.5.4 \
 six==1.17.0 \
     --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274 \
     --hash=sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81
-    # via
-    #   python-dateutil
-    #   srptools
+    # via python-dateutil
 sortedcontainers==2.4.0 \
     --hash=sha256:25caa5a06cc30b6b83d11423433f65d1f9d76c4c6a0c90e3379eaa43b9bfdb88 \
     --hash=sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0
     # via mitmproxy
-srptools==1.0.1 \
-    --hash=sha256:7fa4337256a1542e8f5bb4bed19e1d9aea98fe5ff9baf76693342a1dd6ac7c96 \
-    --hash=sha256:fccb44c949eb2507ba19f349a3087cb8fed2393014d7f0887b06c3186f19d1e9
-    # via pymobiledevice3
 stack-data==0.6.3 \
     --hash=sha256:836a778de4fec4dcd1dcd89ed8abff8a221f58308462e1c4aa2a3cf30148f0b9 \
     --hash=sha256:d5558e0c25a4cb0853cddad3d77da9891a08cb85dd9f9f91b9f8cd66e511e695
@@ -1972,10 +1851,6 @@ tornado==6.5.5 \
     # via
     #   -r requirements.in
     #   mitmproxy
-tqdm==4.70.1 \
-    --hash=sha256:c293e525e6fef9c20e8728fd4612df02a0aa31bb5fe91ecd93e123b1b7bffa73 \
-    --hash=sha256:cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4
-    # via pymobiledevice3
 traitlets==5.16.1 \
     --hash=sha256:ed900c2b631aa3a112811139fa97b8d2c3bad5e989656bba4b7e52c7852c18c1 \
     --hash=sha256:f775618166caa0396c8e337099240f2bd3e5e917d203b2e6fbe21a58d3cb1f6b
@@ -1999,7 +1874,6 @@ typing-extensions==4.16.0 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5
     # via
     #   anyio
-    #   construct-typing
     #   fastapi
     #   pmd-net-addr
     #   pmd-net-proto
@@ -2069,13 +1943,6 @@ xmltodict==1.0.4 \
     --hash=sha256:6d94c9f834dd9e44514162799d344d815a3a4faec913717a9ecbfa5be1bb8e61 \
     --hash=sha256:a4a00d300b0e1c59fc2bfccb53d7b2e88c32f200df138a0dd2229f842497026a
     # via asgiwebdav
-xonsh==0.24.2 \
-    --hash=sha256:158c155a179b6883f2289b3788bb12d18988feb59c6ab6224009306c0214b83d \
-    --hash=sha256:461244cf1de8ed28d0c07cc548342b9e7969d46e17ef8d71b5d3064307930a25 \
-    --hash=sha256:60015217f74663d52c4038e495546710ecdffeb0beae96834b4ac3ea970a3927 \
-    --hash=sha256:68e93b77bbf9e2a26f70bf323a1c311014dc2aed9ebcf036e68e7fe59ed0849c \
-    --hash=sha256:da19e84ad0361c0c8052f5119fd08bd111995df60fa233b8a61a3d66ea253d78
-    # via pymobiledevice3
 zstandard==0.25.0 \
     --hash=sha256:011d388c76b11a0c165374ce660ce2c8efa8e5d87f34996aa80f9c0816698b64 \
     --hash=sha256:01582723b3ccd6939ab7b3a78622c573799d5d8737b534b86d0e06ac18dbde4a \
