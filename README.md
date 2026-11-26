@@ -151,9 +151,9 @@ All config via environment variables (see `.env.example`):
 | `ALBERT_REDIS_URL` | — | Redis for distributed rate limiting |
 | `ALBERT_MTLS_CA` | — | CA bundle for proxy→Albert mTLS |
 | `MITMPROXY_WEB_PASSWORD` | **required** | mitmproxy web UI password |
-| `DATABASE_URL` | — | PostgreSQL URL (optional external DB), e.g. `postgresql://zalive:REPLACE_WITH_PASSWORD@zpostgressql:5432/zalive_db` |
-| `TEST_DATABASE_URL` | — | PostgreSQL test URL, e.g. `postgresql://zalive:REPLACE_WITH_PASSWORD@zpostgressql:5432/zalive_db` |
-| `ZALIVE_POSTGRES_HOST` | `zpostgressql` | PostgreSQL host |
+| `DATABASE_URL` | — | PostgreSQL URL (optional external DB), e.g. `postgresql://zalive:REPLACE_WITH_PASSWORD@zpostgresql:5432/zalive_db` |
+| `TEST_DATABASE_URL` | — | PostgreSQL test URL, e.g. `postgresql://zalive:REPLACE_WITH_PASSWORD@zpostgresql:5432/zalive_db` |
+| `ZALIVE_POSTGRES_HOST` | `zpostgresql` | PostgreSQL host |
 | `ZALIVE_POSTGRES_PORT` | `"5432"` | PostgreSQL port |
 | `ZALIVE_POSTGRES_PASSWORD_FILE` | `/run/secrets/zalive_postgres_password` | Path to PostgreSQL password file |
 | `ZALIVE_REDIS_HOST` | `zredis` | Redis host |
